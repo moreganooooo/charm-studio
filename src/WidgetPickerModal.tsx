@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { WIDGET_PRESETS, type WidgetPreset } from "./widgetPresets";
 
 interface Props {
@@ -87,8 +88,8 @@ export function WidgetPickerModal({ open, targetLabel, onClose, onSelectPreset }
               — no Go code edits required.
             </div>
           </div>
-          <button onClick={onClose} style={closeBtn}>
-            ✕
+          <button onClick={onClose} style={{ ...closeBtn, display: "inline-flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">
+            <X size={15} />
           </button>
         </div>
 

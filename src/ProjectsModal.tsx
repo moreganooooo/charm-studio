@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { Check, Cloud, Globe, Lock, Trash2, X } from "lucide-react";
 import type { StudioProject } from "./projectsStore";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
@@ -91,7 +92,9 @@ export function ProjectsModal({
               Save multiple layouts locally right away, or sign in with GitHub to sync across devices.
             </div>
           </div>
-          <button onClick={onClose} style={btn}>✕</button>
+          <button onClick={onClose} style={{ ...btn, display: "inline-flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">
+            <X size={15} />
+          </button>
         </div>
 
         <div style={card}>
@@ -100,7 +103,7 @@ export function ProjectsModal({
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--cs-mint)" }}>Local Library Active</div>
               <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)", marginTop: 2 }}>
                 Projects save in this browser’s storage. Add <code style={code}>VITE_SUPABASE_URL</code> &amp;{" "}
-                <code style={code}>VITE_SUPABASE_ANON_KEY</code> to <code style={code}>web/.env.local</code> to unlock GitHub Cloud Sync.
+                <code style={code}>VITE_SUPABASE_ANON_KEY</code> to <code style={code}>.env.local</code> to unlock GitHub Cloud Sync.
               </div>
             </div>
           ) : user ? (
@@ -185,8 +188,8 @@ export function ProjectsModal({
                     <div style={{ minWidth: 150, flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "var(--cs-text-strong)" }}>
                         <span>{p.name}</span>
-                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "var(--cs-input)", color: p.source === "cloud" ? "var(--cs-mint)" : "var(--cs-lavender-text)", border: "1px solid var(--cs-border-subtle)" }}>
-                          {p.source === "cloud" ? "☁ Cloud" : "Local"}
+                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "var(--cs-input)", color: p.source === "cloud" ? "var(--cs-mint)" : "var(--cs-lavender-text)", border: "1px solid var(--cs-border-subtle)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {p.source === "cloud" ? <><Cloud size={11} /> <span>Cloud</span></> : "Local"}
                         </span>
                       </div>
                       <div style={{ fontSize: 11, color: "var(--cs-text-dim)", marginTop: 2 }}>
@@ -200,13 +203,13 @@ export function ProjectsModal({
                           <button
                             onClick={() => onTogglePublic(p)}
                             title="Toggle public short-link visibility"
-                            style={{ ...btn, fontSize: 11, color: p.isPublic ? "var(--cs-mint)" : "var(--cs-text-muted)" }}
+                            style={{ ...btn, fontSize: 11, color: p.isPublic ? "var(--cs-mint)" : "var(--cs-text-muted)", display: "inline-flex", alignItems: "center", gap: 5 }}
                           >
-                            {p.isPublic ? "🌐 Public" : "🔒 Private"}
+                            {p.isPublic ? <><Globe size={12} /> <span>Public</span></> : <><Lock size={12} /> <span>Private</span></>}
                           </button>
                           {p.isPublic && (
-                            <button onClick={() => copyCloudLink(p.id)} style={{ ...btn, fontSize: 11 }}>
-                              {copiedId === p.id ? "✓ Copied" : "Copy ?p= Link"}
+                            <button onClick={() => copyCloudLink(p.id)} style={{ ...btn, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              {copiedId === p.id ? <><Check size={12} /> <span>Copied</span></> : "Copy ?p= Link"}
                             </button>
                           )}
                         </>
@@ -220,8 +223,8 @@ export function ProjectsModal({
                       >
                         Load
                       </button>
-                      <button onClick={() => onDeleteProject(p)} style={{ ...btn, color: "#e11d48" }} title="Delete project">
-                        🗑
+                      <button onClick={() => onDeleteProject(p)} style={{ ...btn, color: "#e11d48", display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Delete project">
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   </div>

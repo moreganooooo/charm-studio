@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { ArrowRight, CheckCircle2, FileCode2, FolderOpen, X } from "lucide-react";
 import { buildIRFromExtracted, extractFromGoSource, type ExtractedGoSummary } from "./goImporter";
 import type { IRDoc } from "./types";
 
@@ -311,7 +312,9 @@ export function ImportModal({
               Extract <code style={{ color: "var(--cs-mint)" }}>lipgloss.NewStyle()</code> chains, adaptive colors, and Charm imports directly in your browser.
             </p>
           </div>
-          <button onClick={onClose} style={btn}>✕</button>
+          <button onClick={onClose} style={{ ...btn, display: "inline-flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">
+            <X size={15} />
+          </button>
         </div>
 
         {/* Source Tabs */}
@@ -331,8 +334,9 @@ export function ImportModal({
         {tab === "upload" ? (
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-              <label style={{ ...primaryBtn, cursor: "pointer", display: "inline-block" }}>
-                📁 Choose .go or .ir.json Files
+              <label style={{ ...primaryBtn, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <FolderOpen size={14} />
+                <span>Choose .go or .ir.json Files</span>
                 <input type="file" multiple accept=".go,.json" onChange={(e) => handleFiles(e.target.files)} style={{ display: "none" }} />
               </label>
               <button
@@ -340,9 +344,10 @@ export function ImportModal({
                   setGoText(SAMPLE_GO);
                   analyzeGo(SAMPLE_GO, "sample_styles.go");
                 }}
-                style={btn}
+                style={{ ...btn, display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                ✨ Load Sample styles.go
+                <FileCode2 size={13} />
+                <span>Load Sample styles.go</span>
               </button>
             </div>
 
@@ -428,9 +433,10 @@ export function ImportModal({
                           <button
                             onClick={() => fetchGitHubRepo(repo.full_name)}
                             disabled={loading}
-                            style={{ ...primaryBtn, padding: "4px 10px", fontSize: 11.5, whiteSpace: "nowrap" }}
+                            style={{ ...primaryBtn, padding: "4px 10px", fontSize: 11.5, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}
                           >
-                            Scan .go →
+                            <span>Scan .go</span>
+                            <ArrowRight size={12} />
                           </button>
                         </div>
                       ))}
@@ -519,7 +525,10 @@ export function ImportModal({
         {summary && (
           <div style={{ ...card, borderColor: "var(--cs-mint)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <b style={{ color: "var(--cs-mint)", fontSize: 13 }}>✓ Ready to Import ({sourceLabel})</b>
+              <b style={{ color: "var(--cs-mint)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <CheckCircle2 size={14} />
+                <span>Ready to Import ({sourceLabel})</span>
+              </b>
               <span style={{ fontSize: 11.5, color: "var(--cs-text-muted)" }}>
                 {summary.styleNames.length} styles • {Object.keys(summary.tokens).length} color tokens
               </span>
@@ -540,7 +549,10 @@ export function ImportModal({
               <span style={{ fontSize: 11, color: "var(--cs-text-dim)" }}>
                 Imports static styles &amp; colors into the canvas (Undoable with Cmd+Z).
               </span>
-              <button onClick={applyImported} style={primaryBtn}>Load Into Studio →</button>
+              <button onClick={applyImported} style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span>Load Into Studio</span>
+                <ArrowRight size={13} />
+              </button>
             </div>
           </div>
         )}

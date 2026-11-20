@@ -36,11 +36,11 @@ Stop guessing terminal cell math in the dark. Tweak borders, padding, margins, a
 cd engine
 ./build-wasm.sh
 ```
-This compiles `charm.land/lipgloss/v2` + `bubbles/v2` to `web/public/studio.wasm` and copies `wasm_exec.js`.
+This compiles `charm.land/lipgloss/v2` + `bubbles/v2` to `public/studio.wasm` and copies `wasm_exec.js`.
 
 ### 2. Run the Web Studio
 ```bash
-cd ../web
+cd ..
 npm install
 npm run dev
 ```
@@ -77,7 +77,7 @@ Charm Studio works locally out of the box with zero backend. To enable **Sign in
    ```
 3. Enable **GitHub** under **Authentication → Providers** using a GitHub OAuth App with callback URL `https://<YOUR_PROJECT_REF>.supabase.co/auth/v1/callback`.
 4. Under **Authentication → URL Configuration**, set **Site URL** to `http://localhost:5173` and add `http://localhost:5173/**` (plus your production URL if deployed) to **Redirect URLs**.
-5. Create `web/.env.local` (never commit this file!):
+5. Create `.env.local` in the repository root (never commit this file!):
    ```env
    VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
    VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
@@ -94,14 +94,15 @@ charm-studio/
 │   ├── main.go           # Resolves constraints, composites v2 Canvas, emits cells + telemetry
 │   ├── wasm_stubs/       # Minimal GOOS=js build-tag stubs for bubbletea/v2 & clipboard
 │   └── build-wasm.sh
-└── web/                  # Vite + React + TypeScript studio UI
-    └── src/
-        ├── App.tsx              # Studio shell, Inspector, Undo/Redo, Hero UI
-        ├── TerminalViewport.tsx # HiDPI Canvas cell-grid renderer + SVG DevTools overlay
-        ├── LayersPanel.tsx      # Layout Tree builder & v2 Layer toggles
-        ├── codegen.ts           # Idiomatic Go v2 generator (styles.go, layout.go, main.go)
-        ├── goImporter.ts        # Client-side Go style/color extractor & GitHub repo scanner
-        └── projectsStore.ts     # Hybrid localStorage + Supabase cloud project store
+└── src/                  # Vite + React + TypeScript studio UI
+    ├── App.tsx              # Studio shell, modals, auth & cloud sync lifecycle
+    ├── store/studioStore.ts # Centralized layout tree state, viewport settings & undo/redo stack
+    ├── components/          # CanvasToolbar, PropertyInspector, CodePreviewDrawer (with AST diff)
+    ├── TerminalViewport.tsx # HiDPI Canvas cell-grid renderer + SVG DevTools overlay
+    ├── LayersPanel.tsx      # Layout Tree builder & v2 Layer toggles
+    ├── codegen.ts           # Idiomatic Go v2 generator (theme_gen.go, layout_gen.go, model/update/view)
+    ├── goImporter.ts        # Client-side Go style/color extractor & GitHub repo scanner
+    └── projectsStore.ts     # Hybrid localStorage + Supabase cloud project store
 ```
 
 ---

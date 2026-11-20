@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Braces, Check, Download, MessageSquare, Palette, RotateCcw, Type, Upload, X } from "lucide-react";
 import type { TermPalette } from "./TerminalViewport";
 import type { IRDoc } from "./types";
 
@@ -151,11 +152,11 @@ export function SettingsModal({
     URL.revokeObjectURL(url);
   };
 
-  const navItems: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
-    { id: "themes", label: "Theme Builder", icon: "◐", desc: "Custom palette & token preview" },
-    { id: "json",   label: "Import Theme JSON", icon: "{ }", desc: "Upload or paste terminal themes" },
-    { id: "font",   label: "Terminal Font", icon: "Aa", desc: "Preview monospace typography" },
-    { id: "backup", label: "Backup & Workspace", icon: "⬇", desc: "Download IR spec, tips & tooltips" },
+  const navItems: { id: SettingsTab; label: string; icon: ReactNode; desc: string }[] = [
+    { id: "themes", label: "Theme Builder", icon: <Palette size={14} />, desc: "Custom palette & token preview" },
+    { id: "json",   label: "Import Theme JSON", icon: <Braces size={14} />, desc: "Upload or paste terminal themes" },
+    { id: "font",   label: "Terminal Font", icon: <Type size={14} />, desc: "Preview monospace typography" },
+    { id: "backup", label: "Backup & Workspace", icon: <Download size={14} />, desc: "Download IR spec, tips & tooltips" },
   ];
 
   return (
@@ -207,7 +208,10 @@ export function SettingsModal({
               Customize terminal palettes, monospace preview fonts, workspace tooltips, and project backups.
             </div>
           </div>
-          <button onClick={onClose} style={closeBtn}>✕ Close</button>
+          <button onClick={onClose} style={{ ...closeBtn, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <X size={14} />
+            <span>Close</span>
+          </button>
         </div>
 
         {/* 2-Column Page Body */}
@@ -246,10 +250,10 @@ export function SettingsModal({
                   }}
                 >
                   <div style={{ fontSize: 13.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: active ? "var(--cs-pink)" : "var(--cs-text-dim)", fontFamily: "ui-monospace, monospace", fontSize: 12 }}>{item.icon}</span>
+                    <span style={{ color: active ? "var(--cs-pink)" : "var(--cs-text-dim)", display: "inline-flex", alignItems: "center" }}>{item.icon}</span>
                     {item.label}
                   </div>
-                  <div style={{ fontSize: 11, color: active ? "var(--cs-text-body)" : "var(--cs-text-dim)", paddingLeft: 24 }}>
+                  <div style={{ fontSize: 11, color: active ? "var(--cs-text-body)" : "var(--cs-text-dim)", paddingLeft: 22 }}>
                     {item.desc}
                   </div>
                 </button>
@@ -266,8 +270,8 @@ export function SettingsModal({
             )}
             {savedNote && (
               <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", color: "var(--cs-mint)", fontSize: 12.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>✓ {savedNote}</span>
-                <button onClick={() => setSavedNote(null)} style={{ background: "none", border: "none", color: "var(--cs-mint)", cursor: "pointer" }}>✕</button>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Check size={14} /> {savedNote}</span>
+                <button onClick={() => setSavedNote(null)} style={{ background: "none", border: "none", color: "var(--cs-mint)", cursor: "pointer", display: "inline-flex", alignItems: "center" }} aria-label="Dismiss"><X size={14} /></button>
               </div>
             )}
 
@@ -353,8 +357,9 @@ export function SettingsModal({
               <div style={card}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <h3 style={{ ...h3, margin: 0 }}>Upload or Paste Terminal Theme JSON</h3>
-                  <label style={{ ...btn, cursor: "pointer", display: "inline-block" }}>
-                    📁 Upload .json
+                  <label style={{ ...btn, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Upload size={13} />
+                    <span>Upload .json</span>
                     <input type="file" accept=".json,application/json" onChange={handleFileUpload} style={{ display: "none" }} />
                   </label>
                 </div>
@@ -426,9 +431,10 @@ export function SettingsModal({
                     {onToggleTooltips && (
                       <button
                         onClick={onToggleTooltips}
-                        style={tooltipsEnabled ? primaryBtn : btn}
+                        style={{ ...(tooltipsEnabled ? primaryBtn : btn), display: "inline-flex", alignItems: "center", gap: 6 }}
                       >
-                        {tooltipsEnabled ? "💬 Hover Tooltips: ON (Click to disable)" : "💬 Hover Tooltips: OFF (Click to enable)"}
+                        <MessageSquare size={14} />
+                        <span>{tooltipsEnabled ? "Hover Tooltips: ON (Click to disable)" : "Hover Tooltips: OFF (Click to enable)"}</span>
                       </button>
                     )}
                     {onRestoreChecklist && (
@@ -437,9 +443,10 @@ export function SettingsModal({
                           onRestoreChecklist();
                           onClose();
                         }}
-                        style={btn}
+                        style={{ ...btn, display: "inline-flex", alignItems: "center", gap: 6 }}
                       >
-                        ✦ Restore Quick-Start Checklist
+                        <RotateCcw size={13} />
+                        <span>Restore Quick-Start Checklist</span>
                       </button>
                     )}
                   </div>
@@ -448,9 +455,12 @@ export function SettingsModal({
                 <div style={card}>
                   <h3 style={h3}>Export Portable Layout IR Spec</h3>
                   <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
-                    Download your entire layout tree, Lip Gloss styles, adaptive tokens, and overlays as an <code style={codeChip}>ir.json</code> file you can re-import anytime via <b>📥 Import / GitHub</b>.
+                    Download your entire layout tree, Lip Gloss styles, adaptive tokens, and overlays as an <code style={codeChip}>ir.json</code> file you can re-import anytime via <b>Import / GitHub</b>.
                   </p>
-                  <button onClick={downloadIR} style={primaryBtn}>⬇ Download charm-studio-layout.ir.json</button>
+                  <button onClick={downloadIR} style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <Download size={14} />
+                    <span>Download charm-studio-layout.ir.json</span>
+                  </button>
                 </div>
               </>
             )}

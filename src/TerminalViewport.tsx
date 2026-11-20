@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Trash2 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type Rect, type TelemetryNode } from "./types";
 import { dispatchKey, ensureEngineReady, renderFrame } from "./wasmEngine";
@@ -277,11 +278,15 @@ export function TerminalViewport({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid var(--cs-border)", fontSize: 12, gap: 8, background: "var(--cs-card-alt)" }}>
-        <span style={{ fontWeight: 600, color: "var(--cs-text-strong)" }}>
-          {title} <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
+        <span style={{ fontWeight: 600, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span>{title}</span>
+          <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
           {focused && (
             <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
-              <span style={{ color: "var(--cs-pink)", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>
+              <span style={{ color: "var(--cs-pink)", marginLeft: 4, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Keyboard size={12} />
+                <span>Keys → #{selectedId}</span>
+              </span>
             </Tooltip>
           )}
         </span>
@@ -292,15 +297,17 @@ export function TerminalViewport({
           >
             <span
               onClick={() => onSelect(overflows[0].id)}
-              style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
+              style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
             >
-              ⚠ Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}
+              <AlertTriangle size={11} />
+              <span>Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}</span>
             </span>
           </Tooltip>
         ) : (
           <Tooltip content="Every pane fits cleanly inside this terminal size with zero clipping.">
-            <span style={{ color: "var(--cs-mint)", background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", borderRadius: 999, padding: "1px 8px", fontSize: 11 }}>
-              ✓ Clean
+            <span style={{ color: "var(--cs-mint)", background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", borderRadius: 999, padding: "1px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Check size={11} />
+              <span>Clean</span>
             </span>
           </Tooltip>
         )}
@@ -373,29 +380,33 @@ export function TerminalViewport({
             {onQuickSplit && canMutateSelected && (
               <>
                 <button onClick={() => onQuickSplit(selectedId, "JoinHorizontal")} title="Split Right (Row)" style={qBtn}>
-                  ⬌ Split R
+                  <Columns2 size={11} />
+                  <span>Split R</span>
                 </button>
                 <button onClick={() => onQuickSplit(selectedId, "JoinVertical")} title="Split Below (Stack)" style={qBtn}>
-                  ⬍ Split B
+                  <Rows2 size={11} />
+                  <span>Split B</span>
                 </button>
               </>
             )}
             {onQuickWidgetPicker && (
               <button onClick={() => onQuickWidgetPicker(selectedId)} title="Insert Charm component beside this pane" style={qBtn}>
-                ✦ +Widget
+                <Plus size={11} />
+                <span>Widget</span>
               </button>
             )}
             <button onClick={() => openInlineEditForNode(selectedId)} title="Edit pane text / data" style={qBtn}>
-              ✎ Edit
+              <Pencil size={11} />
+              <span>Edit</span>
             </button>
             {onQuickClone && canMutateSelected && (
               <button onClick={() => onQuickClone(selectedId)} title="Duplicate pane" style={qBtn}>
-                ❐
+                <Copy size={11} />
               </button>
             )}
             {onQuickDelete && canMutateSelected && (
               <button onClick={() => onQuickDelete(selectedId)} title="Delete pane" style={{ ...qBtn, color: "#e11d48" }}>
-                🗑
+                <Trash2 size={11} />
               </button>
             )}
           </div>
@@ -425,7 +436,7 @@ export function TerminalViewport({
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontWeight: 700, color: "var(--cs-text-heading)" }}>
               <span>Quick Edit #{inlineEdit.id}</span>
-              <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>⌘/Ctrl + Enter to apply</span>
+              <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>Cmd/Ctrl + Enter to apply</span>
             </div>
             <textarea
               autoFocus
@@ -511,4 +522,7 @@ const qBtn: React.CSSProperties = {
   fontSize: 10.5,
   fontWeight: 600,
   cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
 };

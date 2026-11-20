@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { AlertTriangle, ArrowUpRight, BookOpen, Check, Plus, X } from "lucide-react";
 
 interface GlossaryEntry {
   id: string;
@@ -349,7 +350,7 @@ export function CharmGlossaryModal({
         >
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18, color: "var(--cs-pink)" }}>◈</span>
+              <BookOpen size={18} style={{ color: "var(--cs-pink)" }} />
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--cs-text-strong)" }}>
                 Charmbracelet Ecosystem Glossary
               </h2>
@@ -374,9 +375,13 @@ export function CharmGlossaryModal({
                 fontSize: 12.5,
                 fontWeight: 700,
                 cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
               }}
             >
-              ✦ + Add Component
+              <Plus size={14} />
+              <span>Add Component</span>
             </button>
             <button
               onClick={onClose}
@@ -389,9 +394,13 @@ export function CharmGlossaryModal({
                 fontSize: 12.5,
                 fontWeight: 600,
                 cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
               }}
             >
-              ✕ Close
+              <X size={14} />
+              <span>Close</span>
             </button>
           </div>
         </div>
@@ -530,8 +539,9 @@ export function CharmGlossaryModal({
                       padding: "10px 12px",
                     }}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--cs-mint)", marginBottom: 6, letterSpacing: 0.4 }}>
-                      ✓ PROS
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--cs-mint)", marginBottom: 6, letterSpacing: 0.4, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <Check size={12} />
+                      <span>PROS</span>
                     </div>
                     <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11.5, lineHeight: 1.5, color: "var(--cs-text-body)" }}>
                       {item.pros.map((p) => (
@@ -548,8 +558,9 @@ export function CharmGlossaryModal({
                       padding: "10px 12px",
                     }}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--cs-pink)", marginBottom: 6, letterSpacing: 0.4 }}>
-                      △ TRADE-OFFS
+                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--cs-pink)", marginBottom: 6, letterSpacing: 0.4, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <AlertTriangle size={12} />
+                      <span>TRADE-OFFS</span>
                     </div>
                     <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11.5, lineHeight: 1.5, color: "var(--cs-text-body)" }}>
                       {item.cons.map((c) => (
@@ -592,7 +603,8 @@ export function CharmGlossaryModal({
                       border: "1px solid var(--cs-code-border)",
                     }}
                   >
-                    GitHub: charmbracelet/{item.id} ↗
+                    <span>GitHub: charmbracelet/{item.id}</span>
+                    <ArrowUpRight size={13} />
                   </a>
 
                   {item.tryTemplateId && (

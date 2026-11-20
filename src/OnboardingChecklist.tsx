@@ -1,3 +1,5 @@
+import { ArrowRight, CheckCircle2, Circle, Sparkles } from "lucide-react";
+
 export type SpotlightKey = "template-import" | "add-component" | "terminal-inspector" | "code-tab" | null;
 
 export interface OnboardingProgress {
@@ -30,14 +32,14 @@ const STEP_ITEMS: {
     spotlight: "template-import",
     title: "1. Pick a Template or Import GitHub",
     tip: "Start from a Charmbracelet preset or pull .go styles from your GitHub repos.",
-    cta: "Import / GitHub →",
+    cta: "Import / GitHub",
   },
   {
     key: "addedComponent",
     spotlight: "add-component",
     title: "2. Add a Charm Component",
     tip: "Insert Lip Gloss, Bubbles, Huh, Glamour, Gum, or Wish widgets visually.",
-    cta: "+ Add Component →",
+    cta: "Add Component",
   },
   {
     key: "styledOrInteracted",
@@ -51,7 +53,7 @@ const STEP_ITEMS: {
     spotlight: "code-tab",
     title: "4. Export Go, VHS & Gum Code",
     tip: "Grab clean styles.go, layout.go, main.go, demo.tape, or gum.sh anytime.",
-    cta: "Open Go Code →",
+    cta: "Open Go Code",
   },
 ];
 
@@ -80,8 +82,9 @@ export function OnboardingChecklist({
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--cs-text-strong)" }}>
-            ✦ Quick-Start Checklist
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Sparkles size={14} style={{ color: "var(--cs-pink)" }} />
+            <span>Quick-Start Checklist</span>
           </span>
           <span
             style={{
@@ -146,14 +149,24 @@ export function OnboardingChecklist({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: done ? "var(--cs-mint)" : "var(--cs-text-heading)" }}>
-                  {done ? "✓ " : "○ "}
-                  {item.title}
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: done ? "var(--cs-mint)" : "var(--cs-text-heading)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {done ? <CheckCircle2 size={14} style={{ flexShrink: 0 }} /> : <Circle size={14} style={{ flexShrink: 0, opacity: 0.65 }} />}
+                  <span>{item.title}</span>
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: "var(--cs-text-muted)", lineHeight: 1.4 }}>{item.tip}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: done ? "var(--cs-mint)" : "var(--cs-pink-soft)", marginTop: "auto", paddingTop: 2 }}>
-                {done ? "Completed ✓" : item.cta}
+              <div style={{ fontSize: 11, fontWeight: 600, color: done ? "var(--cs-mint)" : "var(--cs-pink-soft)", marginTop: "auto", paddingTop: 2, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {done ? (
+                  <>
+                    <span>Completed</span>
+                    <CheckCircle2 size={12} />
+                  </>
+                ) : (
+                  <>
+                    <span>{item.cta}</span>
+                    <ArrowRight size={12} />
+                  </>
+                )}
               </div>
             </button>
           );

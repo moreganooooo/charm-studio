@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import { Folder, GitBranch, X } from "lucide-react";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 
 export interface LocalUser {
@@ -114,7 +115,9 @@ export function AuthModal({
                 : "Save named TUI layouts, manage themes, and sync across devices."}
             </div>
           </div>
-          <button onClick={onClose} style={btn}>✕</button>
+          <button onClick={onClose} style={{ ...btn, display: "inline-flex", alignItems: "center", justifyContent: "center" }} aria-label="Close">
+            <X size={15} />
+          </button>
         </div>
 
         {msg && (
@@ -160,9 +163,10 @@ export function AuthModal({
                     onClose();
                     onOpenGitHubImport();
                   }}
-                  style={{ ...primaryBtn, flex: 1 }}
+                  style={{ ...primaryBtn, flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                 >
-                  📥 My GitHub Repos
+                  <GitBranch size={13} />
+                  <span>My GitHub Repos</span>
                 </button>
               )}
               {onOpenProjects && (
@@ -171,9 +175,10 @@ export function AuthModal({
                     onClose();
                     onOpenProjects();
                   }}
-                  style={{ ...btn, flex: 1 }}
+                  style={{ ...btn, flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                 >
-                  📁 Saved Projects
+                  <Folder size={13} />
+                  <span>Saved Projects</span>
                 </button>
               )}
             </div>
@@ -224,7 +229,7 @@ export function AuthModal({
               Quick Local Sign-In
             </div>
             <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)", lineHeight: 1.45, marginBottom: 10 }}>
-              Pick a handle to personalize this browser session and save projects locally. (Add Supabase keys in <code style={code}>web/.env.local</code> anytime to enable GitHub &amp; Email cloud login.)
+              Pick a handle to personalize this browser session and save projects locally. (Add Supabase keys in <code style={code}>.env.local</code> anytime to enable GitHub &amp; Email cloud login.)
             </div>
             <form
               onSubmit={(e) => {

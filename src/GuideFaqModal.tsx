@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowRight, BookOpen, ChevronDown, ChevronRight, Compass, GitBranch, HelpCircle, Plus, RotateCcw, Sparkles, X } from "lucide-react";
 
 type GuideSection = "start" | "libraries" | "github" | "faq";
 
@@ -73,17 +74,17 @@ const FAQ_ITEMS: { q: string; a: string; category: string }[] = [
   {
     category: "Editing",
     q: "How do I add, reorder, or customize widgets without writing Go code?",
-    a: "Click ✦ + Add Component in the toolbar or Layout Tree, drag ⋮⋮ handles in the tree to reorder/reparent panes, double-click text panes directly on the terminal to edit inline, or select any Bubbles List, Table, TextInput, or Huh Form to edit its rows and columns visually in the Inspector.",
+    a: "Click + Add Component in the toolbar or Layout Tree, drag handles in the tree to reorder/reparent panes, double-click text panes directly on the terminal to edit inline, or select any Bubbles List, Table, TextInput, or Huh Form to edit its rows and columns visually in the Inspector.",
   },
   {
     category: "Workspace",
-    q: "What is the difference between ✦ Studio and ⌘ Pro mode?",
+    q: "What is the difference between Studio and Pro mode?",
     a: "Studio mode starts with one spacious interactive terminal, clean borders, and 1-click Style Presets. Pro mode unlocks the 3× responsive Matrix, Margin/Padding DevTools overlays, custom $Token creation, partial border edge toggles, and raw ir.json inspection.",
   },
   {
     category: "GitHub & Sync",
     q: "I signed in with GitHub and came right back to this page—what does logging in actually do?",
-    a: "GitHub Sign-In unlocks two things: (1) Cloud Project Sync inside 📁 Projects so your designs save across browsers and can be shared via public links, and (2) automatic access to your GitHub repositories inside 📥 Import / GitHub → 2. GitHub Repos so you can scan and pull existing .go Lip Gloss styles into the sandbox.",
+    a: "GitHub Sign-In unlocks two things: (1) Cloud Project Sync inside Projects so your designs save across browsers and can be shared via public links, and (2) automatic access to your GitHub repositories inside Import / GitHub → 2. GitHub Repos so you can scan and pull existing .go Lip Gloss styles into the sandbox.",
   },
   {
     category: "Layout & Sizing",
@@ -103,7 +104,7 @@ const FAQ_ITEMS: { q: string; a: string; category: string }[] = [
   {
     category: "Exporting",
     q: "How do I run the exported Go code on my own machine?",
-    a: "Open the Go Code tab on the right, set your module path (e.g. github.com/you/my-tui), and click ⬇ Download Runnable Go Project (.zip). Unzip the folder and run `go mod tidy && go run .` — main.go already wires your Bubbles, Huh forms, Wish SSH server, and layouts cleanly.",
+    a: "Open the Go Code tab on the right, set your module path (e.g. github.com/you/my-tui), and click Download Runnable Go Project (.zip). Unzip the folder and run `go mod tidy && go run .` — main.go already wires your Bubbles, Huh forms, Wish SSH server, and layouts cleanly.",
   },
 ];
 
@@ -134,11 +135,11 @@ export function GuideFaqModal({
 
   if (!open) return null;
 
-  const navItems: { id: GuideSection; label: string; icon: string; desc: string }[] = [
-    { id: "start", label: "Getting Started", icon: "✦", desc: "How the studio works & shortcuts" },
-    { id: "libraries", label: "Charm Libraries", icon: "◈", desc: "Lip Gloss, Bubbles, Huh & more" },
-    { id: "github", label: "GitHub & Cloud Sync", icon: "⇄", desc: "Import repos & save to cloud" },
-    { id: "faq", label: "FAQ & Glossary", icon: "?", desc: "Common questions & terms" },
+  const navItems: { id: GuideSection; label: string; icon: ReactNode; desc: string }[] = [
+    { id: "start", label: "Getting Started", icon: <Compass size={14} />, desc: "How the studio works & shortcuts" },
+    { id: "libraries", label: "Charm Libraries", icon: <BookOpen size={14} />, desc: "Lip Gloss, Bubbles, Huh & more" },
+    { id: "github", label: "GitHub & Cloud Sync", icon: <GitBranch size={14} />, desc: "Import repos & save to cloud" },
+    { id: "faq", label: "FAQ & Glossary", icon: <HelpCircle size={14} />, desc: "Common questions & terms" },
   ];
 
   return (
@@ -184,7 +185,7 @@ export function GuideFaqModal({
         >
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18, color: "var(--cs-pink)" }}>✦</span>
+              <Sparkles size={18} style={{ color: "var(--cs-pink)" }} />
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--cs-text-strong)" }}>
                 Charm Studio Guide, Help &amp; FAQ
               </h2>
@@ -201,13 +202,15 @@ export function GuideFaqModal({
                   onRestoreChecklist();
                   onClose();
                 }}
-                style={accentBtn}
+                style={{ ...accentBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                ✦ Show Quick-Start Checklist
+                <RotateCcw size={13} />
+                <span>Show Quick-Start Checklist</span>
               </button>
             )}
-            <button onClick={onClose} style={closeBtn}>
-              ✕ Close
+            <button onClick={onClose} style={{ ...closeBtn, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <X size={14} />
+              <span>Close</span>
             </button>
           </div>
         </div>
@@ -245,10 +248,10 @@ export function GuideFaqModal({
                   }}
                 >
                   <div style={{ fontSize: 13.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: active ? "var(--cs-pink)" : "var(--cs-text-dim)" }}>{item.icon}</span>
+                    <span style={{ color: active ? "var(--cs-pink)" : "var(--cs-text-dim)", display: "inline-flex", alignItems: "center" }}>{item.icon}</span>
                     {item.label}
                   </div>
-                  <div style={{ fontSize: 11, color: active ? "var(--cs-text-body)" : "var(--cs-text-dim)", paddingLeft: 20 }}>
+                  <div style={{ fontSize: 11, color: active ? "var(--cs-text-body)" : "var(--cs-text-dim)", paddingLeft: 22 }}>
                     {item.desc}
                   </div>
                 </button>
@@ -281,7 +284,7 @@ export function GuideFaqModal({
                     {
                       step: "02",
                       title: "Build in the Layout Tree",
-                      body: "Click ✦ + Add Component to drop in Charm widgets visually, or use Split H / Split V to arrange rows and stacks.",
+                      body: "Click + Add Component to drop in Charm widgets visually, or use Split R / Split B to arrange rows and stacks.",
                     },
                     {
                       step: "03",
@@ -334,9 +337,11 @@ export function GuideFaqModal({
                       onClose();
                       onOpenWidgetPicker();
                     }}
-                    style={accentBtn}
+                    style={{ ...accentBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
                   >
-                    ✦ Open Component Picker →
+                    <Plus size={14} />
+                    <span>Open Component Picker</span>
+                    <ArrowRight size={13} />
                   </button>
                 </div>
 
@@ -376,16 +381,17 @@ export function GuideFaqModal({
                       1. Pull Code From Your GitHub Repos
                     </div>
                     <p style={{ fontSize: 12.5, color: "var(--cs-text-body)", lineHeight: 1.55, margin: "0 0 12px" }}>
-                      Open <b>📥 Import / GitHub → 2. GitHub Repos</b>. When signed in with GitHub, your repositories load automatically so you can pick a repo, scan its <code style={codeChip}>.go</code> files, and import Lip Gloss styles &amp; tokens straight onto the canvas.
+                      Open <b>Import / GitHub → 2. GitHub Repos</b>. When signed in with GitHub, your repositories load automatically so you can pick a repo, scan its <code style={codeChip}>.go</code> files, and import Lip Gloss styles &amp; tokens straight onto the canvas.
                     </p>
                     <button
                       onClick={() => {
                         onClose();
                         onOpenGitHubImport();
                       }}
-                      style={tealBtn}
+                      style={{ ...tealBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
                     >
-                      Browse My GitHub Repos →
+                      <span>Browse My GitHub Repos</span>
+                      <ArrowRight size={13} />
                     </button>
                   </div>
 
@@ -394,16 +400,17 @@ export function GuideFaqModal({
                       2. Save &amp; Share Projects in the Cloud
                     </div>
                     <p style={{ fontSize: 12.5, color: "var(--cs-text-body)", lineHeight: 1.55, margin: "0 0 12px" }}>
-                      Open <b>📁 Projects</b> to save named snapshots of your layouts. Signed-in accounts sync projects to the cloud across devices and let you toggle a public shareable link.
+                      Open <b>Projects</b> to save named snapshots of your layouts. Signed-in accounts sync projects to the cloud across devices and let you toggle a public shareable link.
                     </p>
                     <button
                       onClick={() => {
                         onClose();
                         onOpenProjects();
                       }}
-                      style={accentBtn}
+                      style={{ ...accentBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
                     >
-                      Open Saved Projects →
+                      <span>Open Saved Projects</span>
+                      <ArrowRight size={13} />
                     </button>
                   </div>
                 </div>
@@ -470,7 +477,9 @@ export function GuideFaqModal({
                             </span>
                             {item.q}
                           </span>
-                          <span style={{ color: "var(--cs-text-muted)", fontSize: 12 }}>{isOpen ? "▾" : "▸"}</span>
+                          <span style={{ color: "var(--cs-text-muted)", display: "inline-flex", alignItems: "center" }}>
+                            {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                          </span>
                         </button>
                         {isOpen && (
                           <div style={{ padding: "0 14px 14px", fontSize: 12.5, lineHeight: 1.6, color: "var(--cs-text-body)", borderTop: "1px solid var(--cs-border)", paddingTop: 10 }}>

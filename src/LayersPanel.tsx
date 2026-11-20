@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ArrowUp, Columns2, Copy, Eye, EyeOff, GripVertical, Layers, LayoutGrid, Plus, Rows2, Square, Trash2, Ungroup, X } from "lucide-react";
 import { PanelLeftIcon } from "./icons";
 import { HelpDot, Tooltip } from "./Tooltip";
 import type { IRDoc, IRNode, OverlayAnchor, WorkspaceMode } from "./types";
@@ -168,14 +169,14 @@ export function LayersPanel({
           {!isNodeRoot && (
             <span
               title="Drag to reorder or drop inside a Row/Stack"
-              style={{ cursor: "grab", fontSize: 10, color: "var(--cs-text-dim)", userSelect: "none", lineHeight: 1 }}
+              style={{ cursor: "grab", color: "var(--cs-text-dim)", userSelect: "none", display: "inline-flex", alignItems: "center" }}
             >
-              ⋮⋮
+              <GripVertical size={12} />
             </span>
           )}
 
-          <span style={{ fontSize: 12, color: isBox ? "var(--cs-mint)" : "var(--cs-lavender)" }}>
-            {isBox ? "□" : "⬚"}
+          <span style={{ color: isBox ? "var(--cs-mint)" : "var(--cs-lavender)", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+            {isBox ? <Square size={12} /> : <LayoutGrid size={12} />}
           </span>
 
           {editingId === node.id ? (
@@ -272,7 +273,7 @@ export function LayersPanel({
           Layout Tree
           <HelpDot
             title="Layout Tree (Drag & Drop)"
-            content="Drag ⋮⋮ handles to reorder or move panes inside Row/Stack containers. Double-click any name to rename it for Go codegen."
+            content="Drag handles to reorder or move panes inside Row/Stack containers. Double-click any name to rename it for Go codegen."
             placement="bottom"
           />
         </div>
@@ -283,8 +284,10 @@ export function LayersPanel({
         </Tooltip>
       </div>
 
-      <div style={{ padding: "8px 14px 10px", fontSize: 11.5, color: "var(--cs-text-dim)", lineHeight: 1.4, borderBottom: "1px solid var(--cs-border)" }}>
-        Drag <b style={{ color: "var(--cs-text-muted)" }}>⋮⋮</b> to reorder • Double-click name to rename
+      <div style={{ padding: "8px 14px 10px", fontSize: 11.5, color: "var(--cs-text-dim)", lineHeight: 1.4, borderBottom: "1px solid var(--cs-border)", display: "flex", alignItems: "center", gap: 4 }}>
+        <span>Drag</span>
+        <GripVertical size={12} style={{ color: "var(--cs-text-muted)", flexShrink: 0 }} />
+        <span>to reorder • Double-click to rename</span>
       </div>
 
       <div style={{ padding: "10px 12px 12px", borderBottom: "1px solid var(--cs-border)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -304,39 +307,63 @@ export function LayersPanel({
               border: "1px solid var(--cs-pink-border)",
               fontWeight: 700,
               padding: "7px 8px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
             }}
           >
-            ✦ + Add Charm Component
+            <Plus size={13} />
+            <span>Add Charm Component</span>
           </button>
         </Tooltip>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
           <Tooltip title="Add Plain Box" content="Insert a simple box next to the selected item." style={{ width: "100%" }}>
-            <button onClick={onAddBox} style={{ ...actBtn, width: "100%" }}>+ Box</button>
+            <button onClick={onAddBox} style={{ ...actBtn, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Plus size={12} />
+              <span>Box</span>
+            </button>
           </Tooltip>
           <Tooltip title="Split Side-by-Side" content="Place the selected pane in a horizontal Row with a new pane beside it." style={{ width: "100%" }}>
-            <button onClick={() => onSplit("JoinHorizontal")} disabled={isOverlay} style={{ ...actBtn, width: "100%" }}>⬌ Split R</button>
+            <button onClick={() => onSplit("JoinHorizontal")} disabled={isOverlay} style={{ ...actBtn, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Columns2 size={12} />
+              <span>Split R</span>
+            </button>
           </Tooltip>
           <Tooltip title="Split Stacked" content="Place the selected pane in a vertical Stack with a new pane below it." style={{ width: "100%" }}>
-            <button onClick={() => onSplit("JoinVertical")} disabled={isOverlay} style={{ ...actBtn, width: "100%" }}>⬍ Split B</button>
+            <button onClick={() => onSplit("JoinVertical")} disabled={isOverlay} style={{ ...actBtn, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Rows2 size={12} />
+              <span>Split B</span>
+            </button>
           </Tooltip>
           <Tooltip title="Move Earlier" content="Move this item up/left inside its container." style={{ width: "100%" }}>
-            <button onClick={() => onMove(-1)} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%" }}>↑ Up</button>
+            <button onClick={() => onMove(-1)} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <ArrowUp size={12} />
+              <span>Up</span>
+            </button>
           </Tooltip>
           <Tooltip title="Duplicate" content="Clone the selected box or container right beside it." style={{ width: "100%" }}>
-            <button onClick={onDuplicateNode} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%" }}>❐ Clone</button>
+            <button onClick={onDuplicateNode} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Copy size={11} />
+              <span>Clone</span>
+            </button>
           </Tooltip>
           <Tooltip title="Delete Node" content="Remove the selected box or container." style={{ width: "100%" }}>
-            <button onClick={onDelete} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%", color: isRoot || isOverlay ? "var(--cs-text-dim)" : "#e11d48" }}>🗑 Del</button>
+            <button onClick={onDelete} disabled={isRoot || isOverlay} style={{ ...actBtn, width: "100%", color: isRoot || isOverlay ? "var(--cs-text-dim)" : "#e11d48", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <Trash2 size={12} />
+              <span>Del</span>
+            </button>
           </Tooltip>
         </div>
 
         {isContainerSelected && !isRoot && (
           <button
             onClick={onUnwrapContainer}
-            style={{ ...actBtn, width: "100%", fontSize: 11, color: "var(--cs-lavender-text)" }}
+            style={{ ...actBtn, width: "100%", fontSize: 11, color: "var(--cs-lavender-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5 }}
           >
-            ⊟ Unwrap Container (Promote Children)
+            <Ungroup size={12} />
+            <span>Unwrap Container (Promote Children)</span>
           </button>
         )}
       </div>
@@ -394,9 +421,10 @@ export function LayersPanel({
                 >
                   <button
                     onClick={() => onSelect(ov.node.id)}
-                    style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", background: "none", border: "none", color: active ? "var(--cs-text-strong)" : "var(--cs-text-muted)", cursor: "pointer", fontSize: 12, padding: 2 }}
+                    style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", background: "none", border: "none", color: active ? "var(--cs-text-strong)" : "var(--cs-text-muted)", cursor: "pointer", fontSize: 12, padding: 2, display: "inline-flex", alignItems: "center", gap: 5 }}
                   >
-                    ◇ {ov.node.id}
+                    <Layers size={11} style={{ color: "var(--cs-pink)", flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ov.node.id}</span>
                   </button>
                   <button
                     onClick={() => onCycleOverlayAnchor(ov.id, nextAnchor)}
@@ -416,18 +444,18 @@ export function LayersPanel({
                   <Tooltip content={ov.visible ? "Hide overlay preview" : "Show overlay preview"}>
                     <button
                       onClick={() => onToggleOverlay(ov.id)}
-                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, opacity: ov.visible ? 1 : 0.45, padding: "0 2px" }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: ov.visible ? "var(--cs-text-strong)" : "var(--cs-text-dim)", opacity: ov.visible ? 1 : 0.55, padding: "0 3px", display: "inline-flex", alignItems: "center" }}
                     >
-                      {ov.visible ? "👁" : "👁‍🗨"}
+                      {ov.visible ? <Eye size={13} /> : <EyeOff size={13} />}
                     </button>
                   </Tooltip>
                   {doc.overlays.length > 1 && (
                     <button
                       onClick={() => onRemoveOverlay(ov.id)}
                       title="Delete overlay"
-                      style={{ background: "none", border: "none", color: "#e11d48", cursor: "pointer", fontSize: 11, padding: "0 3px" }}
+                      style={{ background: "none", border: "none", color: "#e11d48", cursor: "pointer", padding: "0 3px", display: "inline-flex", alignItems: "center" }}
                     >
-                      ✕
+                      <X size={13} />
                     </button>
                   )}
                 </div>

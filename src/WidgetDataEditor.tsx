@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { defaultWidgetData, type IRHuhField, type IRNode, type IRWidgetData } from "./types";
 
 interface Props {
@@ -85,7 +86,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                 title="Remove row"
                 style={delBtn}
               >
-                ✕
+                <X size={12} />
               </button>
             </div>
           ))}
@@ -151,7 +152,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                   }}
                   style={{ ...delBtn, opacity: cols.length <= 1 ? 0.35 : 1 }}
                 >
-                  ✕
+                  <X size={12} />
                 </button>
               </div>
             ))}
@@ -207,7 +208,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                   }}
                   style={delBtn}
                 >
-                  ✕
+                  <X size={12} />
                 </button>
               </div>
             ))}
@@ -302,7 +303,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                   onClick={() => onChangeWidgetData({ ...data, huhFields: fields.filter((_, i) => i !== idx) })}
                   style={{ ...delBtn, opacity: fields.length <= 1 ? 0.35 : 1 }}
                 >
-                  ✕
+                  <X size={12} />
                 </button>
               </div>
 
