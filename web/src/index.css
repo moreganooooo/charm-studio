@@ -1,8 +1,69 @@
 * {
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
-  background: #0f1117;
-  color: #e5e7eb;
+  background: #0c0b12;
+  color: #ede9fe;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes charmShimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes sparkleFloatA {
+  0%, 100% { transform: translateY(0px) scale(1) rotate(0deg); opacity: 0.75; }
+  50%      { transform: translateY(-4px) scale(1.18) rotate(12deg); opacity: 1; }
+}
+
+@keyframes sparkleFloatB {
+  0%, 100% { transform: translateY(0px) scale(0.95) rotate(0deg); opacity: 0.65; }
+  50%      { transform: translateY(3px) scale(1.15) rotate(-14deg); opacity: 1; }
+}
+
+.charm-wordmark {
+  background: linear-gradient(
+    90deg,
+    #ff75b5 0%,
+    #c084fc 28%,
+    #5eead4 55%,
+    #f9a8d4 78%,
+    #ff75b5 100%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: charmShimmer 7s ease-in-out infinite;
+  filter: drop-shadow(0 4px 24px rgba(255, 117, 181, 0.28));
+}
+
+.charm-sparkle-a {
+  display: inline-block;
+  animation: sparkleFloatA 3.6s ease-in-out infinite;
+}
+
+.charm-sparkle-b {
+  display: inline-block;
+  animation: sparkleFloatB 4.2s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0c0b12;
+}
+::-webkit-scrollbar-thumb {
+  background: #2c2642;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #433a63;
 }

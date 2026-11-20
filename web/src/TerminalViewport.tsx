@@ -17,12 +17,14 @@ interface Props {
   cols: number;
   rows: number;
   fontSize?: number;
+  fontFamily?: string;
   palette: TermPalette;
   colorProfile: ColorProfile;
   showOverlay: boolean;
   selectedId: string;
   onSelect: (id: string) => void;
   onInteract: () => void;
+  onResize?: (cols: number, rows: number) => void;
   onTelemetry?: (tel: TelemetryNode[]) => void;
 }
 
@@ -35,12 +37,14 @@ export function TerminalViewport({
   cols,
   rows,
   fontSize = 14,
+  fontFamily = FONT_STACK,
   palette,
   colorProfile,
   showOverlay,
   selectedId,
   onSelect,
   onInteract,
+  onResize,
   onTelemetry,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,7 +69,7 @@ export function TerminalViewport({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.font = `${fontSize}px ${FONT_STACK}`;
+    ctx.font = `${fontSize}px ${fontFamily}`;
     const cw = Math.ceil(ctx.measureText("M").width * 10) / 10;
     const ch = Math.ceil(fontSize * 1.38);
     setCellSize({ w: cw, h: ch });
@@ -120,7 +124,7 @@ export function TerminalViewport({
         if (cell.c && cell.c !== " ") {
           ctx.globalAlpha = isFaint ? 0.55 : 1;
           ctx.fillStyle = fg;
-          ctx.font = `${isItalic ? "italic " : ""}${isBold ? "700 " : "400 "}${fontSize}px ${FONT_STACK}`;
+          ctx.font = `${isItalic ? "italic " : ""}${isBold ? "700 " : "400 "}${fontSize}px ${fontFamily}`;
           ctx.fillText(cell.c, px, py + ch * 0.52);
           ctx.globalAlpha = 1;
         }
@@ -134,7 +138,7 @@ export function TerminalViewport({
 
     setTelemetry(frame.telemetry ?? []);
     onTelemetry?.(frame.telemetry ?? []);
-  }, [ready, doc, renderTick, cols, rows, fontSize, palette, colorProfile]);
+  }, [ready, doc, renderTick, cols, rows, fontSize, fontFamily, palette, colorProfile]);
 
   const hitTest = (e: React.MouseEvent<SVGSVGElement>): TelemetryNode | null => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -156,6 +160,30 @@ export function TerminalViewport({
     }
   };
 
+  const startCornerResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!onResize) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startCols = cols;
+    const startRows = rows;
+    const cw = cellSize.w;
+    const ch = cellSize.h;
+
+    const onMove = (ev: PointerEvent) => {
+      const nextCols = Math.max(30, Math.min(140, startCols + Math.round((ev.clientX - startX) / cw)));
+      const nextRows = Math.max(10, Math.min(45, startRows + Math.round((ev.clientY - startY) / ch)));
+      onResize(nextCols, nextRows);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const boxRect = (r: Rect) => ({
     x: r.x * cellSize.w,
     y: r.y * cellSize.h,
@@ -174,31 +202,34 @@ export function TerminalViewport({
       onBlur={() => setFocused(false)}
       onKeyDown={handleKeyDown}
       style={{
+        position: "relative",
         display: "inline-flex",
         flexDirection: "column",
-        border: `1px solid ${focused ? "#7aa2f7" : "#262b3d"}`,
+        border: `1px solid ${focused ? "#ff75b5" : "#2a2440"}`,
         borderRadius: 10,
         overflow: "hidden",
-        background: "#111520",
-        boxShadow: focused ? "0 0 0 2px rgba(122, 162, 247, 0.25), 0 14px 36px rgba(0,0,0,0.45)" : "0 14px 36px rgba(0,0,0,0.4)",
+        background: "#12101c",
+        boxShadow: focused
+          ? "0 0 0 2px rgba(255, 117, 181, 0.22), 0 16px 40px rgba(0,0,0,0.5)"
+          : "0 14px 36px rgba(0,0,0,0.45)",
         outline: "none",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid #1e2436", fontSize: 12, gap: 8 }}>
-        <span style={{ fontWeight: 600, color: "#cbd5e1" }}>
-          {title} <span style={{ color: "#64748b", fontWeight: 400 }}>{cols}×{rows}</span>
-          {focused && <span style={{ color: "#7aa2f7", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid #26213a", fontSize: 12, gap: 8, background: "#171424" }}>
+        <span style={{ fontWeight: 600, color: "#ede9fe" }}>
+          {title} <span style={{ color: "#7e769e", fontWeight: 400 }}>{cols}×{rows}</span>
+          {focused && <span style={{ color: "#ff75b5", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>}
         </span>
         {overflows.length > 0 ? (
           <span
             title={overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "overflow"}`).join("\n")}
             onClick={() => onSelect(overflows[0].id)}
-            style={{ cursor: "pointer", color: "#fca5a5", background: "rgba(239, 68, 68, 0.16)", border: "1px solid rgba(239, 68, 68, 0.4)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
+            style={{ cursor: "pointer", color: "#fda4af", background: "rgba(244, 63, 94, 0.16)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
           >
             ⚠ Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}
           </span>
         ) : (
-          <span style={{ color: "#86efac", background: "rgba(34, 197, 94, 0.12)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: 999, padding: "1px 8px", fontSize: 11 }}>
+          <span style={{ color: "#5eead4", background: "rgba(94, 234, 212, 0.10)", border: "1px solid rgba(94, 234, 212, 0.30)", borderRadius: 999, padding: "1px 8px", fontSize: 11 }}>
             ✓ Clean
           </span>
         )}
@@ -206,8 +237,8 @@ export function TerminalViewport({
 
       <div style={{ position: "relative", padding: 6, background: palette.background }}>
         {!ready && (
-          <div style={{ padding: 24, fontSize: 12, color: "#94a3b8", fontFamily: "ui-monospace, monospace" }}>
-            Booting Go Lip Gloss WASM...
+          <div style={{ padding: 24, fontSize: 12, color: "#a59ec9", fontFamily: "ui-monospace, monospace" }}>
+            Booting Go Lip Gloss engine...
           </div>
         )}
         <canvas ref={canvasRef} style={{ display: ready ? "block" : "none" }} />
@@ -222,7 +253,7 @@ export function TerminalViewport({
           style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
         >
           {showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
-            <rect {...boxRect(hoveredTel.margin)} fill="rgba(148, 163, 184, 0.10)" stroke="#94a3b8" strokeDasharray="4 3" />
+            <rect {...boxRect(hoveredTel.margin)} fill="rgba(196, 181, 253, 0.09)" stroke="#c4b5fd" strokeDasharray="4 3" />
           )}
           {showOverlay && selectedTel && (
             <>
@@ -232,6 +263,30 @@ export function TerminalViewport({
             </>
           )}
         </svg>
+
+        {onResize && (
+          <div
+            onPointerDown={startCornerResize}
+            title="Drag to resize terminal cols × rows"
+            style={{
+              position: "absolute",
+              right: 2,
+              bottom: 2,
+              width: 16,
+              height: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "nwse-resize",
+              color: "#ff75b5",
+              fontSize: 13,
+              userSelect: "none",
+              opacity: 0.9,
+            }}
+          >
+            ⌟
+          </div>
+        )}
       </div>
     </div>
   );
