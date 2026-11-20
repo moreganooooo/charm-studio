@@ -29,7 +29,7 @@ export function ensureEngineReady(): Promise<void> {
     bootPromise = (async () => {
       if (!window.renderStudio) {
         const go = new window.Go();
-        const result = await WebAssembly.instantiateStreaming(fetch("/studio.wasm"), go.importObject);
+        const result = await WebAssembly.instantiateStreaming(fetch(`${import.meta.env.BASE_URL}studio.wasm`), go.importObject);
         go.run(result.instance);
       }
     })();
