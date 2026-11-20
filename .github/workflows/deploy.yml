@@ -20,18 +20,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect web directory
+        id: dirs
+        run: |
+          if [ -f "web/package.json" ]; then
+            echo "app_dir=web" >> "$GITHUB_OUTPUT"
+            echo "dist_dir=web/dist" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_dir=." >> "$GITHUB_OUTPUT"
+            echo "dist_dir=dist" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: "**/package-lock.json"
 
       - name: Install web dependencies
-        working-directory: web
+        working-directory: ${{ steps.dirs.outputs.app_dir }}
         run: npm ci
 
       - name: Build production bundle
-        working-directory: web
+        working-directory: ${{ steps.dirs.outputs.app_dir }}
         env:
           GITHUB_PAGES: "true"
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -42,7 +53,7 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: ${{ steps.dirs.outputs.dist_dir }}
 
   deploy:
     environment:
