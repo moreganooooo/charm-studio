@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { Tooltip } from "./Tooltip";
+import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type Rect, type TelemetryNode } from "./types";
 import { dispatchKey, ensureEngineReady, renderFrame } from "./wasmEngine";
-import type { ColorProfile, IRDoc, Rect, TelemetryNode } from "./types";
 
 export interface TermPalette {
   id: string;
@@ -21,14 +22,30 @@ interface Props {
   palette: TermPalette;
   colorProfile: ColorProfile;
   showOverlay: boolean;
+  showQuickBar?: boolean;
   selectedId: string;
   onSelect: (id: string) => void;
   onInteract: () => void;
   onResize?: (cols: number, rows: number) => void;
   onTelemetry?: (tel: TelemetryNode[]) => void;
+  onQuickSplit?: (id: string, kind: "JoinHorizontal" | "JoinVertical") => void;
+  onQuickWidgetPicker?: (id: string) => void;
+  onQuickClone?: (id: string) => void;
+  onQuickDelete?: (id: string) => void;
+  onQuickInlineEdit?: (id: string, nextContent: string) => void;
+  onRequestInspectData?: (id: string) => void;
 }
 
 const FONT_STACK = `"JetBrains Mono", "SF Mono", Menlo, Monaco, ui-monospace, monospace`;
+
+const INLINE_EDITABLE_TYPES = new Set([
+  "text",
+  "glamour:markdown",
+  "gum:choose",
+  "gum:confirm",
+  "wish:ssh",
+  "bubble:viewport",
+]);
 
 export function TerminalViewport({
   title,
@@ -41,11 +58,18 @@ export function TerminalViewport({
   palette,
   colorProfile,
   showOverlay,
+  showQuickBar = false,
   selectedId,
   onSelect,
   onInteract,
   onResize,
   onTelemetry,
+  onQuickSplit,
+  onQuickWidgetPicker,
+  onQuickClone,
+  onQuickDelete,
+  onQuickInlineEdit,
+  onRequestInspectData,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -54,6 +78,7 @@ export function TerminalViewport({
   const [telemetry, setTelemetry] = useState<TelemetryNode[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.38 });
+  const [inlineEdit, setInlineEdit] = useState<{ id: string; text: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,12 +176,36 @@ export function TerminalViewport({
     );
   };
 
+  const openInlineEditForNode = (id: string) => {
+    const node = findNode(doc, id);
+    if (!node || node.kind !== "Box") return;
+    const ct = node.contentType ?? "text";
+    if (!INLINE_EDITABLE_TYPES.has(ct)) {
+      onRequestInspectData?.(id);
+      return;
+    }
+    setInlineEdit({ id, text: node.content ?? "" });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (inlineEdit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const handled = dispatchKey(selectedId, e.key);
     if (handled) {
       e.preventDefault();
       onInteract();
+      return;
+    }
+    if (e.key === "Tab") {
+      const order = listVisibleFocusBoxes(doc, cols);
+      if (order.length > 1) {
+        e.preventDefault();
+        const curIdx = Math.max(0, order.findIndex((n) => n.id === selectedId));
+        const nextIdx = e.shiftKey
+          ? (curIdx + order.length - 1) % order.length
+          : (curIdx + 1) % order.length;
+        onSelect(order[nextIdx].id);
+      }
     }
   };
 
@@ -194,6 +243,18 @@ export function TerminalViewport({
   const hoveredTel = telemetry.find((t) => t.id === hoveredId) ?? null;
   const selectedTel = telemetry.find((t) => t.id === selectedId) ?? null;
   const overflows = telemetry.filter((t) => t.overflowX || t.overflowY);
+  const selectedNode = findNode(doc, selectedId);
+  const canMutateSelected = selectedNode && selectedId !== doc.root.id && !doc.overlays.some((o) => o.node.id === selectedId);
+
+  const canvasPixelW = Math.ceil(cols * cellSize.w);
+  const quickBarLeft = selectedTel
+    ? Math.max(6, Math.min(canvasPixelW - 310, selectedTel.margin.x * cellSize.w + 6))
+    : 6;
+  const quickBarTop = selectedTel
+    ? selectedTel.margin.y <= 1
+      ? Math.max(6, selectedTel.margin.y * cellSize.h + 8)
+      : Math.max(6, selectedTel.margin.y * cellSize.h - 28)
+    : 6;
 
   return (
     <div
@@ -205,39 +266,49 @@ export function TerminalViewport({
         position: "relative",
         display: "inline-flex",
         flexDirection: "column",
-        border: `1px solid ${focused ? "#ff75b5" : "#2a2440"}`,
+        border: `1px solid ${focused ? "var(--cs-pink)" : "var(--cs-border-strong)"}`,
         borderRadius: 10,
         overflow: "hidden",
-        background: "#12101c",
+        background: "var(--cs-panel)",
         boxShadow: focused
-          ? "0 0 0 2px rgba(255, 117, 181, 0.22), 0 16px 40px rgba(0,0,0,0.5)"
-          : "0 14px 36px rgba(0,0,0,0.45)",
+          ? "0 0 0 2px var(--cs-pink-bg), var(--cs-shadow)"
+          : "0 14px 36px rgba(0,0,0,0.22)",
         outline: "none",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid #26213a", fontSize: 12, gap: 8, background: "#171424" }}>
-        <span style={{ fontWeight: 600, color: "#ede9fe" }}>
-          {title} <span style={{ color: "#7e769e", fontWeight: 400 }}>{cols}×{rows}</span>
-          {focused && <span style={{ color: "#ff75b5", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid var(--cs-border)", fontSize: 12, gap: 8, background: "var(--cs-card-alt)" }}>
+        <span style={{ fontWeight: 600, color: "var(--cs-text-strong)" }}>
+          {title} <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
+          {focused && (
+            <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
+              <span style={{ color: "var(--cs-pink)", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>
+            </Tooltip>
+          )}
         </span>
         {overflows.length > 0 ? (
-          <span
-            title={overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "overflow"}`).join("\n")}
-            onClick={() => onSelect(overflows[0].id)}
-            style={{ cursor: "pointer", color: "#fda4af", background: "rgba(244, 63, 94, 0.16)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
+          <Tooltip
+            title="Layout Overflow Detected"
+            content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to select and adjust Width or Collapse Below.`}
           >
-            ⚠ Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}
-          </span>
+            <span
+              onClick={() => onSelect(overflows[0].id)}
+              style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
+            >
+              ⚠ Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}
+            </span>
+          </Tooltip>
         ) : (
-          <span style={{ color: "#5eead4", background: "rgba(94, 234, 212, 0.10)", border: "1px solid rgba(94, 234, 212, 0.30)", borderRadius: 999, padding: "1px 8px", fontSize: 11 }}>
-            ✓ Clean
-          </span>
+          <Tooltip content="Every pane fits cleanly inside this terminal size with zero clipping.">
+            <span style={{ color: "var(--cs-mint)", background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", borderRadius: 999, padding: "1px 8px", fontSize: 11 }}>
+              ✓ Clean
+            </span>
+          </Tooltip>
         )}
       </div>
 
       <div style={{ position: "relative", padding: 6, background: palette.background }}>
         {!ready && (
-          <div style={{ padding: 24, fontSize: 12, color: "#a59ec9", fontFamily: "ui-monospace, monospace" }}>
+          <div style={{ padding: 24, fontSize: 12, color: "var(--cs-text-muted)", fontFamily: "ui-monospace, monospace" }}>
             Booting Go Lip Gloss engine...
           </div>
         )}
@@ -249,6 +320,13 @@ export function TerminalViewport({
             e.currentTarget.closest<HTMLElement>("[tabindex]")?.focus();
             const hit = hitTest(e);
             if (hit) onSelect(hit.id);
+          }}
+          onDoubleClick={(e) => {
+            const hit = hitTest(e);
+            if (hit) {
+              onSelect(hit.id);
+              openInlineEditForNode(hit.id);
+            }
           }}
           style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
         >
@@ -262,32 +340,175 @@ export function TerminalViewport({
               <rect {...boxRect(selectedTel.content)} fill="rgba(96, 165, 250, 0.18)" stroke="#60a5fa" />
             </>
           )}
+          {!showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
+            <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 117, 181, 0.45)" strokeDasharray="3 3" />
+          )}
         </svg>
 
-        {onResize && (
+        {/* Floating On-Canvas Quick-Action Bar */}
+        {showQuickBar && ready && selectedTel && selectedNode?.kind === "Box" && !inlineEdit && (
           <div
-            onPointerDown={startCornerResize}
-            title="Drag to resize terminal cols × rows"
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: "absolute",
-              right: 2,
-              bottom: 2,
-              width: 16,
-              height: 16,
-              display: "flex",
+              left: quickBarLeft,
+              top: quickBarTop,
+              zIndex: 20,
+              display: "inline-flex",
               alignItems: "center",
-              justifyContent: "center",
-              cursor: "nwse-resize",
-              color: "#ff75b5",
-              fontSize: 13,
-              userSelect: "none",
-              opacity: 0.9,
+              gap: 4,
+              padding: "3px 6px",
+              borderRadius: 7,
+              background: "var(--cs-surface)",
+              border: "1px solid var(--cs-pink-border)",
+              boxShadow: "var(--cs-shadow)",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+              transition: "opacity 150ms ease, transform 150ms ease",
             }}
           >
-            ⌟
+            <span style={{ fontWeight: 700, color: "var(--cs-pink)", padding: "0 4px", fontFamily: "ui-monospace, monospace" }}>
+              #{selectedId}
+            </span>
+            {onQuickSplit && canMutateSelected && (
+              <>
+                <button onClick={() => onQuickSplit(selectedId, "JoinHorizontal")} title="Split Right (Row)" style={qBtn}>
+                  ⬌ Split R
+                </button>
+                <button onClick={() => onQuickSplit(selectedId, "JoinVertical")} title="Split Below (Stack)" style={qBtn}>
+                  ⬍ Split B
+                </button>
+              </>
+            )}
+            {onQuickWidgetPicker && (
+              <button onClick={() => onQuickWidgetPicker(selectedId)} title="Insert Charm component beside this pane" style={qBtn}>
+                ✦ +Widget
+              </button>
+            )}
+            <button onClick={() => openInlineEditForNode(selectedId)} title="Edit pane text / data" style={qBtn}>
+              ✎ Edit
+            </button>
+            {onQuickClone && canMutateSelected && (
+              <button onClick={() => onQuickClone(selectedId)} title="Duplicate pane" style={qBtn}>
+                ❐
+              </button>
+            )}
+            {onQuickDelete && canMutateSelected && (
+              <button onClick={() => onQuickDelete(selectedId)} title="Delete pane" style={{ ...qBtn, color: "#e11d48" }}>
+                🗑
+              </button>
+            )}
           </div>
+        )}
+
+        {/* Double-Click Inline Quick-Edit Popover */}
+        {inlineEdit && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 30,
+              width: "min(380px, 92%)",
+              background: "var(--cs-surface)",
+              border: "1px solid var(--cs-pink)",
+              borderRadius: 10,
+              padding: 12,
+              boxShadow: "var(--cs-shadow)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, fontWeight: 700, color: "var(--cs-text-heading)" }}>
+              <span>Quick Edit #{inlineEdit.id}</span>
+              <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>⌘/Ctrl + Enter to apply</span>
+            </div>
+            <textarea
+              autoFocus
+              rows={5}
+              value={inlineEdit.text}
+              onChange={(e) => setInlineEdit({ ...inlineEdit, text: e.target.value })}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  onQuickInlineEdit?.(inlineEdit.id, inlineEdit.text);
+                  setInlineEdit(null);
+                } else if (e.key === "Escape") {
+                  setInlineEdit(null);
+                }
+              }}
+              style={{
+                width: "100%",
+                background: "var(--cs-input)",
+                color: "var(--cs-text)",
+                border: "1px solid var(--cs-btn-border)",
+                borderRadius: 6,
+                padding: 8,
+                fontSize: 12,
+                fontFamily: `"JetBrains Mono", ui-monospace, monospace`,
+                resize: "vertical",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+              <button onClick={() => setInlineEdit(null)} style={qBtn}>Cancel</button>
+              <button
+                onClick={() => {
+                  onQuickInlineEdit?.(inlineEdit.id, inlineEdit.text);
+                  setInlineEdit(null);
+                }}
+                style={{
+                  ...qBtn,
+                  background: "var(--cs-pink-bg)",
+                  borderColor: "var(--cs-pink-border)",
+                  color: "var(--cs-pink-soft)",
+                  fontWeight: 700,
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        )}
+
+        {onResize && (
+          <Tooltip title="Resize Terminal" content="Drag this corner handle to test how your layout adapts to different terminal widths and heights.">
+            <div
+              onPointerDown={startCornerResize}
+              style={{
+                position: "absolute",
+                right: 2,
+                bottom: 2,
+                width: 16,
+                height: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "nwse-resize",
+                color: "#ff75b5",
+                fontSize: 13,
+                userSelect: "none",
+                opacity: 0.9,
+              }}
+            >
+              ⌟
+            </div>
+          </Tooltip>
         )}
       </div>
     </div>
   );
 }
+
+const qBtn: React.CSSProperties = {
+  background: "var(--cs-btn-bg)",
+  color: "var(--cs-btn-text)",
+  border: "1px solid var(--cs-btn-border)",
+  borderRadius: 5,
+  padding: "2px 6px",
+  fontSize: 10.5,
+  fontWeight: 600,
+  cursor: "pointer",
+};

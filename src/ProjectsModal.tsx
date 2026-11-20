@@ -43,7 +43,10 @@ export function ProjectsModal({
     setAuthMsg(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "github",
-      options: { redirectTo: window.location.origin + window.location.pathname },
+      options: {
+        redirectTo: window.location.origin + window.location.pathname,
+        scopes: "read:user repo",
+      },
     });
     if (error) setAuthMsg(error.message);
   };
@@ -68,7 +71,7 @@ export function ProjectsModal({
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 100,
-        background: "rgba(8, 7, 14, 0.74)", backdropFilter: "blur(6px)",
+        background: "var(--cs-backdrop)", backdropFilter: "blur(6px)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
       }}
     >
@@ -76,15 +79,15 @@ export function ProjectsModal({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(660px, 100%)", maxHeight: "88vh", overflowY: "auto",
-          background: "#13111d", border: "1px solid #382f57", borderRadius: 14,
-          padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.65)",
+          background: "var(--cs-surface)", border: "1px solid var(--cs-border-strong)", borderRadius: 14,
+          padding: 22, boxShadow: "var(--cs-shadow)",
           display: "flex", flexDirection: "column", gap: 16,
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, color: "#f5d0fe" }}>Saved Projects &amp; Cloud Sync</h2>
-            <div style={{ fontSize: 12, color: "#8b82ad", marginTop: 3 }}>
+            <h2 style={{ margin: 0, fontSize: 18, color: "var(--cs-text-heading)" }}>Saved Projects &amp; Cloud Sync</h2>
+            <div style={{ fontSize: 12, color: "var(--cs-text-dim)", marginTop: 3 }}>
               Save multiple layouts locally right away, or sign in with GitHub to sync across devices.
             </div>
           </div>
@@ -94,8 +97,8 @@ export function ProjectsModal({
         <div style={card}>
           {!isSupabaseConfigured ? (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#5eead4" }}>Local Library Active</div>
-              <div style={{ fontSize: 11.5, color: "#8b82ad", marginTop: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--cs-mint)" }}>Local Library Active</div>
+              <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)", marginTop: 2 }}>
                 Projects save in this browser’s storage. Add <code style={code}>VITE_SUPABASE_URL</code> &amp;{" "}
                 <code style={code}>VITE_SUPABASE_ANON_KEY</code> to <code style={code}>web/.env.local</code> to unlock GitHub Cloud Sync.
               </div>
@@ -103,12 +106,12 @@ export function ProjectsModal({
           ) : user ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {avatarUrl && <img src={avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid #ff75b5" }} />}
+                {avatarUrl && <img src={avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--cs-pink)" }} />}
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fdf4ff" }}>
-                    @{userName} <span style={{ fontSize: 11, color: "#5eead4", marginLeft: 6 }}>● Cloud Sync Active</span>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--cs-text-strong)" }}>
+                    @{userName} <span style={{ fontSize: 11, color: "var(--cs-mint)", marginLeft: 6 }}>● Cloud Sync Active</span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: "#8b82ad" }}>Your saved layouts sync automatically to your account.</div>
+                  <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)" }}>Your saved layouts sync automatically to your account.</div>
                 </div>
               </div>
               <button onClick={signOut} style={btn}>Sign Out</button>
@@ -116,19 +119,19 @@ export function ProjectsModal({
           ) : (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#f5d0fe" }}>Sync Projects in the Cloud</div>
-                <div style={{ fontSize: 11.5, color: "#8b82ad", marginTop: 2 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--cs-text-heading)" }}>Sync Projects in the Cloud</div>
+                <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)", marginTop: 2 }}>
                   Sign in with GitHub to back up layouts and create short public share links.
                 </div>
               </div>
               <button onClick={signInWithGitHub} style={primaryBtn}>Sign in with GitHub</button>
             </div>
           )}
-          {authMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#fda4af" }}>{authMsg}</div>}
+          {authMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#e11d48" }}>{authMsg}</div>}
         </div>
 
         <div style={card}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#e9d5ff", marginBottom: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--cs-text-heading)", marginBottom: 8 }}>
             Save Current Canvas
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -157,11 +160,11 @@ export function ProjectsModal({
         </div>
 
         <div style={card}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#e9d5ff", marginBottom: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--cs-text-heading)", marginBottom: 10 }}>
             Your Projects ({projects.length})
           </div>
           {projects.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#7e769e", padding: "12px 0" }}>
+            <div style={{ fontSize: 12, color: "var(--cs-text-dim)", padding: "12px 0" }}>
               No saved projects yet—give your current layout a name above to save it!
             </div>
           ) : (
@@ -174,19 +177,19 @@ export function ProjectsModal({
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
                       padding: "10px 12px", borderRadius: 8,
-                      background: isActive ? "rgba(255, 117, 181, 0.10)" : "#12101c",
-                      border: `1px solid ${isActive ? "#ff75b5" : "#26213a"}`,
+                      background: isActive ? "var(--cs-pink-bg)" : "var(--cs-panel)",
+                      border: `1px solid ${isActive ? "var(--cs-pink)" : "var(--cs-border)"}`,
                       flexWrap: "wrap",
                     }}
                   >
                     <div style={{ minWidth: 150, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#fdf4ff" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "var(--cs-text-strong)" }}>
                         <span>{p.name}</span>
-                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "#0c0b12", color: p.source === "cloud" ? "#5eead4" : "#c4b5fd", border: "1px solid #2d2645" }}>
+                        <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "var(--cs-input)", color: p.source === "cloud" ? "var(--cs-mint)" : "var(--cs-lavender-text)", border: "1px solid var(--cs-border-subtle)" }}>
                           {p.source === "cloud" ? "☁ Cloud" : "Local"}
                         </span>
                       </div>
-                      <div style={{ fontSize: 11, color: "#7e769e", marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: "var(--cs-text-dim)", marginTop: 2 }}>
                         Updated {new Date(p.updatedAt).toLocaleString()}
                       </div>
                     </div>
@@ -197,7 +200,7 @@ export function ProjectsModal({
                           <button
                             onClick={() => onTogglePublic(p)}
                             title="Toggle public short-link visibility"
-                            style={{ ...btn, fontSize: 11, color: p.isPublic ? "#5eead4" : "#a59ec9" }}
+                            style={{ ...btn, fontSize: 11, color: p.isPublic ? "var(--cs-mint)" : "var(--cs-text-muted)" }}
                           >
                             {p.isPublic ? "🌐 Public" : "🔒 Private"}
                           </button>
@@ -217,7 +220,7 @@ export function ProjectsModal({
                       >
                         Load
                       </button>
-                      <button onClick={() => onDeleteProject(p)} style={{ ...btn, color: "#fb7185" }} title="Delete project">
+                      <button onClick={() => onDeleteProject(p)} style={{ ...btn, color: "#e11d48" }} title="Delete project">
                         🗑
                       </button>
                     </div>
@@ -232,8 +235,8 @@ export function ProjectsModal({
   );
 }
 
-const code: React.CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 11, padding: "1px 5px", borderRadius: 4, background: "#0c0b12", color: "#f5d0fe" };
-const card: React.CSSProperties = { background: "#181526", border: "1px solid #2b2442", borderRadius: 10, padding: 14 };
-const inp: React.CSSProperties = { background: "#0c0b12", color: "#ede9fe", border: "1px solid #322b4d", borderRadius: 6, padding: "6px 8px", fontSize: 12 };
-const btn: React.CSSProperties = { background: "#1b1729", color: "#ddd6fe", border: "1px solid #322b4d", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" };
-const primaryBtn: React.CSSProperties = { background: "rgba(255, 117, 181, 0.20)", color: "#ff99c8", border: "1px solid #ff75b5", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" };
+const code: React.CSSProperties = { fontFamily: "ui-monospace, monospace", fontSize: 11, padding: "1px 5px", borderRadius: 4, background: "var(--cs-input)", color: "var(--cs-text-heading)", border: "1px solid var(--cs-border)" };
+const card: React.CSSProperties = { background: "var(--cs-card)", border: "1px solid var(--cs-border-subtle)", borderRadius: 10, padding: 14 };
+const inp: React.CSSProperties = { background: "var(--cs-input)", color: "var(--cs-text)", border: "1px solid var(--cs-btn-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 };
+const btn: React.CSSProperties = { background: "var(--cs-btn-bg)", color: "var(--cs-btn-text)", border: "1px solid var(--cs-btn-border)", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" };
+const primaryBtn: React.CSSProperties = { background: "var(--cs-pink-bg)", color: "var(--cs-pink-soft)", border: "1px solid var(--cs-pink)", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" };

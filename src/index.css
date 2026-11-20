@@ -1,11 +1,91 @@
+:root {
+  --cs-bg: #0c0b12;
+  --cs-hero-bg: radial-gradient(ellipse 50% 140% at 18% 0%, rgba(255, 117, 181, 0.20) 0%, rgba(192, 132, 252, 0.10) 45%, rgba(12, 11, 18, 0) 80%), radial-gradient(ellipse 45% 120% at 88% 100%, rgba(94, 234, 212, 0.09) 0%, rgba(12, 11, 18, 0) 75%), #0f0d18;
+  --cs-panel: #12101c;
+  --cs-surface: #13111d;
+  --cs-card: #181526;
+  --cs-card-alt: #171424;
+  --cs-input: #0c0b12;
+  --cs-nav-bg: #0f0d18;
+  --cs-hero-card: rgba(23, 20, 36, 0.76);
+  --cs-border: #26213a;
+  --cs-border-strong: #382f57;
+  --cs-border-subtle: #2b2442;
+  --cs-text: #ede9fe;
+  --cs-text-strong: #fdf4ff;
+  --cs-text-heading: #f5d0fe;
+  --cs-text-body: #dad4f5;
+  --cs-text-muted: #a59ec9;
+  --cs-text-dim: #7e769e;
+  --cs-pink: #ff75b5;
+  --cs-pink-soft: #ff99c8;
+  --cs-pink-bg: rgba(255, 117, 181, 0.16);
+  --cs-pink-border: rgba(255, 117, 181, 0.45);
+  --cs-lavender: #c084fc;
+  --cs-lavender-text: #c4b5fd;
+  --cs-mint: #5eead4;
+  --cs-mint-bg: rgba(94, 234, 212, 0.12);
+  --cs-mint-border: rgba(94, 234, 212, 0.4);
+  --cs-pill-bg: linear-gradient(90deg, rgba(255,117,181,0.20), rgba(192,132,252,0.20), rgba(94,234,212,0.16));
+  --cs-btn-bg: #1b1729;
+  --cs-btn-text: #ddd6fe;
+  --cs-btn-border: #322b4d;
+  --cs-code-bg: rgba(192, 132, 252, 0.13);
+  --cs-code-border: rgba(192, 132, 252, 0.25);
+  --cs-backdrop: rgba(8, 7, 14, 0.80);
+  --cs-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+  --cs-scroll-thumb: #2c2642;
+  --cs-scroll-hover: #433a63;
+}
+
+[data-theme="light"] {
+  --cs-bg: #fffdf5;
+  --cs-hero-bg: radial-gradient(ellipse 52% 140% at 18% 0%, rgba(255, 128, 227, 0.20) 0%, rgba(167, 139, 250, 0.12) 45%, rgba(255, 253, 245, 0) 80%), radial-gradient(ellipse 45% 120% at 88% 100%, rgba(45, 212, 191, 0.14) 0%, rgba(255, 253, 245, 0) 75%), #fffaf1;
+  --cs-panel: #fffaf1;
+  --cs-surface: #fffdf5;
+  --cs-card: #ffffff;
+  --cs-card-alt: #fbf5ea;
+  --cs-input: #fffdf8;
+  --cs-nav-bg: #faf3e6;
+  --cs-hero-card: rgba(255, 255, 255, 0.90);
+  --cs-border: #e5dccb;
+  --cs-border-strong: #cfc2dc;
+  --cs-border-subtle: #e9e0d2;
+  --cs-text: #221933;
+  --cs-text-strong: #170f26;
+  --cs-text-heading: #4b237a;
+  --cs-text-body: #362c4d;
+  --cs-text-muted: #5d5278;
+  --cs-text-dim: #7c7198;
+  --cs-pink: #d9269d;
+  --cs-pink-soft: #be185d;
+  --cs-pink-bg: rgba(255, 128, 227, 0.18);
+  --cs-pink-border: rgba(217, 38, 157, 0.45);
+  --cs-lavender: #7c3aed;
+  --cs-lavender-text: #5b21b6;
+  --cs-mint: #0d9488;
+  --cs-mint-bg: rgba(20, 184, 166, 0.12);
+  --cs-mint-border: rgba(13, 148, 136, 0.38);
+  --cs-pill-bg: linear-gradient(90deg, rgba(255, 128, 227, 0.22), rgba(167, 139, 250, 0.18), rgba(45, 212, 191, 0.18));
+  --cs-btn-bg: #ffffff;
+  --cs-btn-text: #312547;
+  --cs-btn-border: #dcd1c0;
+  --cs-code-bg: rgba(124, 58, 237, 0.09);
+  --cs-code-border: rgba(124, 58, 237, 0.24);
+  --cs-backdrop: rgba(30, 22, 48, 0.45);
+  --cs-shadow: 0 24px 60px rgba(34, 25, 51, 0.18);
+  --cs-scroll-thumb: #d5c9b6;
+  --cs-scroll-hover: #bfb09a;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background: #0c0b12;
-  color: #ede9fe;
+  background: var(--cs-bg);
+  color: var(--cs-text);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -43,6 +123,22 @@ body {
   filter: drop-shadow(0 4px 24px rgba(255, 117, 181, 0.28));
 }
 
+[data-theme="light"] .charm-wordmark {
+  background: linear-gradient(
+    90deg,
+    #d9269d 0%,
+    #7c3aed 30%,
+    #0d9488 58%,
+    #db2777 82%,
+    #d9269d 100%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 4px 18px rgba(217, 38, 157, 0.18));
+}
+
 .charm-sparkle-a {
   display: inline-block;
   animation: sparkleFloatA 3.6s ease-in-out infinite;
@@ -58,12 +154,29 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0c0b12;
+  background: var(--cs-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #2c2642;
+  background: var(--cs-scroll-thumb);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #433a63;
+  background: var(--cs-scroll-hover);
 }
+
+@keyframes spotlightPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255, 117, 181, 0.85), 0 0 18px rgba(94, 234, 212, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(94, 234, 212, 0.9), 0 0 26px rgba(255, 117, 181, 0.55);
+  }
+}
+
+.charm-spotlight {
+  position: relative;
+  z-index: 20;
+  animation: spotlightPulse 1.5s ease-in-out infinite;
+  border-color: var(--cs-pink) !important;
+}
+

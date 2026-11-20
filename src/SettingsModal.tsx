@@ -14,8 +14,13 @@ interface Props {
   customThemes: ThemePreset[];
   onAddTheme: (theme: ThemePreset) => void;
   onClearCustomThemes: () => void;
+  onRestoreChecklist?: () => void;
+  tooltipsEnabled?: boolean;
+  onToggleTooltips?: () => void;
   doc: IRDoc;
 }
+
+type SettingsTab = "themes" | "json" | "font" | "backup";
 
 const FONT_PRESETS = [
   { label: "JetBrains Mono (Default)", value: `"JetBrains Mono", "SF Mono", Menlo, Monaco, ui-monospace, monospace` },
@@ -71,8 +76,12 @@ export function SettingsModal({
   customThemes,
   onAddTheme,
   onClearCustomThemes,
+  onRestoreChecklist,
+  tooltipsEnabled = true,
+  onToggleTooltips,
   doc,
 }: Props) {
+  const [section, setSection] = useState<SettingsTab>("themes");
   const [name, setName] = useState("My Custom Theme");
   const [darkBG, setDarkBG] = useState(true);
   const [bg, setBg] = useState("#191724");
@@ -81,6 +90,7 @@ export function SettingsModal({
   const [borderIdle, setBorderIdle] = useState("#524f67");
   const [jsonPaste, setJsonPaste] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [customFontInput, setCustomFontInput] = useState("");
 
   if (!open) return null;
@@ -93,7 +103,7 @@ export function SettingsModal({
       const parsed = parseUploadedTheme(text);
       onAddTheme(parsed);
       setError(null);
-      onClose();
+      setSavedNote(`Added and applied "${parsed.label}"`);
     } catch (err) {
       setError(`Invalid theme JSON: ${(err as Error).message}`);
     }
@@ -105,16 +115,17 @@ export function SettingsModal({
       onAddTheme(parsed);
       setError(null);
       setJsonPaste("");
-      onClose();
+      setSavedNote(`Added and applied "${parsed.label}"`);
     } catch (err) {
       setError(`Could not parse JSON: ${(err as Error).message}`);
     }
   };
 
   const handleCreateQuick = () => {
+    const label = `${name.trim() || "Custom"} (Custom)`;
     onAddTheme({
       id: `custom-${Date.now()}`,
-      label: `${name.trim() || "Custom"} (Custom)`,
+      label,
       darkBG,
       background: bg,
       foreground: fg,
@@ -126,7 +137,8 @@ export function SettingsModal({
         surface: bg,
       },
     });
-    onClose();
+    setError(null);
+    setSavedNote(`Created and applied "${label}"`);
   };
 
   const downloadIR = () => {
@@ -139,154 +151,329 @@ export function SettingsModal({
     URL.revokeObjectURL(url);
   };
 
+  const navItems: { id: SettingsTab; label: string; icon: string; desc: string }[] = [
+    { id: "themes", label: "Theme Builder", icon: "◐", desc: "Custom palette & token preview" },
+    { id: "json",   label: "Import Theme JSON", icon: "{ }", desc: "Upload or paste terminal themes" },
+    { id: "font",   label: "Terminal Font", icon: "Aa", desc: "Preview monospace typography" },
+    { id: "backup", label: "Backup & Workspace", icon: "⬇", desc: "Download IR spec, tips & tooltips" },
+  ];
+
   return (
     <div
       onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 100,
-        background: "rgba(8, 7, 14, 0.72)",
-        backdropFilter: "blur(6px)",
+        zIndex: 115,
+        background: "var(--cs-backdrop)",
+        backdropFilter: "blur(8px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 20,
+        padding: "24px 20px",
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(620px, 100%)",
-          maxHeight: "88vh",
-          overflowY: "auto",
-          background: "#13111d",
-          border: "1px solid #382f57",
-          borderRadius: 14,
-          padding: 22,
-          boxShadow: "0 24px 60px rgba(0, 0, 0, 0.65)",
+          width: "min(940px, 95vw)",
+          height: "min(84vh, 760px)",
+          background: "var(--cs-surface)",
+          border: "1px solid var(--cs-border-strong)",
+          borderRadius: 16,
+          boxShadow: "var(--cs-shadow)",
           display: "flex",
           flexDirection: "column",
-          gap: 18,
+          overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Page Header */}
+        <div
+          style={{
+            padding: "18px 24px",
+            borderBottom: "1px solid var(--cs-border)",
+            background: "var(--cs-pill-bg)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+          }}
+        >
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, color: "#f5d0fe" }}>Studio Settings &amp; Custom Themes</h2>
-            <div style={{ fontSize: 12, color: "#8b82ad", marginTop: 2 }}>
-              Upload terminal color schemes, customize fonts, or export your project IR.
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--cs-text-strong)" }}>
+              Studio Settings &amp; Custom Themes
+            </h2>
+            <div style={{ fontSize: 12.5, color: "var(--cs-text-muted)", marginTop: 3 }}>
+              Customize terminal palettes, monospace preview fonts, workspace tooltips, and project backups.
             </div>
           </div>
-          <button onClick={onClose} style={btn}>✕</button>
+          <button onClick={onClose} style={closeBtn}>✕ Close</button>
         </div>
 
-        {error && (
-          <div style={{ padding: "8px 12px", borderRadius: 8, background: "rgba(244, 63, 94, 0.16)", border: "1px solid rgba(244, 63, 94, 0.45)", color: "#fda4af", fontSize: 12 }}>
-            {error}
-          </div>
-        )}
+        {/* 2-Column Page Body */}
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "235px 1fr", minHeight: 0 }}>
+          {/* Sidebar */}
+          <nav
+            style={{
+              borderRight: "1px solid var(--cs-border)",
+              background: "var(--cs-nav-bg)",
+              padding: 14,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            {navItems.map((item) => {
+              const active = section === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setSection(item.id);
+                    setError(null);
+                  }}
+                  style={{
+                    textAlign: "left",
+                    padding: "11px 12px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    background: active ? "var(--cs-pink-bg)" : "transparent",
+                    border: `1px solid ${active ? "var(--cs-pink-border)" : "transparent"}`,
+                    color: active ? "var(--cs-text-strong)" : "var(--cs-text-muted)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ fontSize: 13.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: active ? "var(--cs-pink)" : "var(--cs-text-dim)", fontFamily: "ui-monospace, monospace", fontSize: 12 }}>{item.icon}</span>
+                    {item.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: active ? "var(--cs-text-body)" : "var(--cs-text-dim)", paddingLeft: 24 }}>
+                    {item.desc}
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* 1. Quick Custom Theme Builder */}
-        <div style={card}>
-          <h3 style={h3}>Create Custom Theme</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end", marginBottom: 10 }}>
-            <label style={lbl}>
-              Theme Name
-              <input value={name} onChange={(e) => setName(e.target.value)} style={inp} />
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, paddingBottom: 6, cursor: "pointer" }}>
-              <input type="checkbox" checked={darkBG} onChange={(e) => setDarkBG(e.target.checked)} style={{ accentColor: "#ff75b5" }} />
-              Dark Background
-            </label>
-          </div>
+          {/* Content */}
+          <div style={{ padding: "24px 28px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 18 }}>
+            {error && (
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", color: "#e11d48", fontSize: 12.5 }}>
+                {error}
+              </div>
+            )}
+            {savedNote && (
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", color: "var(--cs-mint)", fontSize: 12.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>✓ {savedNote}</span>
+                <button onClick={() => setSavedNote(null)} style={{ background: "none", border: "none", color: "var(--cs-mint)", cursor: "pointer" }}>✕</button>
+              </div>
+            )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 12 }}>
-            {[
-              ["Terminal Bg", bg, setBg],
-              ["Text Fg", fg, setFg],
-              ["Accent", accent, setAccent],
-              ["Border", borderIdle, setBorderIdle],
-            ].map(([label, val, setter]) => (
-              <label key={label as string} style={lbl}>
-                {label as string}
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input type="color" value={val as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)} style={{ width: 28, height: 26, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
-                  <code style={{ fontSize: 11, color: "#a59ec9" }}>{val as string}</code>
+            {section === "themes" && (
+              <>
+                <div style={card}>
+                  <h3 style={h3}>Create Custom Terminal Theme</h3>
+                  <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
+                    Custom themes update the terminal canvas colors and automatically sync your <code style={codeChip}>$accent</code>, <code style={codeChip}>$borderIdle</code>, and <code style={codeChip}>$textMain</code> LightDark tokens.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end", marginBottom: 14 }}>
+                    <label style={lbl}>
+                      Theme Name
+                      <input value={name} onChange={(e) => setName(e.target.value)} style={inp} />
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, paddingBottom: 6, cursor: "pointer", color: "var(--cs-text-body)" }}>
+                      <input type="checkbox" checked={darkBG} onChange={(e) => setDarkBG(e.target.checked)} style={{ accentColor: "var(--cs-pink)" }} />
+                      Dark Background
+                    </label>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                    {[
+                      ["Terminal Bg", bg, setBg],
+                      ["Text Fg", fg, setFg],
+                      ["Accent", accent, setAccent],
+                      ["Border", borderIdle, setBorderIdle],
+                    ].map(([label, val, setter]) => (
+                      <label key={label as string} style={lbl}>
+                        {label as string}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--cs-input)", border: "1px solid var(--cs-btn-border)", borderRadius: 6, padding: "4px 6px" }}>
+                          <input type="color" value={val as string} onChange={(e) => (setter as (v: string) => void)(e.target.value)} style={{ width: 26, height: 22, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
+                          <code style={{ fontSize: 11, color: "var(--cs-lavender-text)" }}>{val as string}</code>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Live Preview Box */}
+                  <div
+                    style={{
+                      padding: 14,
+                      borderRadius: 10,
+                      background: bg,
+                      border: `1px solid ${borderIdle}`,
+                      fontFamily,
+                      marginBottom: 14,
+                    }}
+                  >
+                    <div style={{ border: `1px solid ${accent}`, borderRadius: 6, padding: "8px 12px" }}>
+                      <div style={{ color: accent, fontWeight: 700, fontSize: 12.5 }}>╭─ {name || "Custom Theme"} Preview</div>
+                      <div style={{ color: fg, fontSize: 12, marginTop: 4 }}>
+                        Lip Gloss borders, padding, and adaptive tokens preview live here.
+                      </div>
+                    </div>
+                  </div>
+
+                  <button onClick={handleCreateQuick} style={primaryBtn}>+ Add &amp; Apply Custom Theme</button>
                 </div>
-              </label>
-            ))}
-          </div>
-          <button onClick={handleCreateQuick} style={primaryBtn}>+ Add &amp; Apply Custom Theme</button>
-        </div>
 
-        {/* 2. Upload / Paste Theme JSON */}
-        <div style={card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <h3 style={{ ...h3, margin: 0 }}>Upload or Paste Theme JSON</h3>
-            <label style={{ ...btn, cursor: "pointer", display: "inline-block" }}>
-              📁 Upload .json
-              <input type="file" accept=".json,application/json" onChange={handleFileUpload} style={{ display: "none" }} />
-            </label>
-          </div>
-          <div style={{ fontSize: 11.5, color: "#8b82ad", marginBottom: 8 }}>
-            Accepts Charm Studio themes or standard terminal JSON (<code style={{ color: "#c4b5fd" }}>background</code>, <code style={{ color: "#c4b5fd" }}>foreground</code>, <code style={{ color: "#c4b5fd" }}>accent</code>/<code style={{ color: "#c4b5fd" }}>purple</code>).
-          </div>
-          <textarea
-            rows={5}
-            placeholder={EXAMPLE_THEME_JSON}
-            value={jsonPaste}
-            onChange={(e) => setJsonPaste(e.target.value)}
-            style={{ ...inp, fontFamily: "ui-monospace, monospace", resize: "vertical", marginBottom: 8 }}
-          />
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={handlePasteImport} disabled={!jsonPaste.trim()} style={btn}>Import Pasted JSON</button>
-            <button onClick={() => setJsonPaste(EXAMPLE_THEME_JSON)} style={btn}>Load Rosé Pine Example</button>
-            {customThemes.length > 0 && (
-              <button onClick={onClearCustomThemes} style={{ ...btn, marginLeft: "auto", color: "#fda4af" }}>
-                Clear Custom ({customThemes.length})
-              </button>
+                {customThemes.length > 0 && (
+                  <div style={card}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <h3 style={{ ...h3, margin: 0 }}>Saved Custom Themes ({customThemes.length})</h3>
+                      <button onClick={onClearCustomThemes} style={{ ...btn, color: "#e11d48" }}>
+                        Clear All Custom Themes
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {customThemes.map((t) => (
+                        <div key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 8, background: "var(--cs-input)", border: "1px solid var(--cs-border-subtle)", fontSize: 12, color: "var(--cs-text)" }}>
+                          <span style={{ width: 12, height: 12, borderRadius: 3, background: t.background, border: `2px solid ${t.tokens.accent}` }} />
+                          <span>{t.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {section === "json" && (
+              <div style={card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <h3 style={{ ...h3, margin: 0 }}>Upload or Paste Terminal Theme JSON</h3>
+                  <label style={{ ...btn, cursor: "pointer", display: "inline-block" }}>
+                    📁 Upload .json
+                    <input type="file" accept=".json,application/json" onChange={handleFileUpload} style={{ display: "none" }} />
+                  </label>
+                </div>
+                <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
+                  Accepts Charm Studio JSON or standard terminal theme files containing <code style={codeChip}>background</code>, <code style={codeChip}>foreground</code>, and <code style={codeChip}>accent</code> / <code style={codeChip}>purple</code>.
+                </p>
+                <textarea
+                  rows={10}
+                  placeholder={EXAMPLE_THEME_JSON}
+                  value={jsonPaste}
+                  onChange={(e) => setJsonPaste(e.target.value)}
+                  style={{ ...inp, fontFamily: "ui-monospace, monospace", resize: "vertical", marginBottom: 12 }}
+                />
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={handlePasteImport} disabled={!jsonPaste.trim()} style={primaryBtn}>
+                    Import &amp; Apply JSON
+                  </button>
+                  <button onClick={() => setJsonPaste(EXAMPLE_THEME_JSON)} style={btn}>
+                    Load Rosé Pine Example
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {section === "font" && (
+              <div style={card}>
+                <h3 style={h3}>Preview Terminal Font</h3>
+                <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
+                  Switch the monospace font used inside the WASM terminal canvases (does not affect generated Go code).
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+                  <label style={lbl}>
+                    Font Preset
+                    <select value={fontFamily} onChange={(e) => onChangeFont(e.target.value)} style={inp}>
+                      {FONT_PRESETS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
+                    </select>
+                  </label>
+                  <label style={lbl}>
+                    Or Custom Local Font Name
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input placeholder="e.g. Berkeley Mono" value={customFontInput} onChange={(e) => setCustomFontInput(e.target.value)} style={inp} />
+                      <button
+                        onClick={() => customFontInput.trim() && onChangeFont(`"${customFontInput.trim()}", ui-monospace, monospace`)}
+                        style={btn}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </label>
+                </div>
+
+                <div style={{ padding: 14, borderRadius: 10, background: "var(--cs-input)", border: "1px solid var(--cs-border-subtle)", fontFamily, fontSize: 13, lineHeight: 1.6, color: "var(--cs-text)" }}>
+                  <div>╭──────────────────────────────────────────╮</div>
+                  <div>│  0123456789  Il1O0  =&gt;  !=  ::  ╭─╮  │</div>
+                  <div>│  charmbracelet/lipgloss + bubbles/v2     │</div>
+                  <div>╰──────────────────────────────────────────╯</div>
+                </div>
+              </div>
+            )}
+
+            {section === "backup" && (
+              <>
+                <div style={card}>
+                  <h3 style={h3}>Hover Tooltips &amp; Workspace Hints</h3>
+                  <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
+                    Toggle beginner tooltips and <code style={codeChip}>?</code> helper badges across the studio workspace. Turn them off once you already know your way around.
+                  </p>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    {onToggleTooltips && (
+                      <button
+                        onClick={onToggleTooltips}
+                        style={tooltipsEnabled ? primaryBtn : btn}
+                      >
+                        {tooltipsEnabled ? "💬 Hover Tooltips: ON (Click to disable)" : "💬 Hover Tooltips: OFF (Click to enable)"}
+                      </button>
+                    )}
+                    {onRestoreChecklist && (
+                      <button
+                        onClick={() => {
+                          onRestoreChecklist();
+                          onClose();
+                        }}
+                        style={btn}
+                      >
+                        ✦ Restore Quick-Start Checklist
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={card}>
+                  <h3 style={h3}>Export Portable Layout IR Spec</h3>
+                  <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--cs-text-muted)", lineHeight: 1.5 }}>
+                    Download your entire layout tree, Lip Gloss styles, adaptive tokens, and overlays as an <code style={codeChip}>ir.json</code> file you can re-import anytime via <b>📥 Import / GitHub</b>.
+                  </p>
+                  <button onClick={downloadIR} style={primaryBtn}>⬇ Download charm-studio-layout.ir.json</button>
+                </div>
+              </>
             )}
           </div>
-        </div>
-
-        {/* 3. Terminal Font */}
-        <div style={card}>
-          <h3 style={h3}>Preview Terminal Font</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label style={lbl}>
-              Font Preset
-              <select value={fontFamily} onChange={(e) => onChangeFont(e.target.value)} style={inp}>
-                {FONT_PRESETS.map((f) => <option key={f.label} value={f.value}>{f.label}</option>)}
-              </select>
-            </label>
-            <label style={lbl}>
-              Or Custom Local Font Name
-              <div style={{ display: "flex", gap: 6 }}>
-                <input placeholder="e.g. Berkeley Mono" value={customFontInput} onChange={(e) => setCustomFontInput(e.target.value)} style={inp} />
-                <button
-                  onClick={() => customFontInput.trim() && onChangeFont(`"${customFontInput.trim()}", ui-monospace, monospace`)}
-                  style={btn}
-                >
-                  Apply
-                </button>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {/* 4. Export IR */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 4 }}>
-          <span style={{ fontSize: 12, color: "#8b82ad" }}>Want a local backup of your current layout?</span>
-          <button onClick={downloadIR} style={btn}>⬇ Download ir.json</button>
         </div>
       </div>
     </div>
   );
 }
 
-const card: React.CSSProperties = { background: "#181526", border: "1px solid #2b2442", borderRadius: 10, padding: 14 };
-const h3: React.CSSProperties = { margin: "0 0 10px", fontSize: 13.5, fontWeight: 700, color: "#f5d0fe" };
-const lbl: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#d8cff5" };
-const inp: React.CSSProperties = { background: "#0c0b12", color: "#ede9fe", border: "1px solid #322b4d", borderRadius: 6, padding: "6px 8px", fontSize: 12, width: "100%" };
-const btn: React.CSSProperties = { background: "#1b1729", color: "#ddd6fe", border: "1px solid #322b4d", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" };
-const primaryBtn: React.CSSProperties = { background: "rgba(255, 117, 181, 0.20)", color: "#ff99c8", border: "1px solid #ff75b5", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" };
+const card: React.CSSProperties = { background: "var(--cs-card)", border: "1px solid var(--cs-border-subtle)", borderRadius: 11, padding: 18 };
+const h3: React.CSSProperties = { margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "var(--cs-text-heading)" };
+const lbl: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "var(--cs-text-body)" };
+const inp: React.CSSProperties = { background: "var(--cs-input)", color: "var(--cs-text)", border: "1px solid var(--cs-btn-border)", borderRadius: 6, padding: "7px 9px", fontSize: 12.5, width: "100%" };
+const btn: React.CSSProperties = { background: "var(--cs-btn-bg)", color: "var(--cs-btn-text)", border: "1px solid var(--cs-btn-border)", borderRadius: 7, padding: "7px 11px", fontSize: 12, cursor: "pointer" };
+const closeBtn: React.CSSProperties = { background: "var(--cs-btn-bg)", color: "var(--cs-btn-text)", border: "1px solid var(--cs-btn-border)", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
+const primaryBtn: React.CSSProperties = { background: "var(--cs-pink-bg)", color: "var(--cs-pink-soft)", border: "1px solid var(--cs-pink)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
+const codeChip: React.CSSProperties = {
+  fontFamily: `"JetBrains Mono", ui-monospace, monospace`,
+  fontSize: "0.9em",
+  padding: "1px 6px",
+  borderRadius: 5,
+  background: "var(--cs-code-bg)",
+  color: "var(--cs-text-heading)",
+  border: "1px solid var(--cs-code-border)",
+};

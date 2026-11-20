@@ -4,6 +4,8 @@ export interface TokenPair {
 }
 
 export type ColorProfile = "truecolor" | "ansi256" | "ansi16" | "ascii";
+export type WorkspaceMode = "studio" | "pro";
+export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
 
 export interface IRStyle {
   border: "rounded" | "normal" | "thick" | "double" | "none";
@@ -34,7 +36,40 @@ export type ContentType =
   | "bubble:list"
   | "bubble:table"
   | "bubble:viewport"
-  | "bubble:textinput";
+  | "bubble:textinput"
+  | "huh:form"
+  | "glamour:markdown"
+  | "gum:choose"
+  | "gum:confirm"
+  | "wish:ssh";
+
+export interface IRListItem {
+  title: string;
+  desc: string;
+}
+
+export interface IRTableColumn {
+  title: string;
+  width: number;
+}
+
+export interface IRHuhField {
+  id: string;
+  kind: "input" | "select" | "confirm";
+  label: string;
+  placeholder?: string;
+  options?: string[];
+}
+
+export interface IRWidgetData {
+  listTitle?: string;
+  listItems?: IRListItem[];
+  tableColumns?: IRTableColumn[];
+  tableRows?: string[][];
+  inputPrompt?: string;
+  inputPlaceholder?: string;
+  huhFields?: IRHuhField[];
+}
 
 export interface IRNode {
   id: string;
@@ -45,6 +80,7 @@ export interface IRNode {
   width?: IRSize;
   height?: IRSize;
   content?: string;
+  widgetData?: IRWidgetData;
   children?: IRNode[];
 }
 
@@ -52,6 +88,7 @@ export interface IROverlay {
   id: string;
   visible: boolean;
   z: number;
+  anchor?: OverlayAnchor;
   node: IRNode;
 }
 
@@ -82,6 +119,64 @@ export interface TelemetryNode {
   overflowMsg?: string;
 }
 
+export function sanitizeGoId(raw: string, fallback = "pane"): string {
+  const cleaned = raw
+    .trim()
+    .replace(/[^a-zA-Z0-9_]+(.)/g, (_, c: string) => c.toUpperCase())
+    .replace(/[^a-zA-Z0-9_]/g, "");
+  if (!cleaned) return fallback;
+  const normalized = cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
+  return /^[0-9]/.test(normalized) ? `p${normalized}` : normalized;
+}
+
+export function defaultWidgetData(ct?: ContentType): IRWidgetData {
+  switch (ct) {
+    case "bubble:list":
+      return {
+        listTitle: "Navigation",
+        listItems: [
+          { title: "Overview", desc: "Cluster health & metrics" },
+          { title: "Deployments", desc: "14 active workloads" },
+          { title: "Live Logs", desc: "Streaming stdout/stderr" },
+          { title: "Ingresses", desc: "TLS & routing rules" },
+          { title: "Secrets", desc: "Encrypted vault keys" },
+        ],
+      };
+    case "bubble:table":
+      return {
+        tableColumns: [
+          { title: "Service", width: 14 },
+          { title: "Status", width: 10 },
+          { title: "CPU", width: 6 },
+          { title: "Mem", width: 7 },
+        ],
+        tableRows: [
+          ["api-gateway", "Running", "12%", "184Mi"],
+          ["auth-worker", "Running", "4%", "92Mi"],
+          ["billing-cron", "Idle", "0%", "48Mi"],
+          ["edge-proxy", "Running", "28%", "310Mi"],
+          ["indexer-v2", "Syncing", "64%", "740Mi"],
+          ["notify-bus", "Degraded", "41%", "256Mi"],
+        ],
+      };
+    case "bubble:textinput":
+      return {
+        inputPrompt: "> ",
+        inputPlaceholder: "Filter services or type a command...",
+      };
+    case "huh:form":
+      return {
+        huhFields: [
+          { id: "projectName", kind: "input", label: "Project Name", placeholder: "charm-cli-app" },
+          { id: "stack", kind: "select", label: "Charm Stack", options: ["Lip Gloss + Bubbles", "Huh Forms", "Glamour + Glow", "Wish SSH TUI"] },
+          { id: "enableSSH", kind: "confirm", label: "Serve via Wish SSH?" },
+        ],
+      };
+    default:
+      return {};
+  }
+}
+
 export function listEditableNodes(doc: IRDoc): IRNode[] {
   const out: IRNode[] = [];
   const walk = (n: IRNode) => {
@@ -90,6 +185,23 @@ export function listEditableNodes(doc: IRDoc): IRNode[] {
   };
   walk(doc.root);
   doc.overlays.forEach((ov) => walk(ov.node));
+  return out;
+}
+
+export function listVisibleFocusBoxes(doc: IRDoc, cols: number): IRNode[] {
+  const out: IRNode[] = [];
+  const walk = (n: IRNode) => {
+    if ((n.width?.collapseBelow ?? 0) > 0 && cols < (n.width?.collapseBelow ?? 0)) {
+      return;
+    }
+    if (n.kind === "Box") {
+      out.push(n);
+      return;
+    }
+    n.children?.forEach(walk);
+  };
+  walk(doc.root);
+  doc.overlays.filter((o) => o.visible).forEach((o) => out.push(o.node));
   return out;
 }
 

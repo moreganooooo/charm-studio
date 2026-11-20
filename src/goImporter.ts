@@ -204,6 +204,9 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
   if (/bubbles(?:\/v2)?\/table/.test(combinedGo)) detectedBubbles.push("bubble:table");
   if (/bubbles(?:\/v2)?\/viewport/.test(combinedGo)) detectedBubbles.push("bubble:viewport");
   if (/bubbles(?:\/v2)?\/textinput/.test(combinedGo)) detectedBubbles.push("bubble:textinput");
+  if (/charmbracelet\/huh/.test(combinedGo)) detectedBubbles.push("huh:form");
+  if (/charmbracelet\/glamour/.test(combinedGo)) detectedBubbles.push("glamour:markdown");
+  if (/charmbracelet\/wish/.test(combinedGo)) detectedBubbles.push("wish:ssh");
 
   return {
     styles,
