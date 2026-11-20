@@ -3,14 +3,23 @@ export interface TokenPair {
   dark: string;
 }
 
+export type ColorProfile = "truecolor" | "ansi256" | "ansi16" | "ascii";
+
 export interface IRStyle {
   border: "rounded" | "normal" | "thick" | "double" | "none";
+  borderEdges?: [boolean, boolean, boolean, boolean];
   borderColor: string;
   fg: string;
   bg?: string;
   padding: [number, number, number, number];
   margin: [number, number, number, number];
   bold: boolean;
+  italic?: boolean;
+  faint?: boolean;
+  underline?: boolean;
+  alignH?: "left" | "center" | "right";
+  alignV?: "top" | "center" | "bottom";
+  truncate?: boolean;
 }
 
 export interface IRSize {
@@ -32,6 +41,7 @@ export interface IRNode {
   kind: "JoinHorizontal" | "JoinVertical" | "Box";
   style?: string;
   contentType?: ContentType;
+  joinAlign?: "start" | "center" | "end";
   width?: IRSize;
   height?: IRSize;
   content?: string;
@@ -69,12 +79,13 @@ export interface TelemetryNode {
   content: Rect;
   overflowX: boolean;
   overflowY: boolean;
+  overflowMsg?: string;
 }
 
 export function listEditableNodes(doc: IRDoc): IRNode[] {
   const out: IRNode[] = [];
   const walk = (n: IRNode) => {
-    if (n.kind === "Box") out.push(n);
+    out.push(n);
     n.children?.forEach(walk);
   };
   walk(doc.root);

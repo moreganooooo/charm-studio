@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { dispatchKey, ensureEngineReady, renderFrame } from "./wasmEngine";
-import type { IRDoc, Rect, TelemetryNode } from "./types";
+import type { ColorProfile, IRDoc, Rect, TelemetryNode } from "./types";
 
 export interface TermPalette {
   id: string;
@@ -18,6 +18,7 @@ interface Props {
   rows: number;
   fontSize?: number;
   palette: TermPalette;
+  colorProfile: ColorProfile;
   showOverlay: boolean;
   selectedId: string;
   onSelect: (id: string) => void;
@@ -35,6 +36,7 @@ export function TerminalViewport({
   rows,
   fontSize = 14,
   palette,
+  colorProfile,
   showOverlay,
   selectedId,
   onSelect,
@@ -47,7 +49,7 @@ export function TerminalViewport({
   const [focused, setFocused] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetryNode[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.35 });
+  const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.38 });
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +65,6 @@ export function TerminalViewport({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Measure exact monospace advance width for this fontSize
     ctx.font = `${fontSize}px ${FONT_STACK}`;
     const cw = Math.ceil(ctx.measureText("M").width * 10) / 10;
     const ch = Math.ceil(fontSize * 1.38);
@@ -77,7 +78,7 @@ export function TerminalViewport({
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
 
-    const frame = renderFrame(doc, cols, rows, palette.darkBG);
+    const frame = renderFrame(doc, cols, rows, palette.darkBG, colorProfile);
     if (frame.error) {
       console.error("WASM render error:", frame.error);
       return;
@@ -92,7 +93,7 @@ export function TerminalViewport({
       for (let c = 0; c < cols; c++) {
         const cell = frame.cells[r * cols + c];
         if (!cell) continue;
-        if (cell.w === 0 && !cell.c) continue; // right half of wide glyph
+        if (cell.w === 0 && !cell.c) continue;
 
         const px = c * cw;
         const py = r * ch;
@@ -101,6 +102,7 @@ export function TerminalViewport({
         const isItalic = (attrs & 2) !== 0;
         const isReverse = (attrs & 4) !== 0;
         const isFaint = (attrs & 8) !== 0;
+        const isUnderline = (attrs & 16) !== 0;
 
         let fg = cell.f || palette.foreground;
         let bg = cell.b || "";
@@ -122,12 +124,17 @@ export function TerminalViewport({
           ctx.fillText(cell.c, px, py + ch * 0.52);
           ctx.globalAlpha = 1;
         }
+
+        if (isUnderline) {
+          ctx.fillStyle = fg;
+          ctx.fillRect(px, py + ch - 2, cw, 1);
+        }
       }
     }
 
     setTelemetry(frame.telemetry ?? []);
     onTelemetry?.(frame.telemetry ?? []);
-  }, [ready, doc, renderTick, cols, rows, fontSize, palette]);
+  }, [ready, doc, renderTick, cols, rows, fontSize, palette, colorProfile]);
 
   const hitTest = (e: React.MouseEvent<SVGSVGElement>): TelemetryNode | null => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -177,13 +184,17 @@ export function TerminalViewport({
         outline: "none",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid #1e2436", fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid #1e2436", fontSize: 12, gap: 8 }}>
         <span style={{ fontWeight: 600, color: "#cbd5e1" }}>
           {title} <span style={{ color: "#64748b", fontWeight: 400 }}>{cols}×{rows}</span>
           {focused && <span style={{ color: "#7aa2f7", marginLeft: 8, fontSize: 11 }}>⌨ Keys → #{selectedId}</span>}
         </span>
         {overflows.length > 0 ? (
-          <span style={{ color: "#fca5a5", background: "rgba(239, 68, 68, 0.16)", border: "1px solid rgba(239, 68, 68, 0.4)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}>
+          <span
+            title={overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "overflow"}`).join("\n")}
+            onClick={() => onSelect(overflows[0].id)}
+            style={{ cursor: "pointer", color: "#fca5a5", background: "rgba(239, 68, 68, 0.16)", border: "1px solid rgba(239, 68, 68, 0.4)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}
+          >
             ⚠ Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}
           </span>
         ) : (
@@ -194,7 +205,12 @@ export function TerminalViewport({
       </div>
 
       <div style={{ position: "relative", padding: 6, background: palette.background }}>
-        <canvas ref={canvasRef} style={{ display: "block" }} />
+        {!ready && (
+          <div style={{ padding: 24, fontSize: 12, color: "#94a3b8", fontFamily: "ui-monospace, monospace" }}>
+            Booting Go Lip Gloss WASM...
+          </div>
+        )}
+        <canvas ref={canvasRef} style={{ display: ready ? "block" : "none" }} />
         <svg
           onMouseMove={(e) => setHoveredId(hitTest(e)?.id ?? null)}
           onMouseLeave={() => setHoveredId(null)}

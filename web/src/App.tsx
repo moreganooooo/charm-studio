@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { generateLayoutGo, generateStylesGo } from "./codegen";
+import { generateLayoutGo, generateMainGo, generateStylesGo } from "./codegen";
 import { TerminalViewport, type TermPalette } from "./TerminalViewport";
 import {
   findNode,
   listEditableNodes,
   updateNodeInDoc,
+  type ColorProfile,
   type ContentType,
   type IRDoc,
   type IRStyle,
@@ -54,24 +55,24 @@ const DEFAULT_IR: IRDoc = {
     borderIdle: { light: "#9aa5ce", dark: "#414868" },
     textMain:   { light: "#3760bf", dark: "#c0caf5" },
     modalGlow:  { light: "#9854f1", dark: "#bb9af7" },
-    surface:    { light: "#e9e9ec", dark: "#1f2335" },
+    surface:    { light: "#d5d6db", dark: "#1f2335" },
   },
   styles: {
     sidebar: {
-      border: "rounded", borderColor: "$accent", fg: "$textMain",
+      border: "rounded", borderEdges: [true, true, true, true], borderColor: "$accent", fg: "$textMain",
       padding: [0, 1, 0, 1], margin: [0, 1, 0, 0], bold: false,
     },
     main: {
-      border: "normal", borderColor: "$borderIdle", fg: "$textMain",
+      border: "normal", borderEdges: [true, true, true, true], borderColor: "$borderIdle", fg: "$textMain",
       padding: [1, 2, 1, 2], margin: [0, 0, 0, 0], bold: false,
     },
     status: {
-      border: "none", borderColor: "", fg: "$accent",
-      padding: [0, 1, 0, 1], margin: [0, 0, 0, 0], bold: true,
+      border: "none", borderEdges: [true, true, true, true], borderColor: "", fg: "$accent",
+      padding: [0, 1, 0, 1], margin: [0, 0, 0, 0], bold: true, truncate: true,
     },
     modal: {
-      border: "double", borderColor: "$modalGlow", fg: "$textMain", bg: "$surface",
-      padding: [1, 2, 1, 2], margin: [0, 0, 0, 0], bold: true,
+      border: "double", borderEdges: [true, true, true, true], borderColor: "$modalGlow", fg: "$textMain", bg: "$surface",
+      padding: [1, 2, 1, 2], margin: [0, 0, 0, 0], bold: true, alignH: "center", alignV: "center",
     },
   },
   root: {
@@ -110,7 +111,7 @@ const DEFAULT_IR: IRDoc = {
         contentType: "text",
         width: { mode: "fill", weight: 1 },
         height: { mode: "fixed", value: 1 },
-        content: "Click a pane & press ↑/↓/j/k to drive real Bubbles v2 • /: filter list",
+        content: "Click a pane & press ↑/↓/j/k to drive Bubbles v2 • /: filter list",
       },
     ],
   },
@@ -126,7 +127,7 @@ const DEFAULT_IR: IRDoc = {
         contentType: "text",
         width: { mode: "fixed", value: 44 },
         height: { mode: "fixed", value: 9 },
-        content: "Keyboard Shortcuts (v2 Layer)\n\n  ↑/↓    Scroll active Bubble\n  /      Filter list items",
+        content: "Keyboard Shortcuts (v2 Layer)\n\n↑/↓  Scroll active Bubble\n/    Filter list items",
       },
     },
   ],
@@ -141,13 +142,14 @@ export default function App() {
   const [cols, setCols] = useState(86);
   const [rows, setRows] = useState(24);
   const [paletteId, setPaletteId] = useState("tokyo-dark");
+  const [colorProfile, setColorProfile] = useState<ColorProfile>("truecolor");
   const [showOverlay, setShowOverlay] = useState(true);
 
   const [selectedId, setSelectedId] = useState<string>("mainPane");
   const [singleTel, setSingleTel] = useState<TelemetryNode[]>([]);
 
   const [rightTab, setRightTab] = useState<"inspector" | "code">("inspector");
-  const [codeFile, setCodeFile] = useState<"styles" | "layout">("styles");
+  const [codeFile, setCodeFile] = useState<"styles" | "layout" | "main">("styles");
   const [copied, setCopied] = useState(false);
 
   const palette = useMemo(
@@ -160,11 +162,13 @@ export default function App() {
   const selectedStyle: IRStyle | null = selectedNode?.style ? ir.styles[selectedNode.style] ?? null : null;
   const selectedTel = singleTel.find((t) => t.id === selectedId) ?? null;
   const showModal = ir.overlays[0]?.visible ?? false;
+  const tokenKeys = Object.keys(ir.tokens);
 
-  const generatedGo = useMemo(
-    () => (codeFile === "styles" ? generateStylesGo(ir) : generateLayoutGo(ir)),
-    [ir, codeFile]
-  );
+  const generatedGo = useMemo(() => {
+    if (codeFile === "styles") return generateStylesGo(ir);
+    if (codeFile === "layout") return generateLayoutGo(ir);
+    return generateMainGo(ir);
+  }, [ir, codeFile]);
 
   const updateSelectedStyle = (patch: Partial<IRStyle>) => {
     if (!selectedNode?.style) return;
@@ -180,6 +184,14 @@ export default function App() {
     const next: [number, number, number, number] = [...selectedStyle[field]];
     next[idx] = Math.max(0, val || 0);
     updateSelectedStyle({ [field]: next });
+  };
+
+  const toggleBorderEdge = (idx: number) => {
+    if (!selectedStyle) return;
+    const cur = selectedStyle.borderEdges ?? [true, true, true, true];
+    const next: [boolean, boolean, boolean, boolean] = [...cur];
+    next[idx] = !next[idx];
+    updateSelectedStyle({ borderEdges: next });
   };
 
   const toggleModal = () => {
@@ -200,9 +212,9 @@ export default function App() {
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 370px", minHeight: "100vh", background: "#0b0d13", color: "#e2e8f0", fontFamily: "system-ui, sans-serif" }}>
-      <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14, overflow: "auto", minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>
               Charm Studio <span style={{ color: "#7aa2f7", fontWeight: 500, fontSize: 13 }}>Lip Gloss + Bubbles v2</span>
             </h2>
@@ -212,7 +224,7 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <select
               value={paletteId}
               onChange={(e) => {
@@ -230,14 +242,27 @@ export default function App() {
                   });
                 }
               }}
-              style={{ ...inputStyle, width: "auto", padding: "5px 9px" }}
+              style={{ ...inputStyle, width: "auto", padding: "5px 8px" }}
             >
               {PALETTES.map((p) => (
                 <option key={p.id} value={p.id}>{p.label}</option>
               ))}
             </select>
+
+            <select
+              title="Color Profile Downsampling"
+              value={colorProfile}
+              onChange={(e) => setColorProfile(e.target.value as ColorProfile)}
+              style={{ ...inputStyle, width: "auto", padding: "5px 8px" }}
+            >
+              <option value="truecolor">TrueColor</option>
+              <option value="ansi256">ANSI 256</option>
+              <option value="ansi16">ANSI 16</option>
+              <option value="ascii">ASCII</option>
+            </select>
+
             <button onClick={toggleModal} style={btnStyle(showModal)}>
-              Layer Modal: {showModal ? "ON" : "OFF"}
+              Modal: {showModal ? "ON" : "OFF"}
             </button>
             <button onClick={() => setShowOverlay((v) => !v)} style={btnStyle(showOverlay)}>
               DevTools: {showOverlay ? "ON" : "OFF"}
@@ -245,7 +270,7 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 13, color: "#94a3b8", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13, color: "#94a3b8", flexWrap: "wrap" }}>
           {viewMode === "single" && (
             <>
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -258,16 +283,16 @@ export default function App() {
               </label>
             </>
           )}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#64748b" }}>Nodes:</span>
             {editableNodes.map((n) => (
               <button key={n.id} onClick={() => setSelectedId(n.id)} style={pillStyle(selectedId === n.id)}>
-                #{n.id}
+                {n.kind === "Box" ? `#${n.id}` : `⬚ ${n.id}`}
               </button>
             ))}
           </div>
           <span style={{ marginLeft: "auto", fontSize: 11, color: "#64748b" }}>
-            Click terminal & press ↑/↓/j/k to drive Bubbles
+            Click terminal & press ↑/↓/j/k
           </span>
         </div>
 
@@ -281,6 +306,7 @@ export default function App() {
               rows={rows}
               fontSize={14}
               palette={palette}
+              colorProfile={colorProfile}
               showOverlay={showOverlay}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -291,14 +317,15 @@ export default function App() {
               {selectedTel ? (
                 <span>
                   Selected <b style={{ color: "#e2e8f0" }}>#{selectedTel.id}</b> • total {selectedTel.margin.w}×{selectedTel.margin.h} • content {selectedTel.content.w}×{selectedTel.content.h}
+                  {selectedTel.overflowMsg && <span style={{ color: "#fca5a5", marginLeft: 10 }}>⚠ {selectedTel.overflowMsg}</span>}
                 </span>
               ) : (
-                <span>Node <b>#{selectedId}</b> is hidden/collapsed at {cols} cols.</span>
+                <span>Node <b>#{selectedId}</b> selected.</span>
               )}
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
             {MATRIX_PRESETS.map((vp) => (
               <TerminalViewport
                 key={vp.title}
@@ -309,6 +336,7 @@ export default function App() {
                 rows={vp.rows}
                 fontSize={11.5}
                 palette={palette}
+                colorProfile={colorProfile}
                 showOverlay={showOverlay}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
@@ -338,8 +366,32 @@ export default function App() {
         </div>
 
         {rightTab === "inspector" ? (
-          <div style={{ padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 16, fontSize: 13 }}>
-            {selectedNode && selectedStyle ? (
+          <div style={{ padding: 16, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14, fontSize: 13 }}>
+            {selectedNode && selectedNode.kind !== "Box" && (
+              <Section title={`Container: ${selectedNode.id} (${selectedNode.kind})`}>
+                <label style={labelCol}>
+                  Join Alignment
+                  <select
+                    value={selectedNode.joinAlign ?? "start"}
+                    onChange={(e) =>
+                      setIr((prev) =>
+                        updateNodeInDoc(prev, selectedNode.id, (n) => ({
+                          ...n,
+                          joinAlign: e.target.value as "start" | "center" | "end",
+                        }))
+                      )
+                    }
+                    style={inputStyle}
+                  >
+                    <option value="start">{selectedNode.kind === "JoinHorizontal" ? "Top (Start)" : "Left (Start)"}</option>
+                    <option value="center">Center</option>
+                    <option value="end">{selectedNode.kind === "JoinHorizontal" ? "Bottom (End)" : "Right (End)"}</option>
+                  </select>
+                </label>
+              </Section>
+            )}
+
+            {selectedNode && selectedNode.kind === "Box" && selectedStyle && (
               <>
                 <Section title={`Node #${selectedNode.id}`}>
                   <label style={{ ...labelCol, marginBottom: 8 }}>
@@ -435,7 +487,7 @@ export default function App() {
                 </Section>
 
                 <Section title={`Style: ${selectedNode.style}`}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
                     <label style={labelCol}>
                       Border
                       <select
@@ -450,10 +502,73 @@ export default function App() {
                         <option value="none">None</option>
                       </select>
                     </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 6 }}>
-                      <input type="checkbox" checked={selectedStyle.bold} onChange={(e) => updateSelectedStyle({ bold: e.target.checked })} />
-                      Bold
-                    </label>
+
+                    {selectedStyle.border !== "none" && (
+                      <div>
+                        <div style={{ color: "#94a3b8", fontSize: 11, marginBottom: 4 }}>BORDER EDGES</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                          {QUAD_LABELS.map((lbl, i) => {
+                            const active = (selectedStyle.borderEdges ?? [true, true, true, true])[i];
+                            return (
+                              <button key={lbl} onClick={() => toggleBorderEdge(i)} style={btnStyle(active)}>
+                                {lbl}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                      <label style={labelCol}>
+                        Border
+                        <select value={selectedStyle.borderColor || ""} onChange={(e) => updateSelectedStyle({ borderColor: e.target.value })} style={inputStyle}>
+                          <option value="">Default</option>
+                          {tokenKeys.map((k) => <option key={k} value={`$${k}`}>${k}</option>)}
+                        </select>
+                      </label>
+                      <label style={labelCol}>
+                        Text (Fg)
+                        <select value={selectedStyle.fg || ""} onChange={(e) => updateSelectedStyle({ fg: e.target.value })} style={inputStyle}>
+                          <option value="">Default</option>
+                          {tokenKeys.map((k) => <option key={k} value={`$${k}`}>${k}</option>)}
+                        </select>
+                      </label>
+                      <label style={labelCol}>
+                        Fill (Bg)
+                        <select value={selectedStyle.bg || ""} onChange={(e) => updateSelectedStyle({ bg: e.target.value })} style={inputStyle}>
+                          <option value="">None</option>
+                          {tokenKeys.map((k) => <option key={k} value={`$${k}`}>${k}</option>)}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <label style={labelCol}>
+                        Align H
+                        <select value={selectedStyle.alignH ?? "left"} onChange={(e) => updateSelectedStyle({ alignH: e.target.value as IRStyle["alignH"] })} style={inputStyle}>
+                          <option value="left">Left</option>
+                          <option value="center">Center</option>
+                          <option value="right">Right</option>
+                        </select>
+                      </label>
+                      <label style={labelCol}>
+                        Align V
+                        <select value={selectedStyle.alignV ?? "top"} onChange={(e) => updateSelectedStyle({ alignV: e.target.value as IRStyle["alignV"] })} style={inputStyle}>
+                          <option value="top">Top</option>
+                          <option value="center">Center</option>
+                          <option value="bottom">Bottom</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 2 }}>
+                      <label style={checkLbl}><input type="checkbox" checked={selectedStyle.bold} onChange={(e) => updateSelectedStyle({ bold: e.target.checked })} /> Bold</label>
+                      <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.italic} onChange={(e) => updateSelectedStyle({ italic: e.target.checked })} /> Italic</label>
+                      <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.faint} onChange={(e) => updateSelectedStyle({ faint: e.target.checked })} /> Faint</label>
+                      <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.underline} onChange={(e) => updateSelectedStyle({ underline: e.target.checked })} /> Underline</label>
+                      <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.truncate} onChange={(e) => updateSelectedStyle({ truncate: e.target.checked })} /> Truncate</label>
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -493,44 +608,43 @@ export default function App() {
                     />
                   </Section>
                 )}
-
-                <Section title="Adaptive Tokens (LightDark)">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {Object.entries(ir.tokens).map(([name, pair]) => (
-                      <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <code style={{ fontSize: 12, color: "#cbd5e1" }}>${name}</code>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}>
-                            ☀
-                            <input
-                              type="color" value={pair.light}
-                              onChange={(e) => setIr((p) => ({ ...p, tokens: { ...p.tokens, [name]: { ...pair, light: e.target.value } } }))}
-                              style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
-                            />
-                          </label>
-                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}>
-                            🌙
-                            <input
-                              type="color" value={pair.dark}
-                              onChange={(e) => setIr((p) => ({ ...p, tokens: { ...p.tokens, [name]: { ...pair, dark: e.target.value } } }))}
-                              style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
               </>
-            ) : (
-              <div style={{ color: "#64748b" }}>Select a pane to inspect.</div>
             )}
+
+            <Section title="Adaptive Tokens (LightDark)">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.entries(ir.tokens).map(([name, pair]) => (
+                  <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <code style={{ fontSize: 12, color: "#cbd5e1" }}>${name}</code>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}>
+                        ☀
+                        <input
+                          type="color" value={pair.light}
+                          onChange={(e) => setIr((p) => ({ ...p, tokens: { ...p.tokens, [name]: { ...pair, light: e.target.value } } }))}
+                          style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
+                        />
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}>
+                        🌙
+                        <input
+                          type="color" value={pair.dark}
+                          onChange={(e) => setIr((p) => ({ ...p, tokens: { ...p.tokens, [name]: { ...pair, dark: e.target.value } } }))}
+                          style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid #1e2436" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderBottom: "1px solid #1e2436" }}>
               <button onClick={() => setCodeFile("styles")} style={pillStyle(codeFile === "styles")}>styles.go</button>
               <button onClick={() => setCodeFile("layout")} style={pillStyle(codeFile === "layout")}>layout.go</button>
+              <button onClick={() => setCodeFile("main")} style={pillStyle(codeFile === "main")}>main.go</button>
               <button onClick={copyGo} style={{ ...btnStyle(copied), marginLeft: "auto" }}>
                 {copied ? "✓ Copied" : "Copy Go"}
               </button>
@@ -556,6 +670,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+const checkLbl: React.CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#cbd5e1", cursor: "pointer" };
 const labelCol: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#cbd5e1" };
 const inputStyle: React.CSSProperties = { background: "#0b0d13", color: "#e2e8f0", border: "1px solid #2b334a", borderRadius: 5, padding: "5px 7px", fontSize: 12, width: "100%" };
 const segBtn = (active: boolean): React.CSSProperties => ({

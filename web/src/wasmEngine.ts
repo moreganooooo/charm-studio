@@ -1,9 +1,9 @@
-import type { IRDoc, TelemetryNode } from "./types";
+import type { ColorProfile, IRDoc, TelemetryNode } from "./types";
 
 declare global {
   interface Window {
     Go: new () => { importObject: WebAssembly.Imports; run: (inst: WebAssembly.Instance) => void };
-    renderStudio?: (irJson: string, cols: number, rows: number, hasDarkBG: boolean) => string;
+    renderStudio?: (irJson: string, cols: number, rows: number, hasDarkBG: boolean, colorProfile: string) => string;
     dispatchStudioKey?: (nodeId: string, key: string) => boolean;
   }
 }
@@ -37,11 +37,17 @@ export function ensureEngineReady(): Promise<void> {
   return bootPromise;
 }
 
-export function renderFrame(doc: IRDoc, cols: number, rows: number, darkBG: boolean): StudioFrame {
+export function renderFrame(
+  doc: IRDoc,
+  cols: number,
+  rows: number,
+  darkBG: boolean,
+  colorProfile: ColorProfile = "truecolor"
+): StudioFrame {
   if (!window.renderStudio) {
     return { cells: [], telemetry: [], error: "WASM engine not ready" };
   }
-  const raw = window.renderStudio(JSON.stringify(doc), cols, rows, darkBG);
+  const raw = window.renderStudio(JSON.stringify(doc), cols, rows, darkBG, colorProfile);
   return JSON.parse(raw) as StudioFrame;
 }
 

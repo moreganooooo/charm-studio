@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // --- Layout IR ---
@@ -32,13 +33,20 @@ type TokenPair struct {
 }
 
 type IRStyle struct {
-	Border      string `json:"border"`
-	BorderColor string `json:"borderColor"`
-	Fg          string `json:"fg"`
-	Bg          string `json:"bg"`
-	Padding     [4]int `json:"padding"`
-	Margin      [4]int `json:"margin"`
-	Bold        bool   `json:"bold"`
+	Border      string   `json:"border"`
+	BorderEdges *[4]bool `json:"borderEdges,omitempty"` // [top, right, bottom, left]
+	BorderColor string   `json:"borderColor"`
+	Fg          string   `json:"fg"`
+	Bg          string   `json:"bg"`
+	Padding     [4]int   `json:"padding"`
+	Margin      [4]int   `json:"margin"`
+	Bold        bool     `json:"bold"`
+	Italic      bool     `json:"italic,omitempty"`
+	Faint       bool     `json:"faint,omitempty"`
+	Underline   bool     `json:"underline,omitempty"`
+	AlignH      string   `json:"alignH,omitempty"` // "left", "center", "right"
+	AlignV      string   `json:"alignV,omitempty"` // "top", "center", "bottom"
+	Truncate    bool     `json:"truncate,omitempty"`
 }
 
 type IRSize struct {
@@ -53,6 +61,7 @@ type IRNode struct {
 	Kind        string   `json:"kind"`
 	Style       string   `json:"style"`
 	ContentType string   `json:"contentType"`
+	JoinAlign   string   `json:"joinAlign,omitempty"` // "start", "center", "end"
 	Width       IRSize   `json:"width"`
 	Height      IRSize   `json:"height"`
 	Content     string   `json:"content"`
@@ -76,23 +85,24 @@ type Rect struct {
 }
 
 type TelemetryNode struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Style     string `json:"style"`
-	Margin    Rect   `json:"margin"`
-	Border    Rect   `json:"border"`
-	Padding   Rect   `json:"padding"`
-	Content   Rect   `json:"content"`
-	OverflowX bool   `json:"overflowX"`
-	OverflowY bool   `json:"overflowY"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Style       string `json:"style"`
+	Margin      Rect   `json:"margin"`
+	Border      Rect   `json:"border"`
+	Padding     Rect   `json:"padding"`
+	Content     Rect   `json:"content"`
+	OverflowX   bool   `json:"overflowX"`
+	OverflowY   bool   `json:"overflowY"`
+	OverflowMsg string `json:"overflowMsg,omitempty"`
 }
 
 type CellDTO struct {
-	C string `json:"c,omitempty"` // grapheme
-	F string `json:"f,omitempty"` // fg hex
-	B string `json:"b,omitempty"` // bg hex
-	A uint8  `json:"a,omitempty"` // bit 0: bold, bit 1: italic, bit 2: reverse, bit 3: faint
-	W int    `json:"w,omitempty"` // display cell width (0 = continuation cell)
+	C string `json:"c,omitempty"`
+	F string `json:"f,omitempty"`
+	B string `json:"b,omitempty"`
+	A uint8  `json:"a,omitempty"` // 1=bold, 2=italic, 4=reverse, 8=faint, 16=underline
+	W int    `json:"w,omitempty"`
 }
 
 type RenderResult struct {
@@ -243,7 +253,23 @@ func getOrCreateBubble(id, kind, fallbackText string, w, h int, hasDarkBG bool, 
 	return entry
 }
 
-func renderNodeContent(node IRNode, innerW, innerH int, hasDarkBG bool, tokens map[string]TokenPair) string {
+func truncateText(text string, maxW, maxH int) string {
+	lines := strings.Split(text, "\n")
+	if maxH > 0 && len(lines) > maxH {
+		lines = lines[:maxH]
+	}
+	for i, line := range lines {
+		runes := []rune(line)
+		if maxW > 1 && len(runes) > maxW {
+			lines[i] = string(runes[:maxW-1]) + "…"
+		} else if maxW == 1 && len(runes) > 1 {
+			lines[i] = string(runes[:1])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderNodeContent(node IRNode, spec IRStyle, innerW, innerH int, hasDarkBG bool, tokens map[string]TokenPair) string {
 	if strings.HasPrefix(node.ContentType, "bubble:") {
 		b := getOrCreateBubble(node.ID, node.ContentType, node.Content, innerW, innerH, hasDarkBG, tokens)
 		switch b.kind {
@@ -256,6 +282,9 @@ func renderNodeContent(node IRNode, innerW, innerH int, hasDarkBG bool, tokens m
 		case "bubble:textinput":
 			return b.input.View()
 		}
+	}
+	if spec.Truncate {
+		return truncateText(node.Content, innerW, innerH)
 	}
 	return node.Content
 }
@@ -334,15 +363,45 @@ func resolveColor(ref string, tokens map[string]TokenPair, hasDarkBG bool) strin
 	return ref
 }
 
-func colorToHex(c color.Color) string {
-	if c == nil {
+func parseProfile(name string) colorprofile.Profile {
+	switch name {
+	case "ansi256":
+		return colorprofile.ANSI256
+	case "ansi16":
+		return colorprofile.ANSI
+	case "ascii":
+		return colorprofile.Ascii
+	default:
+		return colorprofile.TrueColor
+	}
+}
+
+func colorToHex(c color.Color, prof colorprofile.Profile) string {
+	if c == nil || prof == colorprofile.Ascii || prof == colorprofile.NoTTY {
 		return ""
 	}
-	r, g, b, a := c.RGBA()
+	converted := prof.Convert(c)
+	if converted == nil {
+		return ""
+	}
+	r, g, b, a := converted.RGBA()
 	if a == 0 {
 		return ""
 	}
 	return fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+}
+
+func toLipPos(align string, defaultPos lipgloss.Position) lipgloss.Position {
+	switch align {
+	case "left", "top", "start":
+		return lipgloss.Left
+	case "center":
+		return lipgloss.Center
+	case "right", "bottom", "end":
+		return lipgloss.Right
+	default:
+		return defaultPos
+	}
 }
 
 func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
@@ -353,7 +412,10 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
 		s := lipgloss.NewStyle().
 			Padding(spec.Padding[0], spec.Padding[1], spec.Padding[2], spec.Padding[3]).
 			Margin(spec.Margin[0], spec.Margin[1], spec.Margin[2], spec.Margin[3]).
-			Bold(spec.Bold)
+			Bold(spec.Bold).
+			Italic(spec.Italic).
+			Faint(spec.Faint).
+			Underline(spec.Underline)
 
 		switch spec.Border {
 		case "rounded":
@@ -364,6 +426,13 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
 			s = s.Border(lipgloss.ThickBorder())
 		case "double":
 			s = s.Border(lipgloss.DoubleBorder())
+		}
+
+		if spec.Border != "" && spec.Border != "none" && spec.BorderEdges != nil {
+			s = s.BorderTop(spec.BorderEdges[0]).
+				BorderRight(spec.BorderEdges[1]).
+				BorderBottom(spec.BorderEdges[2]).
+				BorderLeft(spec.BorderEdges[3])
 		}
 
 		if spec.BorderColor != "" {
@@ -381,6 +450,12 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
 		if spec.Bg != "" {
 			s = s.Background(lipgloss.Color(resolveColor(spec.Bg, doc.Tokens, hasDarkBG)))
 		}
+		if spec.AlignH != "" {
+			s = s.AlignHorizontal(toLipPos(spec.AlignH, lipgloss.Left))
+		}
+		if spec.AlignV != "" {
+			s = s.AlignVertical(toLipPos(spec.AlignV, lipgloss.Top))
+		}
 		out[name] = s
 	}
 	return out
@@ -395,7 +470,7 @@ func insetRect(r Rect, t, ri, b, l int) Rect {
 	}
 }
 
-func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, tokens map[string]TokenPair, styles map[string]lipgloss.Style, tel *[]TelemetryNode) string {
+func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, doc IRDoc, styles map[string]lipgloss.Style, tel *[]TelemetryNode) string {
 	switch node.Kind {
 	case "JoinHorizontal":
 		var visible []IRNode
@@ -427,12 +502,12 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, toke
 				}
 				cw = (remW * w) / max(1, weightTotal)
 			}
-			out := evalNode(ch, curX, y, cw, availH, viewW, hasDarkBG, tokens, styles, tel)
+			out := evalNode(ch, curX, y, cw, availH, viewW, hasDarkBG, doc, styles, tel)
 			actualW, _ := lipgloss.Size(out)
 			curX += actualW
 			parts = append(parts, out)
 		}
-		return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+		return lipgloss.JoinHorizontal(toLipPos(node.JoinAlign, lipgloss.Top), parts...)
 
 	case "JoinVertical":
 		var visible []IRNode
@@ -464,15 +539,16 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, toke
 				}
 				chH = (remH * w) / max(1, weightTotal)
 			}
-			out := evalNode(ch, x, curY, availW, chH, viewW, hasDarkBG, tokens, styles, tel)
+			out := evalNode(ch, x, curY, availW, chH, viewW, hasDarkBG, doc, styles, tel)
 			_, actualH := lipgloss.Size(out)
 			curY += actualH
 			parts = append(parts, out)
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		return lipgloss.JoinVertical(toLipPos(node.JoinAlign, lipgloss.Left), parts...)
 
 	default:
 		s := styles[node.Style]
+		spec := doc.Styles[node.Style]
 
 		targetW := max(0, availW-s.GetHorizontalMargins())
 		targetH := max(0, availH-s.GetVerticalMargins())
@@ -485,7 +561,7 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, toke
 
 		innerW := max(1, targetW-s.GetHorizontalPadding()-s.GetHorizontalBorderSize())
 		innerH := max(1, targetH-s.GetVerticalPadding()-s.GetVerticalBorderSize())
-		bodyStr := renderNodeContent(node, innerW, innerH, hasDarkBG, tokens)
+		bodyStr := renderNodeContent(node, spec, innerW, innerH, hasDarkBG, doc.Tokens)
 
 		rendered := s.Render(bodyStr)
 		actualW, actualH := lipgloss.Size(rendered)
@@ -495,16 +571,28 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, toke
 		pRect := insetRect(bRect, s.GetBorderTopSize(), s.GetBorderRightSize(), s.GetBorderBottomSize(), s.GetBorderLeftSize())
 		cRect := insetRect(pRect, s.GetPaddingTop(), s.GetPaddingRight(), s.GetPaddingBottom(), s.GetPaddingLeft())
 
+		overX := actualW > availW
+		overY := actualH > availH
+		var msg string
+		if overX && overY {
+			msg = fmt.Sprintf("Rendered %d×%d exceeds %d×%d allocated", actualW, actualH, availW, availH)
+		} else if overX {
+			msg = fmt.Sprintf("Width %d cols > %d available (try Truncate or wider box)", actualW, availW)
+		} else if overY {
+			msg = fmt.Sprintf("Height %d rows > %d available (wrapped text? try Truncate or taller Height)", actualH, availH)
+		}
+
 		*tel = append(*tel, TelemetryNode{
-			ID:        node.ID,
-			Kind:      node.Kind,
-			Style:     node.Style,
-			Margin:    mRect,
-			Border:    bRect,
-			Padding:   pRect,
-			Content:   cRect,
-			OverflowX: actualW > availW,
-			OverflowY: actualH > availH,
+			ID:          node.ID,
+			Kind:        node.Kind,
+			Style:       node.Style,
+			Margin:      mRect,
+			Border:      bRect,
+			Padding:     pRect,
+			Content:     cRect,
+			OverflowX:   overX,
+			OverflowY:   overY,
+			OverflowMsg: msg,
 		})
 		return rendered
 	}
@@ -513,7 +601,7 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, toke
 func renderStudio(_ js.Value, args []js.Value) any {
 	var res RenderResult
 	if len(args) < 4 {
-		res.Error = "expected (irJSON, cols, rows, hasDarkBG)"
+		res.Error = "expected (irJSON, cols, rows, hasDarkBG, [colorProfile])"
 		b, _ := json.Marshal(res)
 		return string(b)
 	}
@@ -522,6 +610,11 @@ func renderStudio(_ js.Value, args []js.Value) any {
 	cols := max(10, args[1].Int())
 	rows := max(5, args[2].Int())
 	hasDarkBG := args[3].Bool()
+	profName := "truecolor"
+	if len(args) >= 5 && args[4].Type() == js.TypeString {
+		profName = args[4].String()
+	}
+	prof := parseProfile(profName)
 
 	var doc IRDoc
 	if err := json.Unmarshal([]byte(irJSON), &doc); err != nil {
@@ -533,7 +626,7 @@ func renderStudio(_ js.Value, args []js.Value) any {
 	styles := buildStyles(doc, hasDarkBG)
 	var tel []TelemetryNode
 
-	rootRendered := evalNode(doc.Root, 0, 0, cols, rows, cols, hasDarkBG, doc.Tokens, styles, &tel)
+	rootRendered := evalNode(doc.Root, 0, 0, cols, rows, cols, hasDarkBG, doc, styles, &tel)
 	layers := []*lipgloss.Layer{
 		lipgloss.NewLayer(rootRendered).X(0).Y(0).Z(0).ID(doc.Root.ID),
 	}
@@ -552,7 +645,7 @@ func renderStudio(_ js.Value, args []js.Value) any {
 		}
 		ox := max(0, (cols-ovW)/2)
 		oy := max(0, (rows-ovH)/2)
-		ovStr := evalNode(ov.Node, ox, oy, ovW, ovH, cols, hasDarkBG, doc.Tokens, styles, &tel)
+		ovStr := evalNode(ov.Node, ox, oy, ovW, ovH, cols, hasDarkBG, doc, styles, &tel)
 		layers = append(layers, lipgloss.NewLayer(ovStr).X(ox).Y(oy).Z(ov.Z).ID(ov.ID))
 	}
 
@@ -560,7 +653,6 @@ func renderStudio(_ js.Value, args []js.Value) any {
 	comp := lipgloss.NewCompositor(layers...)
 	canvas.Compose(comp)
 
-	// Extract exact resolved cell grid directly from Lip Gloss v2 Canvas
 	cells := make([]CellDTO, cols*rows)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
@@ -569,22 +661,25 @@ func renderStudio(_ js.Value, args []js.Value) any {
 				continue
 			}
 			var at uint8
-			if c.Style.Attrs&1 != 0 { // AttrBold
+			if c.Style.Attrs&1 != 0 {
 				at |= 1
 			}
-			if c.Style.Attrs&4 != 0 { // AttrItalic
+			if c.Style.Attrs&4 != 0 {
 				at |= 2
 			}
-			if c.Style.Attrs&32 != 0 { // AttrReverse
+			if c.Style.Attrs&32 != 0 {
 				at |= 4
 			}
-			if c.Style.Attrs&2 != 0 { // AttrFaint
+			if c.Style.Attrs&2 != 0 {
 				at |= 8
+			}
+			if c.Style.Underline > 0 {
+				at |= 16
 			}
 			cells[row*cols+col] = CellDTO{
 				C: c.Content,
-				F: colorToHex(c.Style.Fg),
-				B: colorToHex(c.Style.Bg),
+				F: colorToHex(c.Style.Fg, prof),
+				B: colorToHex(c.Style.Bg, prof),
 				A: at,
 				W: c.Width,
 			}

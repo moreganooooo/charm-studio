@@ -38,6 +38,17 @@ function colorExpr(val: string | undefined, tokenNames: Set<string>): string | n
   return `lipgloss.Color(${JSON.stringify(val)})`;
 }
 
+function lipPos(v: string | undefined, kind: "h" | "v"): string {
+  if (kind === "h") {
+    if (v === "center") return "lipgloss.Center";
+    if (v === "right" || v === "end") return "lipgloss.Right";
+    return "lipgloss.Left";
+  }
+  if (v === "center") return "lipgloss.Center";
+  if (v === "bottom" || v === "end") return "lipgloss.Bottom";
+  return "lipgloss.Top";
+}
+
 export function generateStylesGo(doc: IRDoc): string {
   const tokenEntries = Object.entries(doc.tokens);
   const tokenNames = new Set(Object.keys(doc.tokens));
@@ -57,7 +68,13 @@ export function generateStylesGo(doc: IRDoc): string {
     .map(([name, st]) => {
       const chains: string[] = [];
       const b = borderExpr(st.border);
-      if (b) chains.push(b);
+      if (b) {
+        chains.push(b);
+        if (st.borderEdges && st.borderEdges.some((e) => !e)) {
+          const [t, r, bo, l] = st.borderEdges;
+          chains.push(`.BorderTop(${t})`, `.BorderRight(${r})`, `.BorderBottom(${bo})`, `.BorderLeft(${l})`);
+        }
+      }
       const bc = colorExpr(st.borderColor, tokenNames);
       if (bc && b) chains.push(`.BorderForeground(${bc})`);
       const fg = colorExpr(st.fg, tokenNames);
@@ -69,6 +86,11 @@ export function generateStylesGo(doc: IRDoc): string {
       const mar = formatQuad("Margin", st.margin);
       if (mar) chains.push(mar);
       if (st.bold) chains.push(".Bold(true)");
+      if (st.italic) chains.push(".Italic(true)");
+      if (st.faint) chains.push(".Faint(true)");
+      if (st.underline) chains.push(".Underline(true)");
+      if (st.alignH && st.alignH !== "left") chains.push(`.AlignHorizontal(${lipPos(st.alignH, "h")})`);
+      if (st.alignV && st.alignV !== "top") chains.push(`.AlignVertical(${lipPos(st.alignV, "v")})`);
 
       if (chains.length === 0) {
         return `\t\t${toPascal(name)}: lipgloss.NewStyle(),`;
@@ -99,8 +121,13 @@ ${styleInits}
 
 export function generateLayoutGo(doc: IRDoc): string {
   const leafParams: string[] = [];
+  let usesTruncate = false;
+
   const collectLeaves = (n: IRNode) => {
-    if (n.kind === "Box") leafParams.push(`${toCamel(n.id)}Content string`);
+    if (n.kind === "Box") {
+      leafParams.push(`${toCamel(n.id)}Content string`);
+      if (n.style && doc.styles[n.style]?.truncate) usesTruncate = true;
+    }
     n.children?.forEach(collectLeaves);
   };
   collectLeaves(doc.root);
@@ -113,6 +140,7 @@ export function generateLayoutGo(doc: IRDoc): string {
     if (node.kind === "Box") {
       const v = freshVar(node.id);
       const stRef = node.style ? `st.${toPascal(node.style)}` : "lipgloss.NewStyle()";
+      const stObj = node.style ? doc.styles[node.style] : undefined;
       const modifiers: string[] = [];
       if (node.width?.mode !== "fit") {
         modifiers.push(`Width(max(0, ${wExpr}-${stRef}.GetHorizontalMargins()))`);
@@ -121,7 +149,11 @@ export function generateLayoutGo(doc: IRDoc): string {
         modifiers.push(`Height(max(0, ${hExpr}-${stRef}.GetVerticalMargins()))`);
       }
       const chain = modifiers.length > 0 ? `.${modifiers.join(".")}` : "";
-      lines.push(`${indent}${v} := ${stRef}${chain}.Render(${toCamel(node.id)}Content)`);
+      let contentArg = `${toCamel(node.id)}Content`;
+      if (stObj?.truncate) {
+        contentArg = `truncate(${contentArg}, max(1, ${wExpr}-${stRef}.GetHorizontalFrameSize()))`;
+      }
+      lines.push(`${indent}${v} := ${stRef}${chain}.Render(${contentArg})`);
       return v;
     }
 
@@ -157,7 +189,8 @@ export function generateLayoutGo(doc: IRDoc): string {
         return emitNode(ch, cw, chH, brIndent);
       });
 
-      const joinFn = isH ? "lipgloss.JoinHorizontal(lipgloss.Top" : "lipgloss.JoinVertical(lipgloss.Left";
+      const pos = lipPos(node.joinAlign, isH ? "v" : "h");
+      const joinFn = isH ? `lipgloss.JoinHorizontal(${pos}` : `lipgloss.JoinVertical(${pos}`;
       lines.push(`${brIndent}${targetVar} = ${joinFn}, ${childVars.join(", ")})`);
     };
 
@@ -201,12 +234,78 @@ export function generateLayoutGo(doc: IRDoc): string {
     lines.push(`\treturn ${rootVar}`);
   }
 
+  const imports = usesTruncate
+    ? `import (\n\t"strings"\n\n\t"charm.land/lipgloss/v2"\n)`
+    : `import "charm.land/lipgloss/v2"`;
+
+  const truncateHelper = usesTruncate
+    ? `\nfunc truncate(s string, maxW int) string {\n\tlines := strings.Split(s, "\\n")\n\tfor i, l := range lines {\n\t\tr := []rune(l)\n\t\tif maxW > 1 && len(r) > maxW {\n\t\t\tlines[i] = string(r[:maxW-1]) + "…"\n\t\t}\n\t}\n\treturn strings.Join(lines, "\\n")\n}\n`
+    : "";
+
   return `package ui
 
-import "charm.land/lipgloss/v2"
+${imports}
 
 func RenderApp(w, h int, st Styles, ${leafParams.join(", ")}) string {
 ${lines.join("\n")}
+}
+${truncateHelper}`;
+}
+
+export function generateMainGo(doc: IRDoc): string {
+  const leafArgs: string[] = [];
+  const collect = (n: IRNode) => {
+    if (n.kind === "Box") {
+      leafArgs.push(JSON.stringify((n.content ?? n.id).split("\n")[0]));
+    }
+    n.children?.forEach(collect);
+  };
+  collect(doc.root);
+  doc.overlays.filter((o) => o.visible).forEach((o) => collect(o.node));
+
+  return `package main
+
+import (
+\t"log"
+
+\ttea "charm.land/bubbletea/v2"
+\t"yourmodule/ui"
+)
+
+type model struct {
+\twidth, height int
+\tstyles        ui.Styles
+}
+
+func (m model) Init() tea.Cmd {
+\treturn tea.RequestBackgroundColor
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+\tswitch msg := msg.(type) {
+\tcase tea.WindowSizeMsg:
+\t\tm.width, m.height = msg.Width, msg.Height
+\tcase tea.BackgroundColorMsg:
+\t\tm.styles = ui.NewStyles(msg.IsDark())
+\tcase tea.KeyPressMsg:
+\t\tif msg.String() == "q" || msg.String() == "ctrl+c" {
+\t\t\treturn m, tea.Quit
+\t\t}
+\t}
+\treturn m, nil
+}
+
+func (m model) View() tea.View {
+\tv := tea.NewView(ui.RenderApp(m.width, m.height, m.styles, ${leafArgs.join(", ")}))
+\tv.AltScreen = true
+\treturn v
+}
+
+func main() {
+\tm := model{styles: ui.NewStyles(true)}
+\tif _, err := tea.NewProgram(m).Run(); err != nil {
+\t\tlog.Fatal(err)
+\t}
 }
 `;
 }
