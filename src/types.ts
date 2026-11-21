@@ -6,6 +6,15 @@ export interface TokenPair {
 export type ColorProfile = "truecolor" | "ansi256" | "ansi16" | "ascii";
 export type WorkspaceMode = "studio" | "pro";
 export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
+export type MouseMode = "none" | "cell" | "all";
+
+export interface IRViewConfig {
+  altScreen?: boolean;
+  mouseMode?: MouseMode;
+  windowTitle?: string;
+  reportFocus?: boolean;
+  disableBracketedPasteMode?: boolean;
+}
 
 export interface IRStyle {
   border: "rounded" | "normal" | "thick" | "double" | "none";
@@ -97,6 +106,7 @@ export interface IRDoc {
   styles: Record<string, IRStyle>;
   root: IRNode;
   overlays: IROverlay[];
+  view?: IRViewConfig;
 }
 
 export interface Rect {

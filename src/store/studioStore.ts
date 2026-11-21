@@ -25,6 +25,7 @@ import {
   type IRDoc,
   type IRNode,
   type IRStyle,
+  type IRViewConfig,
   type OverlayAnchor,
   type TelemetryNode,
   type WorkspaceMode,
@@ -188,6 +189,7 @@ export interface StudioStoreValue {
   addOverlay: () => string;
   removeOverlay: (overlayId: string) => void;
   updateNode: (nodeId: string, updater: (n: IRNode) => IRNode) => void;
+  updateView: (patch: Partial<IRViewConfig>) => void;
   updateSelectedStyle: (patch: Partial<IRStyle>) => void;
   updateQuad: (field: "padding" | "margin", idx: number, val: number) => void;
   toggleBorderEdge: (idx: number) => void;
@@ -577,6 +579,22 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     [commitIr]
   );
 
+  const updateView = useCallback(
+    (patch: Partial<IRViewConfig>) => {
+      commitIr((prev) => ({
+        ...prev,
+        view: {
+          altScreen: true,
+          mouseMode: "cell",
+          ...(prev.view ?? {}),
+          ...patch,
+        },
+      }));
+      markStep("styledOrInteracted");
+    },
+    [commitIr, markStep]
+  );
+
   const updateSelectedStyle = useCallback(
     (patch: Partial<IRStyle>) => {
       if (!selectedNode?.style) return;
@@ -743,6 +761,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     addOverlay,
     removeOverlay,
     updateNode,
+    updateView,
     updateSelectedStyle,
     updateQuad,
     toggleBorderEdge,

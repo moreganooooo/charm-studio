@@ -66,12 +66,12 @@ export function generateStylesGo(doc: IRDoc): string {
   const styleEntries = Object.entries(doc.styles);
 
   const structFields = styleEntries
-    .map(([name]) => `\t${toPascal(name)} lipgloss.Style`)
+    .map(([name]) => `\t${toPascal(name)} lipgloss.Style // @tui:style=${name}`)
     .join("\n");
 
   const tokenDecls = tokenEntries
     .map(([name, pair]) =>
-      `\t${toCamel(name)} := ld(lipgloss.Color(${JSON.stringify(pair.light)}), lipgloss.Color(${JSON.stringify(pair.dark)}))`
+      `\t// @tui:token=${name}\n\t${toCamel(name)} := ld(lipgloss.Color(${JSON.stringify(pair.light)}), lipgloss.Color(${JSON.stringify(pair.dark)}))`
     )
     .join("\n");
 
@@ -104,9 +104,9 @@ export function generateStylesGo(doc: IRDoc): string {
       if (st.alignV && st.alignV !== "top") chains.push(`.AlignVertical(${lipPos(st.alignV, "v")})`);
 
       if (chains.length === 0) {
-        return `\t\t${toPascal(name)}: lipgloss.NewStyle(),`;
+        return `\t\t// @tui:style=${name}\n\t\t${toPascal(name)}: lipgloss.NewStyle(),`;
       }
-      return `\t\t${toPascal(name)}: lipgloss.NewStyle().\n\t\t\t${chains.map((c) => c.slice(1)).join(".\n\t\t\t")},`;
+      return `\t\t// @tui:style=${name}\n\t\t${toPascal(name)}: lipgloss.NewStyle().\n\t\t\t${chains.map((c) => c.slice(1)).join(".\n\t\t\t")},`;
     })
     .join("\n");
 
@@ -164,6 +164,7 @@ export function generateLayoutGo(doc: IRDoc): string {
       if (stObj?.truncate) {
         contentArg = `truncate(${contentArg}, max(1, ${wExpr}-${stRef}.GetHorizontalFrameSize()))`;
       }
+      lines.push(`${indent}// @tui:id=${node.id}`);
       lines.push(`${indent}${v} := ${stRef}${chain}.Render(${contentArg})`);
       return v;
     }
@@ -205,6 +206,7 @@ export function generateLayoutGo(doc: IRDoc): string {
       lines.push(`${brIndent}${targetVar} = ${joinFn}, ${childVars.join(", ")})`);
     };
 
+    lines.push(`${indent}// @tui:id=${node.id}`);
     if (collapsible.length > 0) {
       const bp = collapsible[0].width!.collapseBelow!;
       const nonCollapsed = children.filter((c) => !collapsible.includes(c));
@@ -229,7 +231,7 @@ export function generateLayoutGo(doc: IRDoc): string {
     const ovParams = activeOverlays.map((o) => `${toCamel(o.node.id)}Content string`);
     leafParams.push(...ovParams);
     lines.push("");
-    lines.push(`\tlayers := []*lipgloss.Layer{lipgloss.NewLayer(${rootVar}).X(0).Y(0).Z(0)}`);
+    lines.push(`\tlayers := []*lipgloss.Layer{lipgloss.NewLayer(${rootVar}).X(0).Y(0).Z(0).ID(${JSON.stringify(doc.root.id)})}`);
     for (const ov of activeOverlays) {
       const ow = ov.node.width?.value ?? 44;
       const oh = ov.node.height?.value ?? 9;
@@ -252,8 +254,9 @@ export function generateLayoutGo(doc: IRDoc): string {
         yExpr = `max(0, h-${oh}-1)`;
       }
 
+      lines.push(`\t// @tui:id=${ov.node.id}`);
       lines.push(`\t${ovVar} := ${stRef}.Width(${wCode} - ${stRef}.GetHorizontalMargins()).Height(${oh} - ${stRef}.GetVerticalMargins()).Render(${toCamel(ov.node.id)}Content)`);
-      lines.push(`\tlayers = append(layers, lipgloss.NewLayer(${ovVar}).X(${xExpr}).Y(${yExpr}).Z(${ov.z}))`);
+      lines.push(`\tlayers = append(layers, lipgloss.NewLayer(${ovVar}).X(${xExpr}).Y(${yExpr}).Z(${ov.z}).ID(${JSON.stringify(ov.node.id)}))`);
     }
     lines.push(`\tcanvas := lipgloss.NewCanvas(w, h)`);
     lines.push(`\tcanvas.Compose(lipgloss.NewCompositor(layers...))`);
@@ -285,7 +288,7 @@ export function sanitizeModulePath(raw: string): string {
   return trimmed || "github.com/charm-user/my-tui";
 }
 
-export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+function inspectDocCapabilities(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui") {
   const moduleName = sanitizeModulePath(rawModuleName);
   const { rootLeaves, activeOverlays } = collectOrderedLeafBoxes(doc);
   const allBoxes = [...rootLeaves, ...activeOverlays.map((o) => o.node)];
@@ -311,32 +314,129 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
     n.contentType === "huh:form"
   );
 
-  // Build imports cleanly
-  const stdImports: string[] = [];
-  if (usesWish) {
-    stdImports.push(`"context"`, `"errors"`, `"log"`, `"net"`, `"os"`, `"os/signal"`);
-  } else {
-    stdImports.push(`"log"`);
-  }
-  if (usesGlamour) stdImports.push(`"strings"`);
-  if (usesWish) stdImports.push(`"syscall"`, `"time"`);
+  return {
+    moduleName,
+    rootLeaves,
+    activeOverlays,
+    allBoxes,
+    usesList,
+    usesTable,
+    usesViewport,
+    usesInput,
+    usesGlamour,
+    usesHuh,
+    usesWish,
+    interactiveWidgets,
+  };
+}
 
-  const thirdImports: string[] = [];
-  if (usesList) thirdImports.push(`"charm.land/bubbles/v2/list"`);
-  if (usesTable) thirdImports.push(`"charm.land/bubbles/v2/table"`);
-  if (usesInput) thirdImports.push(`"charm.land/bubbles/v2/textinput"`);
-  if (usesViewport) thirdImports.push(`"charm.land/bubbles/v2/viewport"`);
-  thirdImports.push(`tea "charm.land/bubbletea/v2"`);
-  if (usesGlamour) thirdImports.push(`"github.com/charmbracelet/glamour"`);
-  if (usesHuh) thirdImports.push(`"github.com/charmbracelet/huh"`);
-  if (usesWish) {
-    thirdImports.push(
-      `"github.com/charmbracelet/wish"`,
-      `"github.com/charmbracelet/wish/bubbletea"`,
-      `"github.com/charmbracelet/wish/logging"`
-    );
+export function generateThemeGenGo(doc: IRDoc): string {
+  return `// Code generated by Charm Studio (theme_gen.go)\n\n${generateStylesGo(doc)}`;
+}
+
+export function generateLayoutGenGo(doc: IRDoc): string {
+  return `// Code generated by Charm Studio (layout_gen.go)\n\n${generateLayoutGo(doc)}`;
+}
+
+export function generateFixturesPreviewGo(doc: IRDoc): string {
+  const { allBoxes, usesList, usesTable } = inspectDocCapabilities(doc);
+
+  const imports: string[] = [];
+  if (usesList) imports.push(`"charm.land/bubbles/v2/list"`);
+  if (usesTable) imports.push(`"charm.land/bubbles/v2/table"`);
+
+  const helpers: string[] = [];
+  for (const node of allBoxes) {
+    const pascalBase = toPascal(node.id);
+    const ct = node.contentType ?? "text";
+    const wd = node.widgetData ?? defaultWidgetData(ct);
+
+    if (ct === "bubble:list") {
+      const items = wd.listItems?.length ? wd.listItems : defaultWidgetData("bubble:list").listItems!;
+      helpers.push(
+        `func preview${pascalBase}Items() []list.Item {`,
+        `\treturn []list.Item{`,
+        ...items.map((it) => `\t\tlistItem{title: ${JSON.stringify(it.title)}, desc: ${JSON.stringify(it.desc)}},`),
+        `\t}`,
+        `}`,
+        ``
+      );
+    } else if (ct === "bubble:table") {
+      const cols = wd.tableColumns?.length ? wd.tableColumns : defaultWidgetData("bubble:table").tableColumns!;
+      const rows = wd.tableRows ?? defaultWidgetData("bubble:table").tableRows!;
+      helpers.push(
+        `func preview${pascalBase}Rows() []table.Row {`,
+        `\treturn []table.Row{`,
+        ...rows.map((r) => `\t\t{${cols.map((_, i) => JSON.stringify(r[i] ?? "")).join(", ")}},`),
+        `\t}`,
+        `}`,
+        ``
+      );
+    } else if (ct === "bubble:viewport") {
+      const vpText = (node.content ?? "").trim() || "Scrollable viewport content...";
+      helpers.push(
+        `func preview${pascalBase}Content() string {`,
+        `\treturn ${JSON.stringify(vpText)}`,
+        `}`,
+        ``
+      );
+    } else if (ct === "bubble:textinput") {
+      const placeholder = wd.inputPlaceholder ?? "Type a command...";
+      helpers.push(
+        `func preview${pascalBase}Placeholder() string {`,
+        `\treturn ${JSON.stringify(placeholder)}`,
+        `}`,
+        ``
+      );
+    } else if (ct === "huh:form") {
+      const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
+      const firstSelect = fields.find((f) => f.kind === "select");
+      if (firstSelect?.options?.length) {
+        helpers.push(
+          `func preview${pascalBase}Options() []string {`,
+          `\treturn []string{${firstSelect.options.map((o) => JSON.stringify(o)).join(", ")}}`,
+          `}`,
+          ``
+        );
+      }
+    }
   }
-  thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
+
+  const importBlock = imports.length > 0
+    ? `\nimport (\n${imports.map((s) => `\t${s}`).join("\n")}\n)\n`
+    : "\n";
+
+  return `//go:build preview
+
+// Code generated by Charm Studio (fixtures_preview_gen.go)
+// Run with: go run -tags preview .
+
+package main
+${importBlock}
+${helpers.join("\n")}`;
+}
+
+export function generateModelGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+  const {
+    moduleName,
+    allBoxes,
+    usesList,
+    usesTable,
+    usesViewport,
+    usesInput,
+    usesHuh,
+    usesWish,
+    interactiveWidgets,
+  } = inspectDocCapabilities(doc, rawModuleName);
+
+  const imports: string[] = [];
+  if (usesList) imports.push(`"charm.land/bubbles/v2/list"`);
+  if (usesTable) imports.push(`"charm.land/bubbles/v2/table"`);
+  if (usesInput) imports.push(`"charm.land/bubbles/v2/textinput"`);
+  if (usesViewport) imports.push(`"charm.land/bubbles/v2/viewport"`);
+  imports.push(`tea "charm.land/bubbletea/v2"`);
+  if (usesHuh) imports.push(`"charm.land/huh/v2"`);
+  imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
 
   const fieldDecls: string[] = [
     `\twidth, height int`,
@@ -347,14 +447,9 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
   }
 
   const initLines: string[] = [];
-  const resizeLines: string[] = [];
-  const updateRoutes: string[] = [];
-  const viewArgs: string[] = [];
   const initCmds: string[] = [];
-
   if (!usesWish) initCmds.push("tea.RequestBackgroundColor");
 
-  // Helper struct when bubble:list is present
   const listItemType = usesList
     ? `\ntype listItem struct{ title, desc string }\nfunc (i listItem) Title() string       { return i.title }\nfunc (i listItem) Description() string { return i.desc }\nfunc (i listItem) FilterValue() string { return i.title }\n`
     : "";
@@ -365,23 +460,23 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
     const wd = node.widgetData ?? defaultWidgetData(ct);
 
     if (ct === "bubble:list") {
-      fieldDecls.push(`\t${varBase} list.Model`);
+      fieldDecls.push(`\t${varBase} list.Model // @tui:id=${node.id}`);
       const items = wd.listItems?.length ? wd.listItems : defaultWidgetData("bubble:list").listItems!;
       const title = wd.listTitle || "Items";
       initLines.push(
+        `\t// @tui:id=${node.id}`,
         `\t${varBase}Items := []list.Item{`,
         ...items.map((it) => `\t\tlistItem{title: ${JSON.stringify(it.title)}, desc: ${JSON.stringify(it.desc)}},`),
         `\t}`,
         `\t${varBase}Model := list.New(${varBase}Items, list.NewDefaultDelegate(), 28, 16)`,
         `\t${varBase}Model.Title = ${JSON.stringify(title)}`
       );
-      resizeLines.push(`\t\tm.${varBase}.SetSize(max(16, msg.Width/3), max(6, msg.Height-4))`);
-      viewArgs.push(`m.${varBase}.View()`);
     } else if (ct === "bubble:table") {
-      fieldDecls.push(`\t${varBase} table.Model`);
+      fieldDecls.push(`\t${varBase} table.Model // @tui:id=${node.id}`);
       const cols = wd.tableColumns?.length ? wd.tableColumns : defaultWidgetData("bubble:table").tableColumns!;
       const rows = wd.tableRows ?? defaultWidgetData("bubble:table").tableRows!;
       initLines.push(
+        `\t// @tui:id=${node.id}`,
         `\t${varBase}Cols := []table.Column{`,
         ...cols.map((c) => `\t\t{Title: ${JSON.stringify(c.title)}, Width: ${c.width}},`),
         `\t}`,
@@ -390,34 +485,27 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
         `\t}`,
         `\t${varBase}Model := table.New(table.WithColumns(${varBase}Cols), table.WithRows(${varBase}Rows), table.WithFocused(true), table.WithHeight(10))`
       );
-      resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`);
-      viewArgs.push(`m.${varBase}.View()`);
     } else if (ct === "bubble:viewport") {
-      fieldDecls.push(`\t${varBase} viewport.Model`);
+      fieldDecls.push(`\t${varBase} viewport.Model // @tui:id=${node.id}`);
       const vpText = (node.content ?? "").trim() || "Scrollable viewport content...";
       initLines.push(
+        `\t// @tui:id=${node.id}`,
         `\t${varBase}Model := viewport.New(viewport.WithWidth(60), viewport.WithHeight(16))`,
         `\t${varBase}Model.SetContent(${JSON.stringify(vpText)})`
       );
-      resizeLines.push(
-        `\t\tm.${varBase}.SetWidth(max(12, msg.Width-6))`,
-        `\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`
-      );
-      viewArgs.push(`m.${varBase}.View()`);
     } else if (ct === "bubble:textinput") {
-      fieldDecls.push(`\t${varBase} textinput.Model`);
+      fieldDecls.push(`\t${varBase} textinput.Model // @tui:id=${node.id}`);
       const prompt = wd.inputPrompt ?? "> ";
       const placeholder = wd.inputPlaceholder ?? "Type a command...";
       initLines.push(
+        `\t// @tui:id=${node.id}`,
         `\t${varBase}Model := textinput.New()`,
         `\t${varBase}Model.Prompt = ${JSON.stringify(prompt)}`,
         `\t${varBase}Model.Placeholder = ${JSON.stringify(placeholder)}`,
         `\t${varBase}Model.Focus()`
       );
-      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(10, msg.Width-8))`);
-      viewArgs.push(`m.${varBase}.View()`);
     } else if (ct === "huh:form") {
-      fieldDecls.push(`\t${varBase} *huh.Form`);
+      fieldDecls.push(`\t${varBase} *huh.Form // @tui:id=${node.id}`);
       const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
       const huhFieldSnippets = fields.map((f) => {
         if (f.kind === "select") {
@@ -431,35 +519,16 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
         return `\t\t\thuh.NewInput().Title(${JSON.stringify(f.label)}).Placeholder(${JSON.stringify(f.placeholder || "")}),`;
       });
       initLines.push(
+        `\t// @tui:id=${node.id}`,
         `\t${varBase}Form := huh.NewForm(`,
         `\t\thuh.NewGroup(`,
         ...huhFieldSnippets,
         `\t\t),`,
-        `\t)`
+        `\t).WithTheme(huh.ThemeFunc(huh.ThemeCharm))`
       );
       initCmds.push(`m.${varBase}.Init()`);
-      viewArgs.push(`m.${varBase}.View()`);
-    } else if (ct === "glamour:markdown") {
-      viewArgs.push(`renderMarkdown(${JSON.stringify(node.content ?? "# Hello Glamour")})`);
-    } else {
-      viewArgs.push(JSON.stringify((node.content ?? node.id).split("\n")[0]));
     }
   }
-
-  // Build Update() widget delegation
-  interactiveWidgets.forEach((node, idx) => {
-    const varBase = toCamel(node.id);
-    const ct = node.contentType!;
-    const guard = interactiveWidgets.length > 1 ? `if m.focusIdx == ${idx} {\n\t\t` : "\t";
-    const endGuard = interactiveWidgets.length > 1 ? "\n\t}" : "";
-    if (ct === "huh:form") {
-      updateRoutes.push(
-        `${guard}if f, cmd := m.${varBase}.Update(msg); f != nil {\n\t\t\tif form, ok := f.(*huh.Form); ok {\n\t\t\t\tm.${varBase} = form\n\t\t\t}\n\t\t\tcmds = append(cmds, cmd)\n\t\t}${endGuard}`
-      );
-    } else {
-      updateRoutes.push(`${guard}var cmd tea.Cmd\n\t\tm.${varBase}, cmd = m.${varBase}.Update(msg)\n\t\tcmds = append(cmds, cmd)${endGuard}`);
-    }
-  });
 
   const modelStructInitPairs = allBoxes
     .filter((n) => ["bubble:list", "bubble:table", "bubble:viewport", "bubble:textinput", "huh:form"].includes(n.contentType ?? ""))
@@ -475,11 +544,92 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
     ? `return ${initCmds[0]}`
     : `return tea.Batch(${initCmds.join(", ")})`;
 
+  return `package main
+
+import (
+${imports.map((s) => `\t${s}`).join("\n")}
+)
+${listItemType}
+type model struct {
+${fieldDecls.join("\n")}
+}
+
+func newModel(styles ui.Styles) model {
+${initLines.join("\n")}
+\treturn model{
+\t\tstyles: styles,
+${modelStructInitPairs.join("\n")}
+\t}
+}
+
+func (m model) Init() tea.Cmd {
+\t${initReturn}
+}
+`;
+}
+
+export function generateUpdateGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+  const {
+    moduleName,
+    allBoxes,
+    usesHuh,
+    usesWish,
+    interactiveWidgets,
+  } = inspectDocCapabilities(doc, rawModuleName);
+
+  const imports: string[] = [`tea "charm.land/bubbletea/v2"`];
+  if (usesHuh) imports.push(`"charm.land/huh/v2"`);
+  if (!usesWish) imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
+
+  const resizeLines: string[] = [];
+  for (const node of allBoxes) {
+    const varBase = toCamel(node.id);
+    const ct = node.contentType ?? "text";
+    if (ct === "bubble:list") {
+      resizeLines.push(`\t\tm.${varBase}.SetSize(max(16, msg.Width/3), max(6, msg.Height-4))`);
+    } else if (ct === "bubble:table") {
+      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(16, msg.Width-6))`);
+      resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`);
+    } else if (ct === "bubble:viewport") {
+      resizeLines.push(
+        `\t\tm.${varBase}.SetWidth(max(12, msg.Width-6))`,
+        `\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`
+      );
+    } else if (ct === "bubble:textinput") {
+      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(10, msg.Width-8))`);
+    } else if (ct === "huh:form") {
+      resizeLines.push(`\t\tm.${varBase}.WithWidth(max(20, msg.Width-6))`);
+      resizeLines.push(`\t\tm.${varBase}.WithHeight(max(6, msg.Height-4))`);
+    }
+  }
+
+  const updateRoutes: string[] = [];
+  interactiveWidgets.forEach((node, idx) => {
+    const varBase = toCamel(node.id);
+    const ct = node.contentType!;
+    const guard = interactiveWidgets.length > 1 ? `if m.focusIdx == ${idx} {\n\t\t` : "\t";
+    const endGuard = interactiveWidgets.length > 1 ? "\n\t}" : "";
+    if (ct === "huh:form") {
+      updateRoutes.push(
+        `${guard}if f, cmd := m.${varBase}.Update(msg); f != nil {\n\t\t\tif form, ok := f.(*huh.Form); ok {\n\t\t\t\tm.${varBase} = form\n\t\t\t}\n\t\t\tcmds = append(cmds, cmd)\n\t\t}${endGuard}`
+      );
+    } else {
+      updateRoutes.push(`${guard}var cmd tea.Cmd\n\t\tm.${varBase}, cmd = m.${varBase}.Update(msg)\n\t\tcmds = append(cmds, cmd)${endGuard}`);
+    }
+  });
+
   const focusTabCase = interactiveWidgets.length > 1
     ? `\t\tcase "tab":\n\t\t\tm.focusIdx = (m.focusIdx + 1) % ${interactiveWidgets.length}\n\t\tcase "shift+tab":\n\t\t\tm.focusIdx = (m.focusIdx + ${interactiveWidgets.length - 1}) % ${interactiveWidgets.length}\n`
     : "";
 
-  const updateBody = `\tvar cmds []tea.Cmd
+  return `package main
+
+import (
+${imports.map((s) => `\t${s}`).join("\n")}
+)
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+\tvar cmds []tea.Cmd
 \tswitch msg := msg.(type) {
 \tcase tea.WindowSizeMsg:
 \t\tm.width, m.height = msg.Width, msg.Height
@@ -490,27 +640,114 @@ ${resizeLines.join("\n")}${!usesWish ? `\n\tcase tea.BackgroundColorMsg:\n\t\tm.
 \t\t\treturn m, tea.Quit
 ${focusTabCase}\t\t}
 \t}
-${updateRoutes.length > 0 ? updateRoutes.map((r) => `\t${r}`).join("\n") + "\n" : ""}\treturn m, tea.Batch(cmds...)`;
+${updateRoutes.length > 0 ? updateRoutes.map((r) => `\t${r}`).join("\n") + "\n" : ""}\treturn m, tea.Batch(cmds...)
+}
+`;
+}
+
+export function generateViewGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+  const { moduleName, allBoxes, usesGlamour } = inspectDocCapabilities(doc, rawModuleName);
+
+  const stdImports = usesGlamour ? [`"strings"`] : [];
+  const thirdImports: string[] = [`tea "charm.land/bubbletea/v2"`];
+  if (usesGlamour) thirdImports.push(`"github.com/charmbracelet/glamour"`);
+  thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
+
+  const viewArgs: string[] = [];
+  for (const node of allBoxes) {
+    const varBase = toCamel(node.id);
+    const ct = node.contentType ?? "text";
+    if (
+      ct === "bubble:list" ||
+      ct === "bubble:table" ||
+      ct === "bubble:viewport" ||
+      ct === "bubble:textinput" ||
+      ct === "huh:form"
+    ) {
+      viewArgs.push(`m.${varBase}.View()`);
+    } else if (ct === "glamour:markdown") {
+      viewArgs.push(`renderMarkdown(${JSON.stringify(node.content ?? "# Hello Glamour")})`);
+    } else {
+      viewArgs.push(JSON.stringify(node.content ?? node.id));
+    }
+  }
+
+  const altScreen = doc.view?.altScreen ?? true;
+  const mouseMode = doc.view?.mouseMode ?? "cell";
+  const mouseModeExpr =
+    mouseMode === "all"
+      ? "tea.MouseModeAllMotion"
+      : mouseMode === "none"
+      ? "tea.MouseModeNone"
+      : "tea.MouseModeCellMotion";
+
+  const viewPropLines: string[] = [
+    `\tv.AltScreen = ${altScreen}`,
+    `\tv.MouseMode = ${mouseModeExpr}`,
+  ];
+  if (doc.view?.windowTitle?.trim()) {
+    viewPropLines.push(`\tv.WindowTitle = ${JSON.stringify(doc.view.windowTitle.trim())}`);
+  }
+  if (doc.view?.reportFocus) {
+    viewPropLines.push(`\tv.ReportFocus = true`);
+  }
+  if (doc.view?.disableBracketedPasteMode) {
+    viewPropLines.push(`\tv.DisableBracketedPasteMode = true`);
+  }
 
   const glamourHelper = usesGlamour
     ? `\nfunc renderMarkdown(md string) string {\n\tr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(72))\n\tif err != nil {\n\t\treturn md\n\t}\n\tout, err := r.Render(md)\n\tif err != nil {\n\t\treturn md\n\t}\n\treturn strings.TrimSpace(out)\n}\n`
     : "";
 
-  const newModelFn = `func newModel(styles ui.Styles) model {
-${initLines.join("\n")}
-\treturn model{
-\t\tstyles: styles,
-${modelStructInitPairs.join("\n")}
-\t}
-}`;
+  const importBlock = stdImports.length > 0
+    ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${thirdImports.map((s) => `\t${s}`).join("\n")}`
+    : thirdImports.map((s) => `\t${s}`).join("\n");
 
-  const runtimeMain = usesWish
-    ? `func teaHandler(s wish.Session) (tea.Model, []tea.ProgramOption) {
+  return `package main
+
+import (
+${importBlock}
+)
+
+func (m model) View() tea.View {
+\t// @tui:view-props
+\tv := tea.NewView(ui.RenderApp(m.width, m.height, m.styles, ${viewArgs.join(", ")}))
+${viewPropLines.join("\n")}
+\treturn v
+}
+${glamourHelper}`;
+}
+
+export function generateEntryMainGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+  const { moduleName, usesWish } = inspectDocCapabilities(doc, rawModuleName);
+
+  if (usesWish) {
+    return `package main
+
+import (
+\t"context"
+\t"errors"
+\t"log"
+\t"net"
+\t"os"
+\t"os/signal"
+\t"syscall"
+\t"time"
+
+\ttea "charm.land/bubbletea/v2"
+\t"charm.land/wish/v2"
+\t"charm.land/wish/v2/bubbletea"
+\t"charm.land/wish/v2/logging"
+\t"github.com/charmbracelet/ssh"
+\t${JSON.stringify(`${moduleName}/ui`)}
+)
+
+func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 \tpty, _, _ := s.Pty()
 \tm := newModel(ui.NewStyles(true))
 \tm.width = pty.Window.Width
 \tm.height = pty.Window.Height
-\treturn m, []tea.ProgramOption{tea.WithAltScreen()}
+\treturn m, bubbletea.MakeOptions(s)
 }
 
 func main() {
@@ -537,44 +774,30 @@ func main() {
 \tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 \tdefer cancel()
 \t_ = s.Shutdown(ctx)
-}`
-    : `func main() {
-\tm := newModel(ui.NewStyles(true))
-\tif _, err := tea.NewProgram(m).Run(); err != nil {
-\t\tlog.Fatal(err)
-\t}
-}`;
+}
+`;
+  }
 
   return `package main
 
 import (
-${stdImports.map((s) => `\t${s}`).join("\n")}
+\t"log"
 
-${thirdImports.map((s) => `\t${s}`).join("\n")}
+\ttea "charm.land/bubbletea/v2"
+\t${JSON.stringify(`${moduleName}/ui`)}
 )
-${listItemType}
-type model struct {
-${fieldDecls.join("\n")}
+
+func main() {
+\tm := newModel(ui.NewStyles(true))
+\tif _, err := tea.NewProgram(m).Run(); err != nil {
+\t\tlog.Fatal(err)
+\t}
+}
+`;
 }
 
-${newModelFn}
-
-func (m model) Init() tea.Cmd {
-\t${initReturn}
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-${updateBody}
-}
-
-func (m model) View() tea.View {
-\tv := tea.NewView(ui.RenderApp(m.width, m.height, m.styles, ${viewArgs.join(", ")}))
-\tv.AltScreen = true
-\treturn v
-}
-
-${runtimeMain}
-${glamourHelper}`;
+export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
+  return generateEntryMainGo(doc, rawModuleName);
 }
 
 export function generateGoMod(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
@@ -593,9 +816,12 @@ export function generateGoMod(doc: IRDoc, rawModuleName = "github.com/charm-user
     `\tcharm.land/lipgloss/v2 v2.1.1`,
   ];
   if (usesBubbles) reqs.push(`\tcharm.land/bubbles/v2 v2.2.1`);
+  if (usesHuh) reqs.push(`\tcharm.land/huh/v2 v2.0.3`);
+  if (usesWish) {
+    reqs.push(`\tcharm.land/wish/v2 v2.0.5`);
+    reqs.push(`\tgithub.com/charmbracelet/ssh v0.0.0-20250128164007-98fd5ae11894`);
+  }
   if (usesGlamour) reqs.push(`\tgithub.com/charmbracelet/glamour v0.8.0`);
-  if (usesHuh) reqs.push(`\tgithub.com/charmbracelet/huh v0.6.0`);
-  if (usesWish) reqs.push(`\tgithub.com/charmbracelet/wish v1.4.0`);
 
   return `module ${moduleName}
 
@@ -743,400 +969,3 @@ export function generateGumShell(doc: IRDoc): string {
 
   return lines.join("\n");
 }
-
-function inspectDocCapabilities(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui") {
-  const moduleName = sanitizeModulePath(rawModuleName);
-  const { rootLeaves, activeOverlays } = collectOrderedLeafBoxes(doc);
-  const allBoxes = [...rootLeaves, ...activeOverlays.map((o) => o.node)];
-
-  const usedTypes = new Set<string>();
-  for (const n of allBoxes) {
-    if (n.contentType) usedTypes.add(n.contentType);
-  }
-
-  const usesList = usedTypes.has("bubble:list");
-  const usesTable = usedTypes.has("bubble:table");
-  const usesViewport = usedTypes.has("bubble:viewport");
-  const usesInput = usedTypes.has("bubble:textinput");
-  const usesGlamour = usedTypes.has("glamour:markdown");
-  const usesHuh = usedTypes.has("huh:form");
-  const usesWish = usedTypes.has("wish:ssh");
-
-  const interactiveWidgets = allBoxes.filter((n) =>
-    n.contentType === "bubble:list" ||
-    n.contentType === "bubble:table" ||
-    n.contentType === "bubble:viewport" ||
-    n.contentType === "bubble:textinput" ||
-    n.contentType === "huh:form"
-  );
-
-  return {
-    moduleName,
-    rootLeaves,
-    activeOverlays,
-    allBoxes,
-    usesList,
-    usesTable,
-    usesViewport,
-    usesInput,
-    usesGlamour,
-    usesHuh,
-    usesWish,
-    interactiveWidgets,
-  };
-}
-
-export function generateThemeGenGo(doc: IRDoc): string {
-  return `// Code generated by Charm Studio (theme_gen.go)\n\n${generateStylesGo(doc)}`;
-}
-
-export function generateLayoutGenGo(doc: IRDoc): string {
-  return `// Code generated by Charm Studio (layout_gen.go)\n\n${generateLayoutGo(doc)}`;
-}
-
-export function generateModelGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const {
-    moduleName,
-    allBoxes,
-    usesList,
-    usesTable,
-    usesViewport,
-    usesInput,
-    usesHuh,
-    usesWish,
-    interactiveWidgets,
-  } = inspectDocCapabilities(doc, rawModuleName);
-
-  const imports: string[] = [];
-  if (usesList) imports.push(`"charm.land/bubbles/v2/list"`);
-  if (usesTable) imports.push(`"charm.land/bubbles/v2/table"`);
-  if (usesInput) imports.push(`"charm.land/bubbles/v2/textinput"`);
-  if (usesViewport) imports.push(`"charm.land/bubbles/v2/viewport"`);
-  imports.push(`tea "charm.land/bubbletea/v2"`);
-  if (usesHuh) imports.push(`"github.com/charmbracelet/huh"`);
-  imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
-
-  const fieldDecls: string[] = [
-    `\twidth, height int`,
-    `\tstyles        ui.Styles`,
-  ];
-  if (interactiveWidgets.length > 1) {
-    fieldDecls.push(`\tfocusIdx      int`);
-  }
-
-  const initLines: string[] = [];
-  const initCmds: string[] = [];
-  if (!usesWish) initCmds.push("tea.RequestBackgroundColor");
-
-  const listItemType = usesList
-    ? `\ntype listItem struct{ title, desc string }\nfunc (i listItem) Title() string       { return i.title }\nfunc (i listItem) Description() string { return i.desc }\nfunc (i listItem) FilterValue() string { return i.title }\n`
-    : "";
-
-  for (const node of allBoxes) {
-    const varBase = toCamel(node.id);
-    const ct = node.contentType ?? "text";
-    const wd = node.widgetData ?? defaultWidgetData(ct);
-
-    if (ct === "bubble:list") {
-      fieldDecls.push(`\t${varBase} list.Model`);
-      const items = wd.listItems?.length ? wd.listItems : defaultWidgetData("bubble:list").listItems!;
-      const title = wd.listTitle || "Items";
-      initLines.push(
-        `\t${varBase}Items := []list.Item{`,
-        ...items.map((it) => `\t\tlistItem{title: ${JSON.stringify(it.title)}, desc: ${JSON.stringify(it.desc)}},`),
-        `\t}`,
-        `\t${varBase}Model := list.New(${varBase}Items, list.NewDefaultDelegate(), 28, 16)`,
-        `\t${varBase}Model.Title = ${JSON.stringify(title)}`
-      );
-    } else if (ct === "bubble:table") {
-      fieldDecls.push(`\t${varBase} table.Model`);
-      const cols = wd.tableColumns?.length ? wd.tableColumns : defaultWidgetData("bubble:table").tableColumns!;
-      const rows = wd.tableRows ?? defaultWidgetData("bubble:table").tableRows!;
-      initLines.push(
-        `\t${varBase}Cols := []table.Column{`,
-        ...cols.map((c) => `\t\t{Title: ${JSON.stringify(c.title)}, Width: ${c.width}},`),
-        `\t}`,
-        `\t${varBase}Rows := []table.Row{`,
-        ...rows.map((r) => `\t\t{${cols.map((_, i) => JSON.stringify(r[i] ?? "")).join(", ")}},`),
-        `\t}`,
-        `\t${varBase}Model := table.New(table.WithColumns(${varBase}Cols), table.WithRows(${varBase}Rows), table.WithFocused(true), table.WithHeight(10))`
-      );
-    } else if (ct === "bubble:viewport") {
-      fieldDecls.push(`\t${varBase} viewport.Model`);
-      const vpText = (node.content ?? "").trim() || "Scrollable viewport content...";
-      initLines.push(
-        `\t${varBase}Model := viewport.New(viewport.WithWidth(60), viewport.WithHeight(16))`,
-        `\t${varBase}Model.SetContent(${JSON.stringify(vpText)})`
-      );
-    } else if (ct === "bubble:textinput") {
-      fieldDecls.push(`\t${varBase} textinput.Model`);
-      const prompt = wd.inputPrompt ?? "> ";
-      const placeholder = wd.inputPlaceholder ?? "Type a command...";
-      initLines.push(
-        `\t${varBase}Model := textinput.New()`,
-        `\t${varBase}Model.Prompt = ${JSON.stringify(prompt)}`,
-        `\t${varBase}Model.Placeholder = ${JSON.stringify(placeholder)}`,
-        `\t${varBase}Model.Focus()`
-      );
-    } else if (ct === "huh:form") {
-      fieldDecls.push(`\t${varBase} *huh.Form`);
-      const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
-      const huhFieldSnippets = fields.map((f) => {
-        if (f.kind === "select") {
-          const opts = f.options?.length ? f.options : ["Option A", "Option B"];
-          const optCalls = opts.map((o) => `huh.NewOption(${JSON.stringify(o)}, ${JSON.stringify(o)})`).join(", ");
-          return `\t\t\thuh.NewSelect[string]().Title(${JSON.stringify(f.label)}).Options(${optCalls}),`;
-        }
-        if (f.kind === "confirm") {
-          return `\t\t\thuh.NewConfirm().Title(${JSON.stringify(f.label)}),`;
-        }
-        return `\t\t\thuh.NewInput().Title(${JSON.stringify(f.label)}).Placeholder(${JSON.stringify(f.placeholder || "")}),`;
-      });
-      initLines.push(
-        `\t${varBase}Form := huh.NewForm(`,
-        `\t\thuh.NewGroup(`,
-        ...huhFieldSnippets,
-        `\t\t),`,
-        `\t)`
-      );
-      initCmds.push(`m.${varBase}.Init()`);
-    }
-  }
-
-  const modelStructInitPairs = allBoxes
-    .filter((n) => ["bubble:list", "bubble:table", "bubble:viewport", "bubble:textinput", "huh:form"].includes(n.contentType ?? ""))
-    .map((n) => {
-      const varBase = toCamel(n.id);
-      const suffix = n.contentType === "huh:form" ? "Form" : "Model";
-      return `\t\t${varBase}: ${varBase}${suffix},`;
-    });
-
-  const initReturn = initCmds.length === 0
-    ? "return nil"
-    : initCmds.length === 1
-    ? `return ${initCmds[0]}`
-    : `return tea.Batch(${initCmds.join(", ")})`;
-
-  return `package main
-
-import (
-${imports.map((s) => `\t${s}`).join("\n")}
-)
-${listItemType}
-type model struct {
-${fieldDecls.join("\n")}
-}
-
-func newModel(styles ui.Styles) model {
-${initLines.join("\n")}
-\treturn model{
-\t\tstyles: styles,
-${modelStructInitPairs.join("\n")}
-\t}
-}
-
-func (m model) Init() tea.Cmd {
-\t${initReturn}
-}
-`;
-}
-
-export function generateUpdateGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const {
-    moduleName,
-    allBoxes,
-    usesHuh,
-    usesWish,
-    interactiveWidgets,
-  } = inspectDocCapabilities(doc, rawModuleName);
-
-  const imports: string[] = [`tea "charm.land/bubbletea/v2"`];
-  if (usesHuh) imports.push(`"github.com/charmbracelet/huh"`);
-  if (!usesWish) imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
-
-  const resizeLines: string[] = [];
-  for (const node of allBoxes) {
-    const varBase = toCamel(node.id);
-    const ct = node.contentType ?? "text";
-    if (ct === "bubble:list") {
-      resizeLines.push(`\t\tm.${varBase}.SetSize(max(16, msg.Width/3), max(6, msg.Height-4))`);
-    } else if (ct === "bubble:table") {
-      resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`);
-    } else if (ct === "bubble:viewport") {
-      resizeLines.push(
-        `\t\tm.${varBase}.SetWidth(max(12, msg.Width-6))`,
-        `\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`
-      );
-    } else if (ct === "bubble:textinput") {
-      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(10, msg.Width-8))`);
-    }
-  }
-
-  const updateRoutes: string[] = [];
-  interactiveWidgets.forEach((node, idx) => {
-    const varBase = toCamel(node.id);
-    const ct = node.contentType!;
-    const guard = interactiveWidgets.length > 1 ? `if m.focusIdx == ${idx} {\n\t\t` : "\t";
-    const endGuard = interactiveWidgets.length > 1 ? "\n\t}" : "";
-    if (ct === "huh:form") {
-      updateRoutes.push(
-        `${guard}if f, cmd := m.${varBase}.Update(msg); f != nil {\n\t\t\tif form, ok := f.(*huh.Form); ok {\n\t\t\t\tm.${varBase} = form\n\t\t\t}\n\t\t\tcmds = append(cmds, cmd)\n\t\t}${endGuard}`
-      );
-    } else {
-      updateRoutes.push(`${guard}var cmd tea.Cmd\n\t\tm.${varBase}, cmd = m.${varBase}.Update(msg)\n\t\tcmds = append(cmds, cmd)${endGuard}`);
-    }
-  });
-
-  const focusTabCase = interactiveWidgets.length > 1
-    ? `\t\tcase "tab":\n\t\t\tm.focusIdx = (m.focusIdx + 1) % ${interactiveWidgets.length}\n\t\tcase "shift+tab":\n\t\t\tm.focusIdx = (m.focusIdx + ${interactiveWidgets.length - 1}) % ${interactiveWidgets.length}\n`
-    : "";
-
-  return `package main
-
-import (
-${imports.map((s) => `\t${s}`).join("\n")}
-)
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-\tvar cmds []tea.Cmd
-\tswitch msg := msg.(type) {
-\tcase tea.WindowSizeMsg:
-\t\tm.width, m.height = msg.Width, msg.Height
-${resizeLines.join("\n")}${!usesWish ? `\n\tcase tea.BackgroundColorMsg:\n\t\tm.styles = ui.NewStyles(msg.IsDark())` : ""}
-\tcase tea.KeyPressMsg:
-\t\tswitch msg.String() {
-\t\tcase "ctrl+c":
-\t\t\treturn m, tea.Quit
-${focusTabCase}\t\t}
-\t}
-${updateRoutes.length > 0 ? updateRoutes.map((r) => `\t${r}`).join("\n") + "\n" : ""}\treturn m, tea.Batch(cmds...)
-}
-`;
-}
-
-export function generateViewGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const { moduleName, allBoxes, usesGlamour } = inspectDocCapabilities(doc, rawModuleName);
-
-  const stdImports = usesGlamour ? [`"strings"`] : [];
-  const thirdImports: string[] = [`tea "charm.land/bubbletea/v2"`];
-  if (usesGlamour) thirdImports.push(`"github.com/charmbracelet/glamour"`);
-  thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
-
-  const viewArgs: string[] = [];
-  for (const node of allBoxes) {
-    const varBase = toCamel(node.id);
-    const ct = node.contentType ?? "text";
-    if (
-      ct === "bubble:list" ||
-      ct === "bubble:table" ||
-      ct === "bubble:viewport" ||
-      ct === "bubble:textinput" ||
-      ct === "huh:form"
-    ) {
-      viewArgs.push(`m.${varBase}.View()`);
-    } else if (ct === "glamour:markdown") {
-      viewArgs.push(`renderMarkdown(${JSON.stringify(node.content ?? "# Hello Glamour")})`);
-    } else {
-      viewArgs.push(JSON.stringify((node.content ?? node.id).split("\n")[0]));
-    }
-  }
-
-  const glamourHelper = usesGlamour
-    ? `\nfunc renderMarkdown(md string) string {\n\tr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(72))\n\tif err != nil {\n\t\treturn md\n\t}\n\tout, err := r.Render(md)\n\tif err != nil {\n\t\treturn md\n\t}\n\treturn strings.TrimSpace(out)\n}\n`
-    : "";
-
-  const importBlock = stdImports.length > 0
-    ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${thirdImports.map((s) => `\t${s}`).join("\n")}`
-    : thirdImports.map((s) => `\t${s}`).join("\n");
-
-  return `package main
-
-import (
-${importBlock}
-)
-
-func (m model) View() tea.View {
-\tv := tea.NewView(ui.RenderApp(m.width, m.height, m.styles, ${viewArgs.join(", ")}))
-\tv.AltScreen = true
-\treturn v
-}
-${glamourHelper}`;
-}
-
-export function generateEntryMainGo(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const { moduleName, usesWish } = inspectDocCapabilities(doc, rawModuleName);
-
-  if (usesWish) {
-    return `package main
-
-import (
-\t"context"
-\t"errors"
-\t"log"
-\t"net"
-\t"os"
-\t"os/signal"
-\t"syscall"
-\t"time"
-
-\ttea "charm.land/bubbletea/v2"
-\t"github.com/charmbracelet/wish"
-\t"github.com/charmbracelet/wish/bubbletea"
-\t"github.com/charmbracelet/wish/logging"
-\t${JSON.stringify(`${moduleName}/ui`)}
-)
-
-func teaHandler(s wish.Session) (tea.Model, []tea.ProgramOption) {
-\tpty, _, _ := s.Pty()
-\tm := newModel(ui.NewStyles(true))
-\tm.width = pty.Window.Width
-\tm.height = pty.Window.Height
-\treturn m, []tea.ProgramOption{tea.WithAltScreen()}
-}
-
-func main() {
-\ts, err := wish.NewServer(
-\t\twish.WithAddress(net.JoinHostPort("0.0.0.0", "2323")),
-\t\twish.WithHostKeyPath(".ssh/id_ed25519"),
-\t\twish.WithMiddleware(
-\t\t\tbubbletea.Middleware(teaHandler),
-\t\t\tlogging.Middleware(),
-\t\t),
-\t)
-\tif err != nil {
-\t\tlog.Fatal(err)
-\t}
-
-\tdone := make(chan os.Signal, 1)
-\tsignal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-\tgo func() {
-\t\tif err := s.ListenAndServe(); err != nil && !errors.Is(err, wish.ErrServerClosed) {
-\t\t\tlog.Fatal(err)
-\t\t}
-\t}()
-\t<-done
-\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-\tdefer cancel()
-\t_ = s.Shutdown(ctx)
-}
-`;
-  }
-
-  return `package main
-
-import (
-\t"log"
-
-\ttea "charm.land/bubbletea/v2"
-\t${JSON.stringify(`${moduleName}/ui`)}
-)
-
-func main() {
-\tm := newModel(ui.NewStyles(true))
-\tif _, err := tea.NewProgram(m).Run(); err != nil {
-\t\tlog.Fatal(err)
-\t}
-}
-`;
-}
-

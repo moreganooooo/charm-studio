@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, Moon, Sun } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
 import { HelpDot, Tooltip } from "../Tooltip";
-import { defaultWidgetData, type ContentType, type IRStyle, type OverlayAnchor } from "../types";
+import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor } from "../types";
 import { WidgetDataEditor } from "../WidgetDataEditor";
 import {
   btnStyle,
@@ -34,6 +34,7 @@ export function PropertyInspector({ scrollRef }: Props) {
     setShowAdvancedStyle,
     renameNode,
     updateNode,
+    updateView,
     updateSelectedStyle,
     updateQuad,
     toggleBorderEdge,
@@ -94,6 +95,82 @@ export function PropertyInspector({ scrollRef }: Props) {
             Rename
           </button>
         </div>
+      )}
+
+      {/* Declarative Bubble Tea v2 tea.View Controls when Root is Selected */}
+      {selectedNode && selectedNode.id === ir.root.id && (
+        <Section
+          title="Declarative tea.View"
+          badge="bubbletea/v2"
+          subtitle="Terminal session & input flags emitted directly on the returned tea.View struct in view.go."
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label style={labelCol}>
+              <span style={{ display: "inline-flex", alignItems: "center" }}>
+                Window Title
+                <HelpDot
+                  title="tea.View.WindowTitle"
+                  content="Sets the host terminal tab/window title declaratively via v.WindowTitle."
+                />
+              </span>
+              <input
+                value={ir.view?.windowTitle ?? ""}
+                placeholder="Charm Studio TUI"
+                onChange={(e) => updateView({ windowTitle: e.target.value })}
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={labelCol}>
+              <span style={{ display: "inline-flex", alignItems: "center" }}>
+                Mouse Mode
+                <HelpDot
+                  title="tea.View.MouseMode"
+                  content="Replaces v1 tea.WithMouseCellMotion() / WithMouseAllMotion() startup flags with declarative v.MouseMode."
+                />
+              </span>
+              <select
+                value={ir.view?.mouseMode ?? "cell"}
+                onChange={(e) => updateView({ mouseMode: e.target.value as MouseMode })}
+                style={inputStyle}
+              >
+                <option value="cell">MouseModeCellMotion (Clicks &amp; Scroll)</option>
+                <option value="all">MouseModeAllMotion (Hover &amp; Drag)</option>
+                <option value="none">MouseModeNone (Keyboard Only)</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingTop: 10 }}>
+            <label style={checkLbl}>
+              <input
+                type="checkbox"
+                checked={ir.view?.altScreen ?? true}
+                onChange={(e) => updateView({ altScreen: e.target.checked })}
+                style={chkAcc}
+              />
+              AltScreen
+            </label>
+            <label style={checkLbl}>
+              <input
+                type="checkbox"
+                checked={!!ir.view?.reportFocus}
+                onChange={(e) => updateView({ reportFocus: e.target.checked })}
+                style={chkAcc}
+              />
+              ReportFocus
+            </label>
+            <label style={checkLbl}>
+              <input
+                type="checkbox"
+                checked={!!ir.view?.disableBracketedPasteMode}
+                onChange={(e) => updateView({ disableBracketedPasteMode: e.target.checked })}
+                style={chkAcc}
+              />
+              DisableBracketedPasteMode
+            </label>
+          </div>
+        </Section>
       )}
 
       {selectedNode && selectedNode.kind !== "Box" && (

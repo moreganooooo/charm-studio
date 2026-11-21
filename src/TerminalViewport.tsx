@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Trash2 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
 import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type Rect, type TelemetryNode } from "./types";
-import { dispatchKey, ensureEngineReady, renderFrame } from "./wasmEngine";
+import { dispatchKey, ensureEngineReady, hitTestCell, renderFrame } from "./wasmEngine";
 
 export interface TermPalette {
   id: string;
@@ -170,6 +170,24 @@ export function TerminalViewport({
     const rect = e.currentTarget.getBoundingClientRect();
     const cx = Math.floor((e.clientX - rect.left) / cellSize.w);
     const cy = Math.floor((e.clientY - rect.top) / cellSize.h);
+
+    const wasmHit = hitTestCell(cx, cy);
+    if (wasmHit) {
+      const matched = telemetry.find((n) => n.id === wasmHit.id);
+      if (matched) return matched;
+      return {
+        id: wasmHit.id,
+        kind: "Box",
+        style: "",
+        margin: wasmHit.bounds,
+        border: wasmHit.bounds,
+        padding: wasmHit.bounds,
+        content: wasmHit.bounds,
+        overflowX: false,
+        overflowY: false,
+      };
+    }
+
     return (
       [...telemetry].reverse().find(
         (n) => cx >= n.margin.x && cx < n.margin.x + n.margin.w && cy >= n.margin.y && cy < n.margin.y + n.margin.h
@@ -191,7 +209,7 @@ export function TerminalViewport({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (inlineEdit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const handled = dispatchKey(selectedId, e.key);
+    const handled = dispatchKey(selectedId, e.key, e.shiftKey);
     if (handled) {
       e.preventDefault();
       onInteract();

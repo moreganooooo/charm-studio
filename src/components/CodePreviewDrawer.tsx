@@ -3,6 +3,7 @@ import { Check, Code2, Copy, Download, GitCompare } from "lucide-react";
 import { computeAstDeltas, computeUnifiedDiff } from "../astDiff";
 import {
   generateEntryMainGo,
+  generateFixturesPreviewGo,
   generateGoMod,
   generateGumShell,
   generateLayoutGenGo,
@@ -26,6 +27,7 @@ export type CodeFileTab =
   | "model"
   | "update"
   | "view"
+  | "fixtures_preview"
   | "main"
   | "gomod"
   | "vhs"
@@ -38,7 +40,8 @@ const CODE_FILE_INFO: Record<CodeFileTab, string> = {
   layout_gen: "ui/layout_gen.go — Responsive RenderApp() layout tree & NewLayer overlay compositor.",
   model: "model.go — Bubble Tea v2 model struct, Bubbles/Huh initialization & Init() commands.",
   update: "update.go — WindowSizeMsg resizing, BackgroundColorMsg theming, Tab focus & widget routing.",
-  view: "view.go — View() rendering ui.RenderApp(...) with alt-screen & Glamour Markdown helper.",
+  view: "view.go — View() returning declarative tea.View with ui.RenderApp(...), AltScreen, MouseMode & WindowTitle.",
+  fixtures_preview: "fixtures_preview_gen.go — Build-tagged (//go:build preview) sample data harness keeping production models clean.",
   main: "main.go — Runnable Bubble Tea v2 (or Wish SSH) program entrypoint.",
   gomod: "go.mod — Module manifest declaring exact charm.land/v2 & Charmbracelet dependencies.",
   vhs: "demo.tape — charmbracelet/vhs tape script to record a terminal GIF/screenshot.",
@@ -53,6 +56,7 @@ const CODE_TABS: { id: CodeFileTab; label: string; proOnly?: boolean }[] = [
   { id: "model", label: "model.go" },
   { id: "update", label: "update.go" },
   { id: "view", label: "view.go" },
+  { id: "fixtures_preview", label: "fixtures_preview_gen.go" },
   { id: "main", label: "main.go" },
   { id: "gomod", label: "go.mod" },
   { id: "vhs", label: "demo.tape" },
@@ -73,6 +77,8 @@ function renderFileForDoc(doc: IRDoc, tab: CodeFileTab, goModuleName: string, pa
       return generateUpdateGo(doc, goModuleName);
     case "view":
       return generateViewGo(doc, goModuleName);
+    case "fixtures_preview":
+      return generateFixturesPreviewGo(doc);
     case "main":
       return generateEntryMainGo(doc, goModuleName);
     case "gomod":
@@ -156,6 +162,7 @@ export function CodePreviewDrawer() {
       { path: `${slug}/model.go`, content: generateModelGo(ir, modPath) },
       { path: `${slug}/update.go`, content: generateUpdateGo(ir, modPath) },
       { path: `${slug}/view.go`, content: generateViewGo(ir, modPath) },
+      { path: `${slug}/fixtures_preview_gen.go`, content: generateFixturesPreviewGo(ir) },
       { path: `${slug}/ui/theme_gen.go`, content: generateThemeGenGo(ir) },
       { path: `${slug}/ui/layout_gen.go`, content: generateLayoutGenGo(ir) },
       { path: `${slug}/demo.tape`, content: generateVhsTape(ir, palette.label) },
