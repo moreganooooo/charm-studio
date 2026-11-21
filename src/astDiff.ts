@@ -2,7 +2,7 @@ import type { IRDoc, IRNode, IRStyle } from "./types";
 
 export interface AstDelta {
   kind: "added" | "removed" | "modified";
-  category: "Node" | "Style" | "Token" | "Overlay";
+  category: "Node" | "Style" | "Token" | "Overlay" | "View";
   symbol: string;
   detail: string;
 }
@@ -146,6 +146,31 @@ export function computeAstDeltas(prevDoc: IRDoc, currDoc: IRDoc): AstDelta[] {
     }
   }
 
+  const pv = prevDoc.view ?? {
+    altScreen: true,
+    mouseMode: "cell",
+    windowTitle: "Charm Studio App",
+    reportFocus: false,
+    disableBracketedPasteMode: false,
+  };
+  const cv = currDoc.view ?? pv;
+  const viewDiffs: string[] = [];
+  if (pv.altScreen !== cv.altScreen) viewDiffs.push(`AltScreen=${cv.altScreen}`);
+  if (pv.mouseMode !== cv.mouseMode) viewDiffs.push(`MouseMode=${cv.mouseMode}`);
+  if (pv.windowTitle !== cv.windowTitle) viewDiffs.push(`WindowTitle=${JSON.stringify(cv.windowTitle)}`);
+  if (pv.reportFocus !== cv.reportFocus) viewDiffs.push(`ReportFocus=${cv.reportFocus}`);
+  if (pv.disableBracketedPasteMode !== cv.disableBracketedPasteMode) {
+    viewDiffs.push(`DisableBracketedPasteMode=${cv.disableBracketedPasteMode}`);
+  }
+  if (viewDiffs.length > 0) {
+    deltas.push({
+      kind: "modified",
+      category: "View",
+      symbol: "tea.View",
+      detail: viewDiffs.join(", "),
+    });
+  }
+
   return deltas;
 }
 
@@ -153,7 +178,6 @@ export function computeUnifiedDiff(beforeText: string, afterText: string): DiffL
   const a = beforeText.split("\n");
   const b = afterText.split("\n");
 
-  // Guard for very large inputs
   if (a.length * b.length > 250000) {
     const out: DiffLine[] = [];
     const maxLen = Math.max(a.length, b.length);

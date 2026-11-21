@@ -1,11 +1,16 @@
 import type { ContentType, IRDoc, IRNode, IRStyle, TokenPair } from "./types";
+import { parseGoWithDst } from "./wasmEngine";
 
 export interface ExtractedGoSummary {
   styles: Record<string, IRStyle>;
   tokens: Record<string, TokenPair>;
+  view?: IRDoc["view"];
   detectedBubbles: ContentType[];
   styleNames: string[];
   colorCount: number;
+  syncDisabled?: boolean;
+  lockedSymbols?: string[];
+  engineUsed?: "dave/dst" | "regex-fallback";
 }
 
 function parseNums(argStr: string): number[] {
@@ -49,6 +54,22 @@ function extractBalancedArgs(src: string, openParenIdx: number): string {
 }
 
 export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
+  const dstParsed = parseGoWithDst(combinedGo);
+  if (dstParsed && !dstParsed.error && dstParsed.styles) {
+    const styles = dstParsed.styles as Record<string, IRStyle>;
+    return {
+      styles,
+      tokens: (dstParsed.tokens as Record<string, TokenPair>) ?? {},
+      view: dstParsed.view as IRDoc["view"] | undefined,
+      detectedBubbles: (dstParsed.detectedBubbles as ContentType[]) ?? [],
+      styleNames: (dstParsed.styleNames as string[]) ?? Object.keys(styles),
+      colorCount: Number(dstParsed.colorCount ?? 0),
+      syncDisabled: Boolean(dstParsed.syncDisabled),
+      lockedSymbols: (dstParsed.lockedSymbols as string[]) ?? [],
+      engineUsed: "dave/dst",
+    };
+  }
+
   const tokens: Record<string, TokenPair> = {
     accent:     { light: "#2e7de9", dark: "#7aa2f7" },
     borderIdle: { light: "#9aa5ce", dark: "#414868" },
@@ -92,7 +113,6 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     const hexMatch = arg.match(/#(#[0-9a-fA-F]{6}|[0-9a-fA-F]{6})/);
     if (hexMatch) {
       const hex = hexMatch[0].startsWith("#") ? hexMatch[0] : `#${hexMatch[0]}`;
-      // Register or reuse a token for this hex
       const existing = Object.entries(tokens).find(([, p]) => p.dark.toLowerCase() === hex.toLowerCase());
       if (existing) return `$${existing[0]}`;
       const k = `tone${Object.keys(tokens).length + 1}`;
@@ -113,7 +133,6 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     const styleName = rawName.charAt(0).toLowerCase() + rawName.slice(1);
     const startPos = (m.index ?? 0) + m[0].length;
 
-    // Grab the chained methods until a blank line, newline not preceded by '.', or comma/closing brace
     const rest = combinedGo.slice(startPos, startPos + 1400);
     const chainLines: string[] = [];
     for (const line of rest.split("\n")) {
@@ -185,7 +204,6 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     styles[styleName] = st;
   }
 
-  // Fallback style if file only had colors and no NewStyle() chains
   const styleNames = Object.keys(styles);
   if (styleNames.length === 0) {
     styles.importedBox = {
@@ -204,7 +222,7 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
   if (/bubbles(?:\/v2)?\/table/.test(combinedGo)) detectedBubbles.push("bubble:table");
   if (/bubbles(?:\/v2)?\/viewport/.test(combinedGo)) detectedBubbles.push("bubble:viewport");
   if (/bubbles(?:\/v2)?\/textinput/.test(combinedGo)) detectedBubbles.push("bubble:textinput");
-  if (/charmbracelet\/huh/.test(combinedGo)) detectedBubbles.push("huh:form");
+  if (/charmbracelet\/huh|charm\.land\/huh/.test(combinedGo)) detectedBubbles.push("huh:form");
   if (/charmbracelet\/glamour/.test(combinedGo)) detectedBubbles.push("glamour:markdown");
   if (/charmbracelet\/wish/.test(combinedGo)) detectedBubbles.push("wish:ssh");
 
@@ -214,6 +232,9 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     detectedBubbles,
     styleNames: Object.keys(styles),
     colorCount: allHexes.length,
+    syncDisabled: /\/\/\s*@tui:sync-disable/.test(combinedGo),
+    lockedSymbols: [],
+    engineUsed: "regex-fallback",
   };
 }
 
@@ -254,6 +275,7 @@ export function buildIRFromExtracted(summary: ExtractedGoSummary, sourceLabel: s
   const doc: IRDoc = {
     tokens: summary.tokens,
     styles: summary.styles,
+    view: summary.view,
     root: {
       id: "shell",
       kind: "JoinVertical",

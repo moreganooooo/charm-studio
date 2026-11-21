@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { ArrowRight, CheckCircle2, FileCode2, FolderOpen, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Copy, FileCode2, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
 import { buildIRFromExtracted, extractFromGoSource, type ExtractedGoSummary } from "./goImporter";
 import type { IRDoc } from "./types";
+import { syncGoWithDst } from "./wasmEngine";
 
 interface Props {
   open: boolean;
   initialTab?: "upload" | "github";
+  currentDoc?: IRDoc;
   user: User | null;
   githubToken: string | null;
   onClose: () => void;
@@ -67,6 +69,7 @@ function parseGitHubInput(raw: string): { owner: string; repo: string; branch?: 
 export function ImportModal({
   open,
   initialTab = "upload",
+  currentDoc,
   user,
   githubToken,
   onClose,
@@ -77,6 +80,9 @@ export function ImportModal({
   const [goText, setGoText] = useState("");
   const [sourceLabel, setSourceLabel] = useState("pasted.go");
   const [summary, setSummary] = useState<ExtractedGoSummary | null>(null);
+  const [patchedGo, setPatchedGo] = useState<string | null>(null);
+  const [patchedInfo, setPatchedInfo] = useState<{ patched: string[]; locked: string[]; disabled: boolean } | null>(null);
+  const [copiedPatch, setCopiedPatch] = useState(false);
 
   // User's GitHub repos
   const githubUsername = (user?.user_metadata?.user_name as string | undefined) || null;
@@ -521,18 +527,29 @@ export function ImportModal({
           </div>
         )}
 
-        {/* Extraction Preview */}
+        {/* Extraction Preview & Lossless Round-Trip Sync */}
         {summary && (
-          <div style={{ ...card, borderColor: "var(--cs-mint)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ ...card, borderColor: summary.syncDisabled ? "#f59e0b" : "var(--cs-mint)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
               <b style={{ color: "var(--cs-mint)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <CheckCircle2 size={14} />
                 <span>Ready to Import ({sourceLabel})</span>
+                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 999, background: "var(--cs-input)", color: "var(--cs-lavender-text)", border: "1px solid var(--cs-btn-border)" }}>
+                  {summary.engineUsed ?? "dave/dst"}
+                </span>
               </b>
               <span style={{ fontSize: 11.5, color: "var(--cs-text-muted)" }}>
                 {summary.styleNames.length} styles • {Object.keys(summary.tokens).length} color tokens
               </span>
             </div>
+
+            {summary.syncDisabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, marginBottom: 8, background: "rgba(245, 158, 11, 0.14)", border: "1px solid rgba(245, 158, 11, 0.45)", color: "#fbbf24", fontSize: 11.5 }}>
+                <Lock size={13} />
+                <span>File contains <code>// @tui:sync-disable</code> — round-trip patching will leave this file untouched.</span>
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
               {summary.styleNames.map((n) => (
                 <code key={n} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "var(--cs-input)", color: "var(--cs-text-heading)", border: "1px solid var(--cs-btn-border)" }}>
@@ -544,16 +561,75 @@ export function ImportModal({
                   {b}
                 </code>
               ))}
+              {(summary.lockedSymbols ?? []).map((sym) => (
+                <code key={sym} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(245, 158, 11, 0.12)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+                  locked: {sym}
+                </code>
+              ))}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: "var(--cs-text-dim)" }}>
                 Imports static styles &amp; colors into the canvas (Undoable with Cmd+Z).
               </span>
-              <button onClick={applyImported} style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <span>Load Into Studio</span>
-                <ArrowRight size={13} />
-              </button>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {currentDoc && goText.trim() && (
+                  <button
+                    onClick={() => {
+                      const res = syncGoWithDst(goText, currentDoc);
+                      if (res.error) {
+                        setError(res.error);
+                        return;
+                      }
+                      setPatchedGo(res.updatedGo);
+                      setPatchedInfo({
+                        patched: res.patchedSymbols ?? [],
+                        locked: res.lockedSymbols ?? [],
+                        disabled: Boolean(res.syncDisabled),
+                      });
+                    }}
+                    style={{ ...btn, display: "inline-flex", alignItems: "center", gap: 5 }}
+                    title="Surgically update matching styles, tokens, and tea.View fields in your pasted Go file without touching comments or Update() logic"
+                  >
+                    <RefreshCw size={12} />
+                    <span>Patch Existing Go</span>
+                  </button>
+                )}
+                <button onClick={applyImported} style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <span>Load Into Studio</span>
+                  <ArrowRight size={13} />
+                </button>
+              </div>
             </div>
+
+            {patchedGo !== null && patchedInfo && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--cs-border-subtle)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
+                  <span style={{ fontSize: 11.5, color: "var(--cs-mint)", fontWeight: 600 }}>
+                    {patchedInfo.disabled
+                      ? "Skipped (@tui:sync-disable active)"
+                      : `DST Patched ${patchedInfo.patched.length} symbol(s)${patchedInfo.locked.length ? ` • ${patchedInfo.locked.length} locked` : ""}`}
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(patchedGo);
+                      setCopiedPatch(true);
+                      setTimeout(() => setCopiedPatch(false), 1800);
+                    }}
+                    style={{ ...btn, padding: "3px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+                  >
+                    <Copy size={11} />
+                    <span>{copiedPatch ? "Copied!" : "Copy Patched Go"}</span>
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  rows={8}
+                  value={patchedGo}
+                  style={{ ...inp, fontFamily: "ui-monospace, monospace", fontSize: 11.5 }}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

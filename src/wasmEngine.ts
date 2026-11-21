@@ -7,6 +7,8 @@ declare global {
     renderStudio?: (irJson: string, cols: number, rows: number, hasDarkBG: boolean, colorProfile: string) => string;
     dispatchStudioKey?: (nodeId: string, key: string) => boolean;
     hitTestStudio?: (col: number, row: number) => string | null;
+    parseGoSource?: (goSrc: string) => string;
+    syncGoSource?: (existingGo: string, irJson: string) => string;
   }
 }
 
@@ -27,6 +29,14 @@ export interface StudioFrame {
 export interface HitTestResult {
   id: string;
   bounds: Rect;
+}
+
+export interface GoSyncResponse {
+  updatedGo: string;
+  patchedSymbols?: string[];
+  lockedSymbols?: string[];
+  syncDisabled?: boolean;
+  error?: string;
 }
 
 let bootPromise: Promise<void> | null = null;
@@ -145,5 +155,25 @@ export function hitTestCell(col: number, row: number): HitTestResult | null {
     return JSON.parse(raw) as HitTestResult;
   } catch {
     return null;
+  }
+}
+
+export function parseGoWithDst(goSrc: string): Record<string, unknown> | null {
+  if (!window.parseGoSource) return null;
+  try {
+    return JSON.parse(window.parseGoSource(goSrc)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export function syncGoWithDst(existingGo: string, doc: IRDoc): GoSyncResponse {
+  if (!window.syncGoSource) {
+    return { updatedGo: existingGo, error: "WASM DST sync engine not loaded yet" };
+  }
+  try {
+    return JSON.parse(window.syncGoSource(existingGo, JSON.stringify(doc))) as GoSyncResponse;
+  } catch (err) {
+    return { updatedGo: existingGo, error: (err as Error).message };
   }
 }

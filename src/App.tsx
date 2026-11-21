@@ -1005,19 +1005,13 @@ function StudioShell() {
 
         <ImportModal
           open={importOpen}
-          initialTab={importInitialTab}
+          initialTab={importTab}
+          currentDoc={doc}
           user={user}
           githubToken={githubToken}
           onClose={() => setImportOpen(false)}
-          onOpenAuth={() => {
-            setImportOpen(false);
-            setAuthOpen(true);
-          }}
-          onImportIR={(doc, selectId) => {
-            commitIr(doc);
-            setSelectedId(selectId);
-            markStep("templateOrImport");
-          }}
+          onOpenAuth={() => setAuthOpen(true)}
+          onImportIR={handleImportIR}
         />
 
         <WidgetPickerModal

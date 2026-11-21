@@ -820,5 +820,7 @@ func main() {
     js.Global().Set("renderStudio", js.FuncOf(renderStudio))
     js.Global().Set("dispatchStudioKey", js.FuncOf(dispatchStudioKey))
     js.Global().Set("hitTestStudio", js.FuncOf(hitTestStudio))
+    js.Global().Set("parseGoSource", js.FuncOf(parseGoSource))
+    js.Global().Set("syncGoSource", js.FuncOf(syncGoSource))
     select {}
 }
