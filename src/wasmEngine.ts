@@ -37,7 +37,10 @@ export function ensureEngineReady(): Promise<void> {
     bootPromise = (async () => {
       if (!window.renderStudio) {
         const go = new window.Go();
-        const result = await WebAssembly.instantiateStreaming(fetch(`${import.meta.env.BASE_URL}studio.wasm`), go.importObject);
+        const result = await WebAssembly.instantiateStreaming(
+          fetch(`${import.meta.env.BASE_URL}studio.wasm`),
+          go.importObject
+        );
         go.run(result.instance);
       }
     })();
@@ -66,7 +69,54 @@ function hydrateWidgetsForWasm(
   const next = structuredClone(doc);
   const walk = (n: IRNode) => {
     if (isCustomHydratedWidget(n)) {
-      const cacheKey = `${cols}x${rows}:${n.id}`; const size = telMap?.get(n.id) ?? boxSizeCache.get(cacheKey) ?? { w: n.width?.mode === "fixed" ? Math.max(8, (n.width.value ?? 30) - 4) : Math.max(20, Math.floor(cols / 2) - 4), h: n.height?.mode === "fixed" ? Math.max(2, (n.height.value ?? 6) - 2) : Math.max(6, rows - 6), }; n.content = renderCharmWidgetContent(n, next, size.w, size.h, darkBG, cols, rows); // Force WASM to render the hydrated ANSI string directly when custom data is active if (n.contentType?.startsWith("bubble:")) { n.contentType = "text"; } } n.children?.forEach(walk); }; walk(next.root); next.overlays.forEach((o) => walk(o.node)); return next; }  export function renderFrame( doc: IRDoc, cols: number, rows: number, darkBG: boolean, colorProfile: ColorProfile = "truecolor" ): StudioFrame { if (!window.renderStudio) { return { cells: [], telemetry: [], error: "WASM engine not ready" }; }  // Single-pass render preserves all Z-indexed layers in Go's lastCompositor for hitTestStudio const runPass = (targetDoc: IRDoc): StudioFrame => { const raw = window.renderStudio!(JSON.stringify(targetDoc), cols, rows, darkBG, colorProfile); return JSON.parse(raw) as StudioFrame; };  if (!hasCustomHydratedWidgets(doc)) { return runPass(doc); }  const firstDoc = hydrateWidgetsForWasm(doc, cols, rows, darkBG); const firstFrame = runPass(firstDoc); if (firstFrame.error) return firstFrame;  const telMap = new Map<string, { w: number; h: number }>(); let needsRefit = false; for (const t of firstFrame.telemetry ?? []) { const w = Math.max(4, t.content.w); const h = Math.max(1, t.content.h); telMap.set(t.id, { w, h }); const cacheKey = `${cols}x${rows}:${t.id}`;
+      const cacheKey = `${cols}x${rows}:${n.id}`;
+      const size = telMap?.get(n.id) ?? boxSizeCache.get(cacheKey) ?? {
+        w: n.width?.mode === "fixed" ? Math.max(8, (n.width.value ?? 30) - 4) : Math.max(20, Math.floor(cols / 2) - 4),
+        h: n.height?.mode === "fixed" ? Math.max(2, (n.height.value ?? 6) - 2) : Math.max(6, rows - 6),
+      };
+      n.content = renderCharmWidgetContent(n, next, size.w, size.h, darkBG, cols, rows);
+      if (n.contentType?.startsWith("bubble:")) {
+        n.contentType = "text";
+      }
+    }
+    n.children?.forEach(walk);
+  };
+  walk(next.root);
+  next.overlays.forEach((o) => walk(o.node));
+  return next;
+}
+
+export function renderFrame(
+  doc: IRDoc,
+  cols: number,
+  rows: number,
+  darkBG: boolean,
+  colorProfile: ColorProfile = "truecolor"
+): StudioFrame {
+  if (!window.renderStudio) {
+    return { cells: [], telemetry: [], error: "WASM engine not ready" };
+  }
+
+  const runPass = (targetDoc: IRDoc): StudioFrame => {
+    const raw = window.renderStudio!(JSON.stringify(targetDoc), cols, rows, darkBG, colorProfile);
+    return JSON.parse(raw) as StudioFrame;
+  };
+
+  if (!hasCustomHydratedWidgets(doc)) {
+    return runPass(doc);
+  }
+
+  const firstDoc = hydrateWidgetsForWasm(doc, cols, rows, darkBG);
+  const firstFrame = runPass(firstDoc);
+  if (firstFrame.error) return firstFrame;
+
+  const telMap = new Map<string, { w: number; h: number }>();
+  let needsRefit = false;
+  for (const t of firstFrame.telemetry ?? []) {
+    const w = Math.max(4, t.content.w);
+    const h = Math.max(1, t.content.h);
+    telMap.set(t.id, { w, h });
+    const cacheKey = `${cols}x${rows}:${t.id}`;
     const prev = boxSizeCache.get(cacheKey);
     if (!prev || prev.w !== w || prev.h !== h) {
       boxSizeCache.set(cacheKey, { w, h });
