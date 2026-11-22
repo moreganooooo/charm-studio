@@ -59,10 +59,18 @@ func AllCharmV2Rules() []CharmV2Rule {
 		{
 			ID:       "v2-studio-annotations",
 			Category: "annotations",
-			Title:    "Preserve Charm Studio // @tui:* AST sync annotations",
-			AvoidV1:  "Untagged inline style literals inside View()",
-			UseV2:    "// @tui:id=<nodeID>, // @tui:style=<styleKey>, // @tui:token=<tokenKey>, // @tui:block-disable",
-			Notes:    "Charm Studio's dave/dst engine uses these comments to surgically patch styles and widget options without touching Update() logic.",
+			Title:    "Preserve Charm Studio // @tui:* AST sync annotations & sync-disable escape hatches",
+			AvoidV1:  "Untagged inline style literals inside View() or wholesale overwrites of hand-written Update()",
+			UseV2:    "// @tui:id=<nodeID>, // @tui:style=<styleKey>, // @tui:token=<tokenKey>, // @tui:sync-disable",
+			Notes:    "Generated files (ui/theme_gen.go, ui/layout_gen.go, fixtures_preview_gen.go with //go:build preview) belong to visual sync unless marked // @tui:sync-disable. Hand-owned model.go, update.go, and view.go logic stays untouched; dynamic Go expressions are flagged and preserved unless overridden.",
+		},
+		{
+			ID:       "v2-worktree-guardrails",
+			Category: "workflow",
+			Title:    "Stage structural agent refactors in an isolated git worktree before merging",
+			AvoidV1:  "Mutating production Update() or wiring new Huh forms directly on the main working tree untested",
+			UseV2:    "Run agentic refactors inside the active Charm Studio git worktree, verify go build + live PTY output, then review diff before merge",
+			Notes:    "Always inspect inspect_node / get_layout_context for lockedProps and dynamicExprs before patching.",
 		},
 	}
 }

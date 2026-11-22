@@ -102,6 +102,11 @@ const FAQ_ITEMS: { q: string; a: string; category: string }[] = [
     a: "Multiple boxes can share one Lip Gloss style name (like 'card'). Clicking Fork Style creates a brand-new copy for just the selected box so tweaking it won't change siblings. Adaptive Tokens ($accent, $borderIdle, etc.) store both a Light and Dark hex color using lipgloss.LightDark so your TUI looks great on both light and dark terminals.",
   },
   {
+    category: "Scope & Code",
+    q: "What parts of a Go TUI does Charm Studio manage vs. my own Go code?",
+    a: "Charm Studio is a layout, Lip Gloss v2 style, Bubbles/Huh composition, and terminal-constraint workbench. Generated theme/layout files and //go:build preview fixtures stay separate from your hand-written Update(tea.Msg) state machines, tea.Cmd I/O, keybindings, and business logic. Any declaration marked // @tui:sync-disable or dynamic Go expression is preserved read-only.",
+  },
+  {
     category: "Exporting",
     q: "How do I run the exported Go code on my own machine?",
     a: "Open the Go Code tab on the right, set your module path (e.g. github.com/you/my-tui), and click Download Runnable Go Project (.zip). Unzip the folder and run `go mod tidy && go run .` — main.go already wires your Bubbles, Huh forms, Wish SSH server, and layouts cleanly.",
@@ -270,7 +275,7 @@ export function GuideFaqModal({
                 <div>
                   <h3 style={secTitle}>How Charm Studio Works</h3>
                   <p style={para}>
-                    Instead of guessing terminal character widths, editing Go, recompiling, and resizing your terminal window over and over, Charm Studio runs real compiled Go (<code style={codeChip}>lipgloss/v2</code> + <code style={codeChip}>bubbles/v2</code>) right inside the browser.
+                    Charm Studio is a TUI layout, Lip Gloss v2 style, Bubbles/Huh composition, and terminal-constraint workbench backed by real compiled Go (<code style={codeChip}>lipgloss/v2</code> + <code style={codeChip}>bubbles/v2</code>) in the browser—leaving your state transitions, <code style={codeChip}>tea.Cmd</code> async I/O, keybindings, and domain logic safely in Go.
                   </p>
                 </div>
 
@@ -471,11 +476,12 @@ export function GuideFaqModal({
                             fontWeight: 600,
                           }}
                         >
-                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "var(--cs-mint-bg)", color: "var(--cs-mint)", border: "1px solid var(--cs-mint-border)" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--cs-mint)" }}>
                               {item.category}
                             </span>
-                            {item.q}
+                            <span aria-hidden="true" style={{ color: "var(--cs-text-dim)" }}>·</span>
+                            <span>{item.q}</span>
                           </span>
                           <span style={{ color: "var(--cs-text-muted)", display: "inline-flex", alignItems: "center" }}>
                             {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}

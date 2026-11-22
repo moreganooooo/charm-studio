@@ -1,6 +1,7 @@
 package astsync
 
 import (
+	"bytes"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -21,6 +22,10 @@ func hasDirective(decs dst.Decorations, directive string) bool {
 	return false
 }
 
+func hasSyncDisableDirective(decs dst.Decorations) bool {
+	return hasDirective(decs, "@tui:sync-disable") || hasDirective(decs, "@tui:block-disable")
+}
+
 func extractAnnotation(decs dst.Decorations, prefix string) string {
 	for _, d := range decs {
 		idx := strings.Index(d, prefix)
@@ -38,10 +43,54 @@ func extractAnnotation(decs dst.Decorations, prefix string) string {
 }
 
 func fileHasSyncDisable(f *dst.File, rawSrc string) bool {
-	if strings.Contains(rawSrc, "// @tui:sync-disable") || strings.Contains(rawSrc, "//@tui:sync-disable") {
-		return true
+	for _, line := range strings.Split(rawSrc, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "@tui:sync-disable") {
+			if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "package ") {
+				return true
+			}
+		}
+		if strings.HasPrefix(trimmed, "package ") {
+			break
+		}
 	}
 	return hasDirective(f.Decs.Start, "@tui:sync-disable") || hasDirective(f.Decs.End, "@tui:sync-disable")
+}
+
+func rawExprText(e dst.Expr) string {
+	if e == nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	decl := &dst.GenDecl{
+		Tok: token.VAR,
+		Specs: []dst.Spec{
+			&dst.ValueSpec{
+				Names:  []*dst.Ident{dst.NewIdent("_")},
+				Values: []dst.Expr{dst.Clone(e).(dst.Expr)},
+			},
+		},
+	}
+	if err := decorator.Fprint(&buf, &dst.File{Name: dst.NewIdent("p"), Decls: []dst.Decl{decl}}); err == nil {
+		txt := strings.TrimSpace(buf.String())
+		if idx := strings.Index(txt, "var _ = "); idx >= 0 {
+			return strings.TrimSpace(txt[idx+len("var _ = "):])
+		}
+	}
+	return exprQuickText(e)
+}
+
+func formatCallDynamicExpr(selName string, args []dst.Expr) string {
+	parts := make([]string, 0, len(args))
+	for _, a := range args {
+		if t := rawExprText(a); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	if len(parts) == 0 {
+		return selName + "()"
+	}
+	return selName + "(" + strings.Join(parts, ", ") + ")"
 }
 
 func unquoteLit(expr dst.Expr) (string, bool) {
@@ -218,7 +267,7 @@ func parseLipAlign(expr dst.Expr) (string, bool) {
 	}
 }
 
-func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, bool)) (IRStyle, []string, bool) {
+func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, bool)) (IRStyle, []string, map[string]string, bool) {
 	var calls []*dst.CallExpr
 	cur := e
 	isNewStyle := false
@@ -239,7 +288,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 		cur = sel.X
 	}
 	if !isNewStyle {
-		return IRStyle{}, nil, false
+		return IRStyle{}, nil, nil, false
 	}
 
 	st := IRStyle{
@@ -250,6 +299,17 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 		Margin:      [4]int{0, 0, 0, 0},
 	}
 	var locked []string
+	dynExprs := map[string]string{}
+	recordDyn := func(prop, raw string) {
+		locked = appendUniqueStr(locked, prop)
+		if raw != "" {
+			if prev, exists := dynExprs[prop]; exists && !strings.Contains(prev, raw) {
+				dynExprs[prop] = prev + " · " + raw
+			} else {
+				dynExprs[prop] = raw
+			}
+		}
+	}
 
 	// Walk root -> outer calls
 	for i := len(calls) - 1; i >= 0; i-- {
@@ -284,52 +344,37 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				}
 			}
 			if !matched {
-				locked = appendUniqueStr(locked, "border")
+				recordDyn("border", formatCallDynamicExpr("Border", call.Args))
 			}
-		case "BorderTop":
+		case "BorderTop", "BorderRight", "BorderBottom", "BorderLeft":
 			if len(call.Args) == 1 {
 				if b, ok := boolIdentVal(call.Args[0]); ok {
-					st.BorderEdges[0] = b
+					switch sel.Sel.Name {
+					case "BorderTop":
+						st.BorderEdges[0] = b
+					case "BorderRight":
+						st.BorderEdges[1] = b
+					case "BorderBottom":
+						st.BorderEdges[2] = b
+					case "BorderLeft":
+						st.BorderEdges[3] = b
+					}
 				} else {
-					locked = appendUniqueStr(locked, "border")
-				}
-			}
-		case "BorderRight":
-			if len(call.Args) == 1 {
-				if b, ok := boolIdentVal(call.Args[0]); ok {
-					st.BorderEdges[1] = b
-				} else {
-					locked = appendUniqueStr(locked, "border")
-				}
-			}
-		case "BorderBottom":
-			if len(call.Args) == 1 {
-				if b, ok := boolIdentVal(call.Args[0]); ok {
-					st.BorderEdges[2] = b
-				} else {
-					locked = appendUniqueStr(locked, "border")
-				}
-			}
-		case "BorderLeft":
-			if len(call.Args) == 1 {
-				if b, ok := boolIdentVal(call.Args[0]); ok {
-					st.BorderEdges[3] = b
-				} else {
-					locked = appendUniqueStr(locked, "border")
+					recordDyn("border", formatCallDynamicExpr(sel.Sel.Name, call.Args))
 				}
 			}
 		case "Padding":
 			if q, ok := readQuadArgs(call.Args); ok {
 				st.Padding = q
 			} else {
-				locked = appendUniqueStr(locked, "padding")
+				recordDyn("padding", formatCallDynamicExpr("Padding", call.Args))
 			}
 		case "PaddingHorizontal":
 			if len(call.Args) == 1 {
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[1], st.Padding[3] = max(0, v), max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingHorizontal", call.Args))
 				}
 			}
 		case "PaddingVertical":
@@ -337,7 +382,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[0], st.Padding[2] = max(0, v), max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingVertical", call.Args))
 				}
 			}
 		case "PaddingTop":
@@ -345,7 +390,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[0] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingTop", call.Args))
 				}
 			}
 		case "PaddingRight":
@@ -353,7 +398,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[1] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingRight", call.Args))
 				}
 			}
 		case "PaddingBottom":
@@ -361,7 +406,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[2] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingBottom", call.Args))
 				}
 			}
 		case "PaddingLeft":
@@ -369,21 +414,21 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Padding[3] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "padding")
+					recordDyn("padding", formatCallDynamicExpr("PaddingLeft", call.Args))
 				}
 			}
 		case "Margin":
 			if q, ok := readQuadArgs(call.Args); ok {
 				st.Margin = q
 			} else {
-				locked = appendUniqueStr(locked, "margin")
+				recordDyn("margin", formatCallDynamicExpr("Margin", call.Args))
 			}
 		case "MarginTop":
 			if len(call.Args) == 1 {
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Margin[0] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "margin")
+					recordDyn("margin", formatCallDynamicExpr("MarginTop", call.Args))
 				}
 			}
 		case "MarginRight":
@@ -391,7 +436,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Margin[1] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "margin")
+					recordDyn("margin", formatCallDynamicExpr("MarginRight", call.Args))
 				}
 			}
 		case "MarginBottom":
@@ -399,7 +444,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Margin[2] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "margin")
+					recordDyn("margin", formatCallDynamicExpr("MarginBottom", call.Args))
 				}
 			}
 		case "MarginLeft":
@@ -407,7 +452,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if v, ok := intLitVal(call.Args[0]); ok {
 					st.Margin[3] = max(0, v)
 				} else {
-					locked = appendUniqueStr(locked, "margin")
+					recordDyn("margin", formatCallDynamicExpr("MarginLeft", call.Args))
 				}
 			}
 		case "Bold":
@@ -415,7 +460,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if b, ok := boolIdentVal(call.Args[0]); ok {
 					st.Bold = b
 				} else {
-					locked = appendUniqueStr(locked, "bold")
+					recordDyn("bold", rawExprText(call.Args[0]))
 				}
 			}
 		case "Italic":
@@ -423,7 +468,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if b, ok := boolIdentVal(call.Args[0]); ok {
 					st.Italic = b
 				} else {
-					locked = appendUniqueStr(locked, "italic")
+					recordDyn("italic", rawExprText(call.Args[0]))
 				}
 			}
 		case "Faint":
@@ -431,7 +476,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if b, ok := boolIdentVal(call.Args[0]); ok {
 					st.Faint = b
 				} else {
-					locked = appendUniqueStr(locked, "faint")
+					recordDyn("faint", rawExprText(call.Args[0]))
 				}
 			}
 		case "Underline":
@@ -439,7 +484,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if b, ok := boolIdentVal(call.Args[0]); ok {
 					st.Underline = b
 				} else {
-					locked = appendUniqueStr(locked, "underline")
+					recordDyn("underline", rawExprText(call.Args[0]))
 				}
 			}
 		case "BorderForeground":
@@ -447,7 +492,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if ref, ok := resolveArg(call.Args[0]); ok {
 					st.BorderColor = ref
 				} else {
-					locked = appendUniqueStr(locked, "borderColor")
+					recordDyn("borderColor", rawExprText(call.Args[0]))
 				}
 			}
 		case "Foreground":
@@ -455,7 +500,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if ref, ok := resolveArg(call.Args[0]); ok {
 					st.Fg = ref
 				} else {
-					locked = appendUniqueStr(locked, "fg")
+					recordDyn("fg", rawExprText(call.Args[0]))
 				}
 			}
 		case "Background":
@@ -463,7 +508,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 				if ref, ok := resolveArg(call.Args[0]); ok {
 					st.Bg = ref
 				} else {
-					locked = appendUniqueStr(locked, "bg")
+					recordDyn("bg", rawExprText(call.Args[0]))
 				}
 			}
 		case "AlignHorizontal", "Align":
@@ -475,7 +520,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 						st.AlignH = pos
 					}
 				} else {
-					locked = appendUniqueStr(locked, "alignH")
+					recordDyn("alignH", rawExprText(call.Args[0]))
 				}
 			}
 		case "AlignVertical":
@@ -487,7 +532,7 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 						st.AlignV = pos
 					}
 				} else {
-					locked = appendUniqueStr(locked, "alignV")
+					recordDyn("alignV", rawExprText(call.Args[0]))
 				}
 			}
 		}
@@ -495,11 +540,11 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 	if st.Border != "none" && st.BorderColor == "" {
 		st.BorderColor = "$borderIdle"
 	}
-	return st, locked, true
+	return st, locked, dynExprs, true
 }
 
 func parseStyleChain(e dst.Expr, resolveArg func(dst.Expr) (string, bool)) (IRStyle, bool) {
-	st, _, ok := parseStyleChainWithLocks(e, resolveArg)
+	st, _, _, ok := parseStyleChainWithLocks(e, resolveArg)
 	return st, ok
 }
 
@@ -521,6 +566,8 @@ func ParseGoSource(src string) GoParseResult {
 	}
 	out.Styles = map[string]IRStyle{}
 	out.LockedProps = map[string][]string{}
+	out.LockReasons = map[string]string{}
+	out.DynamicExprs = map[string]map[string]string{}
 	namedRefs := map[string]string{}
 	hexSet := map[string]bool{}
 	lockedSet := map[string]bool{}
@@ -639,7 +686,7 @@ func ParseGoSource(src string) GoParseResult {
 		return true
 	})
 
-	recordStyle := func(rawName string, expr dst.Expr, decs dst.Decorations) {
+	resolveStyleKey := func(rawName string, decs dst.Decorations) string {
 		key := lowerFirst(rawName)
 		if alias, ok := styleAlias[rawName]; ok {
 			key = alias
@@ -647,21 +694,43 @@ func ParseGoSource(src string) GoParseResult {
 		if tag := extractAnnotation(decs, "@tui:style="); tag != "" {
 			key = tag
 		}
-		if hasDirective(decs, "@tui:block-disable") {
-			lockedSet[key] = true
-			out.LockedProps[key] = []string{"*"}
-			return
+		return key
+	}
+
+	recordStyle := func(rawName string, expr dst.Expr, decs dst.Decorations, endDecs dst.Decorations) {
+		key := resolveStyleKey(rawName, decs)
+		if tag := extractAnnotation(endDecs, "@tui:style="); tag != "" {
+			key = tag
 		}
-		if st, locks, ok := parseStyleChainWithLocks(expr, resolveArg); ok {
+		syncDisabled := hasSyncDisableDirective(decs) || hasSyncDisableDirective(endDecs)
+		if st, locks, dynMap, ok := parseStyleChainWithLocks(expr, resolveArg); ok {
 			out.Styles[key] = st
 			out.StyleNames = appendUniqueStr(out.StyleNames, key)
+			if syncDisabled {
+				lockedSet[key] = true
+				out.LockedProps[key] = []string{"*"}
+				out.LockReasons[key] = "sync-disabled"
+				return
+			}
 			if len(locks) > 0 {
 				out.LockedProps[key] = locks
+				out.LockReasons[key] = "dynamic"
+				if len(dynMap) > 0 {
+					out.DynamicExprs[key] = dynMap
+				}
 				lockedSet[key] = true
 			}
+		} else if syncDisabled {
+			lockedSet[key] = true
+			out.LockedProps[key] = []string{"*"}
+			out.LockReasons[key] = "sync-disabled"
 		} else if isLikelyStyleExpr(rawName, expr) {
 			lockedSet[key] = true
 			out.LockedProps[key] = []string{"*"}
+			out.LockReasons[key] = "dynamic"
+			if raw := rawExprText(expr); raw != "" {
+				out.DynamicExprs[key] = map[string]string{"*": raw}
+			}
 		}
 	}
 
@@ -673,10 +742,15 @@ func ParseGoSource(src string) GoParseResult {
 					continue
 				}
 				val := node.Values[i]
-				if hasDirective(node.Decs.Start, "@tui:block-disable") {
-					key := lowerFirst(nameIdent.Name)
+				if hasSyncDisableDirective(node.Decs.Start) || hasSyncDisableDirective(node.Decs.End) {
+					key := resolveStyleKey(nameIdent.Name, node.Decs.Start)
+					if st, _, _, ok := parseStyleChainWithLocks(val, resolveArg); ok {
+						out.Styles[key] = st
+						out.StyleNames = appendUniqueStr(out.StyleNames, key)
+					}
 					lockedSet[key] = true
 					out.LockedProps[key] = []string{"*"}
+					out.LockReasons[key] = "sync-disabled"
 					continue
 				}
 				if pair, ok := parseTokenExpr(val); ok {
@@ -689,7 +763,7 @@ func ParseGoSource(src string) GoParseResult {
 					hexSet[strings.ToLower(pair.Light)] = true
 					hexSet[strings.ToLower(pair.Dark)] = true
 				} else {
-					recordStyle(nameIdent.Name, val, node.Decs.Start)
+					recordStyle(nameIdent.Name, val, node.Decs.Start, node.Decs.End)
 				}
 			}
 		case *dst.AssignStmt:
@@ -699,10 +773,15 @@ func ParseGoSource(src string) GoParseResult {
 				}
 				rhs := node.Rhs[i]
 				if ident, ok := lhs.(*dst.Ident); ok {
-					if hasDirective(node.Decs.Start, "@tui:block-disable") {
-						key := lowerFirst(ident.Name)
+					if hasSyncDisableDirective(node.Decs.Start) || hasSyncDisableDirective(node.Decs.End) {
+						key := resolveStyleKey(ident.Name, node.Decs.Start)
+						if st, _, _, ok := parseStyleChainWithLocks(rhs, resolveArg); ok {
+							out.Styles[key] = st
+							out.StyleNames = appendUniqueStr(out.StyleNames, key)
+						}
 						lockedSet[key] = true
 						out.LockedProps[key] = []string{"*"}
+						out.LockReasons[key] = "sync-disabled"
 						continue
 					}
 					if pair, ok := parseTokenExpr(rhs); ok {
@@ -715,7 +794,7 @@ func ParseGoSource(src string) GoParseResult {
 						hexSet[strings.ToLower(pair.Light)] = true
 						hexSet[strings.ToLower(pair.Dark)] = true
 					} else {
-						recordStyle(ident.Name, rhs, node.Decs.Start)
+						recordStyle(ident.Name, rhs, node.Decs.Start, node.Decs.End)
 					}
 				}
 				// Detect v.AltScreen / v.WindowTitle / v.MouseMode / v.Cursor
@@ -777,7 +856,7 @@ func ParseGoSource(src string) GoParseResult {
 			}
 		case *dst.KeyValueExpr:
 			if ident, ok := node.Key.(*dst.Ident); ok {
-				recordStyle(ident.Name, node.Value, node.Decs.Start)
+				recordStyle(ident.Name, node.Value, node.Decs.Start, node.Decs.End)
 			}
 		}
 		return true
@@ -787,15 +866,51 @@ func ParseGoSource(src string) GoParseResult {
 		out.View = &viewCfg
 	}
 
-	// Parse Go-to-IR layout tree, overlays, and Bubbles/Huh widgets
+	// Parse Go-to-IR layout tree, overlays, Bubbles/Huh widgets, and node-level dynamic expressions
 	widgets := extractWidgetConfigs(f)
-	rootNode, overlays := extractLayoutTree(f, widgets, out.StyleNames)
+	rootNode, overlays, nodeDynExprs, nodeSyncDisabled := extractLayoutTreeWithMeta(f, widgets, out.StyleNames)
 	if rootNode != nil {
 		out.Root = rootNode
 	}
 	if len(overlays) > 0 {
 		out.Overlays = overlays
 	}
+	for nodeKey, dynMap := range nodeDynExprs {
+		out.DynamicExprs[nodeKey] = dynMap
+		var dynProps []string
+		for pk := range dynMap {
+			dynProps = append(dynProps, pk)
+		}
+		sort.Strings(dynProps)
+		out.LockedProps[nodeKey] = dynProps
+		if _, exists := out.LockReasons[nodeKey]; !exists {
+			out.LockReasons[nodeKey] = "dynamic"
+		}
+		lockedSet[nodeKey] = true
+	}
+	for nodeKey := range nodeSyncDisabled {
+		lockedSet[nodeKey] = true
+		out.LockedProps[nodeKey] = []string{"*"}
+		out.LockReasons[nodeKey] = "sync-disabled"
+	}
+
+	// Record hand-owned functions (Init, Update, tea.Cmd helpers) so callers know what stays untouched
+	untouchedSet := map[string]bool{}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*dst.FuncDecl)
+		if !ok || fd.Name == nil {
+			continue
+		}
+		nm := fd.Name.Name
+		if nm == "NewTheme" || nm == "RenderApp" || nm == "ld" || nm == "lightDark" {
+			continue
+		}
+		untouchedSet[nm] = true
+	}
+	for nm := range untouchedSet {
+		out.UntouchedSymbols = append(out.UntouchedSymbols, nm)
+	}
+	sort.Strings(out.UntouchedSymbols)
 
 	if len(out.Styles) == 0 {
 		out.Styles["importedBox"] = IRStyle{
@@ -813,6 +928,12 @@ func ParseGoSource(src string) GoParseResult {
 	sort.Strings(out.LockedSymbols)
 	if len(out.LockedProps) == 0 {
 		out.LockedProps = nil
+	}
+	if len(out.LockReasons) == 0 {
+		out.LockReasons = nil
+	}
+	if len(out.DynamicExprs) == 0 {
+		out.DynamicExprs = nil
 	}
 	out.ColorCount = len(hexSet)
 	return out
@@ -1315,6 +1436,13 @@ func parseHuhFieldChain(e dst.Expr, idx int) IRHuhField {
 }
 
 func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleNames []string) (*IRNode, []IROverlay) {
+	root, overlays, _, _ := extractLayoutTreeWithMeta(f, widgets, styleNames)
+	return root, overlays
+}
+
+func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo, styleNames []string) (*IRNode, []IROverlay, map[string]map[string]string, map[string]bool) {
+	nodeDynExprs := map[string]map[string]string{}
+	nodeSyncDisabled := map[string]bool{}
 	var targetFunc *dst.FuncDecl
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*dst.FuncDecl)
@@ -1330,7 +1458,7 @@ func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleN
 		}
 	}
 	if targetFunc == nil {
-		return nil, nil
+		return nil, nil, nodeDynExprs, nodeSyncDisabled
 	}
 
 	varNodes := map[string]IRNode{}
@@ -1361,6 +1489,7 @@ func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleN
 			switch s := stmt.(type) {
 			case *dst.AssignStmt:
 				tagID := extractAnnotation(s.Decs.Start, "@tui:id=")
+				isDisabled := hasSyncDisableDirective(s.Decs.Start) || hasSyncDisableDirective(s.Decs.End)
 				for i, lhs := range s.Lhs {
 					if i >= len(s.Rhs) {
 						continue
@@ -1374,13 +1503,26 @@ func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleN
 					if nodeID == "" {
 						nodeID = ident.Name
 					}
+					if isDisabled {
+						nodeSyncDisabled["node:"+nodeID] = true
+					}
 					if n, ok := parseJoinExpr(nodeID, rhs, varNodes); ok {
 						varNodes[ident.Name] = n
 						rootVar = ident.Name
-					} else if n, ok := parseBoxRenderExpr(nodeID, rhs, styleNames); ok {
+					} else if n, wDyn, hDyn, ok := parseBoxRenderExprWithMeta(nodeID, rhs, styleNames); ok {
 						attachWidget(&n)
 						varNodes[ident.Name] = n
 						rootVar = ident.Name
+						if wDyn != "" || hDyn != "" {
+							dm := map[string]string{}
+							if wDyn != "" {
+								dm["width"] = wDyn
+							}
+							if hDyn != "" {
+								dm["height"] = hDyn
+							}
+							nodeDynExprs["node:"+n.ID] = dm
+						}
 					}
 				}
 			case *dst.IfStmt:
@@ -1471,14 +1613,14 @@ func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleN
 	})
 
 	if rootVar == "" {
-		return nil, overlayNodes
+		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled
 	}
 	rootNode, ok := varNodes[rootVar]
 	if !ok {
-		return nil, overlayNodes
+		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled
 	}
 	// Remove overlay leaf nodes from being accidentally selected as root if only overlays existed
-	return &rootNode, overlayNodes
+	return &rootNode, overlayNodes, nodeDynExprs, nodeSyncDisabled
 }
 
 func parseCollapseBreakpoint(cond dst.Expr) int {
@@ -1540,14 +1682,14 @@ func parseJoinExpr(nodeID string, e dst.Expr, varNodes map[string]IRNode) (IRNod
 	}, true
 }
 
-func parseBoxRenderExpr(nodeID string, e dst.Expr, _ []string) (IRNode, bool) {
+func parseBoxRenderExprWithMeta(nodeID string, e dst.Expr, _ []string) (IRNode, string, string, bool) {
 	call, ok := e.(*dst.CallExpr)
 	if !ok {
-		return IRNode{}, false
+		return IRNode{}, "", "", false
 	}
 	sel, ok := call.Fun.(*dst.SelectorExpr)
 	if !ok || sel.Sel.Name != "Render" {
-		return IRNode{}, false
+		return IRNode{}, "", "", false
 	}
 
 	node := IRNode{
@@ -1569,65 +1711,93 @@ func parseBoxRenderExpr(nodeID string, e dst.Expr, _ []string) (IRNode, bool) {
 		}
 	}
 
+	var wDyn, hDyn string
 	cur := sel.X
 	for {
 		switch c := cur.(type) {
 		case *dst.CallExpr:
 			cSel, ok := c.Fun.(*dst.SelectorExpr)
 			if !ok {
-				return node, true
+				return node, wDyn, hDyn, true
 			}
 			switch cSel.Sel.Name {
 			case "Width":
 				if len(c.Args) == 1 {
-					node.Width = parseDimensionExpr(c.Args[0])
+					node.Width, wDyn = parseDimensionExprWithMeta(c.Args[0])
 				}
 			case "Height":
 				if len(c.Args) == 1 {
-					node.Height = parseDimensionExpr(c.Args[0])
+					node.Height, hDyn = parseDimensionExprWithMeta(c.Args[0])
 				}
 			}
 			cur = cSel.X
 		case *dst.SelectorExpr:
 			// e.g. st.Sidebar
 			node.Style = lowerFirst(c.Sel.Name)
-			return node, true
+			return node, wDyn, hDyn, true
 		default:
-			return node, true
+			return node, wDyn, hDyn, true
 		}
 	}
 }
 
-func parseDimensionExpr(e dst.Expr) IRSize {
+func isStandardFillIdent(name string) bool {
+	return name == "w" || name == "h" || name == "remW" || name == "remH" || name == "width" || name == "height"
+}
+
+func parseDimensionExprWithMeta(e dst.Expr) (IRSize, string) {
 	if v, ok := intLitVal(e); ok {
-		return IRSize{Mode: "fixed", Value: v}
+		return IRSize{Mode: "fixed", Value: v}, ""
+	}
+	if id, ok := e.(*dst.Ident); ok {
+		if isStandardFillIdent(id.Name) {
+			return IRSize{Mode: "fill", Weight: 1}, ""
+		}
+		return IRSize{Mode: "fill", Weight: 1}, rawExprText(e)
 	}
 	if call, ok := e.(*dst.CallExpr); ok {
 		if id, ok := call.Fun.(*dst.Ident); ok && id.Name == "max" && len(call.Args) == 2 {
-			// max(0, expr - st.Foo.GetHorizontalMargins())
-			return parseDimensionExpr(call.Args[1])
+			if z, ok := intLitVal(call.Args[0]); ok && z == 0 {
+				return parseDimensionExprWithMeta(call.Args[1])
+			}
+			sz, _ := parseDimensionExprWithMeta(call.Args[1])
+			return sz, rawExprText(e)
 		}
+		return IRSize{Mode: "fill", Weight: 1}, rawExprText(e)
 	}
 	if bin, ok := e.(*dst.BinaryExpr); ok {
-		// Detect fixed literal: max(0, 28-st.Sidebar.GetHorizontalMargins())
 		if bin.Op == token.SUB {
 			if v, ok := intLitVal(bin.X); ok {
-				return IRSize{Mode: "fixed", Value: v}
+				return IRSize{Mode: "fixed", Value: v}, ""
 			}
-			return parseDimensionExpr(bin.X)
+			// Detect standard max(0, w - 28) or max(0, expr - st.X.GetHorizontalMargins())
+			if xID, ok := bin.X.(*dst.Ident); ok && isStandardFillIdent(xID.Name) {
+				return IRSize{Mode: "fill", Weight: 1}, ""
+			}
+			if _, isCall := bin.Y.(*dst.CallExpr); isCall {
+				// e.g. (remW*2)/3 - st.Main.GetHorizontalMargins()
+				return parseDimensionExprWithMeta(bin.X)
+			}
+			return IRSize{Mode: "fill", Weight: 1}, rawExprText(e)
 		}
 		// Detect weight: (remW * 2) / 3
 		if bin.Op == token.QUO {
 			if par, ok := bin.X.(*dst.ParenExpr); ok {
 				if mul, ok := par.X.(*dst.BinaryExpr); ok && mul.Op == token.MUL {
 					if wt, ok := intLitVal(mul.Y); ok {
-						return IRSize{Mode: "fill", Weight: wt}
+						return IRSize{Mode: "fill", Weight: wt}, ""
 					}
 				}
 			}
+			return IRSize{Mode: "fill", Weight: 1}, rawExprText(e)
 		}
 	}
-	return IRSize{Mode: "fill", Weight: 1}
+	return IRSize{Mode: "fill", Weight: 1}, rawExprText(e)
+}
+
+func parseDimensionExpr(e dst.Expr) IRSize {
+	sz, _ := parseDimensionExprWithMeta(e)
+	return sz
 }
 
 func parseLayerOverlayExpr(e dst.Expr, varNodes map[string]IRNode) (IROverlay, bool) {

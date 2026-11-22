@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Code2, Copy, Download, GitCompare, Keyboard } from "lucide-react";
-import { computeAstDeltas, computeGoAstDiff } from "../astDiff";
+import { computeAstDeltas, computeGoAstDiff, groupDeltasIntoBuckets } from "../astDiff";
 import {
   generateEntryMainGo,
   generateFixturesPreviewGo,
@@ -34,6 +34,7 @@ export type CodeFileTab =
   | "model"
   | "update"
   | "view"
+  | "raw"
   | "fixtures_preview"
   | "main"
   | "gomod"
@@ -43,18 +44,35 @@ export type CodeFileTab =
   | "json";
 
 const CODE_FILE_INFO: Record<CodeFileTab, string> = {
-  theme_gen: "ui/theme_gen.go — Lip Gloss v2 Theme struct, NewTheme(isDark) & LightDark adaptive color tokens.",
-  layout_gen: "ui/layout_gen.go — Responsive RenderApp() layout tree & NewLayer overlay compositor.",
-  model: "model.go — Bubble Tea v2 model struct, Bubbles/Huh initialization & Init() commands.",
-  update: "update.go — WindowSizeMsg resizing, BackgroundColorMsg theming, Tab focus & widget routing.",
-  view: "view.go — View() returning declarative tea.View with ui.RenderApp(...), AltScreen, MouseMode & WindowTitle.",
-  fixtures_preview: "fixtures_preview_gen.go — Build-tagged (//go:build preview) sample data harness keeping production models clean.",
+  theme_gen: "ui/theme_gen.go — Generated Theme struct, NewTheme(isDark) & LightDark adaptive tokens (Studio-owned unless // @tui:sync-disable).",
+  layout_gen: "ui/layout_gen.go — Generated responsive RenderApp() tree & NewLayer overlay compositor (Studio-owned unless // @tui:sync-disable).",
+  model: "model.go — Hand-owned Bubble Tea v2 model struct & Init(). State transitions and custom fields are preserved.",
+  update: "update.go — Hand-owned Update(tea.Msg), tea.Cmd handlers & keybindings. Custom Elm logic stays untouched.",
+  view: "view.go — Declarative tea.View wrapper calling ui.RenderApp(...) with AltScreen, MouseMode & WindowTitle.",
+  raw: "Imported Raw Go — Original imported Go source (read-only reference showing // @tui:sync-disable & Dynamic Go expressions).",
+  fixtures_preview: "fixtures_preview_gen.go — Build-tagged (//go:build preview) sample data harness isolated from production builds.",
   main: "main.go — Runnable Bubble Tea v2 (or Wish SSH) program entrypoint.",
   gomod: "go.mod — Module manifest declaring exact charm.land/v2 & Charmbracelet dependencies.",
   vhs: "demo.tape — charmbracelet/vhs tape script to record a terminal GIF/screenshot.",
   gum: "gum.sh — charmbracelet/gum shell script mirroring prompts, choices, and styled cards.",
   readme: "README.md — Step-by-step quick-start instructions for running your exported Go project.",
   json: "ir.json — Portable Layout IR JSON representing the full tree, widget data, styles & tokens.",
+};
+
+const CODE_OWNERSHIP_LABEL: Record<CodeFileTab, string> = {
+  theme_gen: "Generated",
+  layout_gen: "Generated",
+  fixtures_preview: "Preview-Only",
+  model: "Hand-Owned Logic",
+  update: "Hand-Owned Logic",
+  view: "App Entry",
+  main: "App Entry",
+  raw: "Imported Reference",
+  gomod: "Manifest",
+  vhs: "Tape Script",
+  gum: "Shell Script",
+  readme: "Docs",
+  json: "IR Schema",
 };
 
 const CORE_GO_TABS: { id: CodeFileTab; label: string }[] = [
@@ -92,6 +110,8 @@ function renderFileForDoc(
       return generateUpdateGoWithSpans(doc, goModuleName);
     case "view":
       return generateViewGoWithSpans(doc, goModuleName);
+    case "raw":
+      return { code: doc.importedGo?.source || "// No imported Go file in current document.", spans: {} };
     case "fixtures_preview":
       return { code: generateFixturesPreviewGo(doc), spans: {} };
     case "main":
@@ -130,6 +150,8 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
     updateNode,
     lastKeyPulse,
     activeLens,
+    codeDrawerRequest,
+    setCodeDrawerRequest,
   } = useStudioStore();
 
   const [codeFile, setCodeFile] = useState<CodeFileTab>("theme_gen");
@@ -155,6 +177,17 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
   }, [moreFilesOpen]);
 
   useEffect(() => {
+    if (!codeDrawerRequest) return;
+    const t = setTimeout(() => {
+      const nextTab = codeDrawerRequest.tab === "raw" && !ir.importedGo ? "theme_gen" : codeDrawerRequest.tab;
+      setCodeFile(nextTab);
+      setDrawerMode("source");
+      setCodeDrawerRequest(null);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [codeDrawerRequest, ir.importedGo, setCodeDrawerRequest]);
+
+  useEffect(() => {
     if (!lastKeyPulse || activeLens !== "code") return;
     const t0 = setTimeout(() => {
       setCodeFile("update");
@@ -170,7 +203,7 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
     };
   }, [lastKeyPulse, activeLens]);
 
-  const activeTab: CodeFileTab = codeFile;
+  const activeTab: CodeFileTab = codeFile === "raw" && !ir.importedGo ? "theme_gen" : codeFile;
   const activeMoreTab = MORE_FILE_TABS.find((t) => t.id === activeTab) ?? null;
 
   const generatedResult = useMemo(
@@ -211,6 +244,7 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
 
   const astDeltas = goDiffResult.deltas;
   const diffLines = goDiffResult.lines;
+  const bucketGroups = useMemo(() => groupDeltasIntoBuckets(ir, astDeltas), [ir, astDeltas]);
 
   const changedLineStats = useMemo(() => {
     let added = 0;
@@ -377,7 +411,7 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
             scrollbarWidth: "none",
           }}
         >
-          {CORE_GO_TABS.map((t) => (
+          {[...CORE_GO_TABS, ...(ir.importedGo ? [{ id: "raw" as CodeFileTab, label: ir.importedGo.label.split("/").pop() || "imported.go" }] : [])].map((t) => (
             <button
               key={t.id}
               onClick={() => {
@@ -471,7 +505,11 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
       </div>
 
       <div style={{ padding: "8px 16px", fontSize: 11.5, color: "var(--cs-text-muted)", borderBottom: "1px solid var(--cs-border)", background: "var(--cs-nav-bg)", lineHeight: 1.45, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <span>{CODE_FILE_INFO[activeTab]}</span>
+        <span>
+          <strong style={{ color: "var(--cs-text-heading)", fontWeight: 700 }}>{CODE_OWNERSHIP_LABEL[activeTab]}</strong>
+          {" · "}
+          {CODE_FILE_INFO[activeTab]}
+        </span>
         {pulseActive && activeTab === "update" && lastKeyPulse && (
           <span
             className="cs-mono"
@@ -479,18 +517,14 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
               display: "inline-flex",
               alignItems: "center",
               gap: 5,
-              padding: "2px 8px",
-              borderRadius: 999,
-              background: CHARM_TOKENS.mintBg,
-              border: `1px solid ${CHARM_TOKENS.mintBorder}`,
               color: CHARM_TOKENS.mint,
-              fontSize: 10.5,
+              fontSize: 11,
               fontWeight: 700,
               whiteSpace: "nowrap",
             }}
           >
             <Keyboard size={11} />
-            <span>Live KeyPressMsg → update.go ({lastKeyPulse.key})</span>
+            <span>Live KeyPressMsg · update.go ({lastKeyPulse.key})</span>
           </span>
         )}
       </div>
@@ -533,9 +567,10 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
                 const inSpan = Boolean(activeSpan && lineNo >= activeSpan.startLine && lineNo <= activeSpan.endLine);
                 const isPulseHit = pulseActive && activeTab === "update" && inSpan;
                 const isHighlightLine = Boolean(activeSpan?.highlightLine === lineNo);
-                const matchStyle = Boolean(highlightStyleName && line.includes(highlightStyleName));
+                const matchStyle = Boolean(highlightStyleName && line.toLowerCase().includes(highlightStyleName.toLowerCase()));
                 const matchNode = Boolean(highlightNodeId && line.includes(highlightNodeId));
-                const highlighted = (inSpan || matchStyle || matchNode) && isGoTab;
+                const matchDirective = activeTab === "raw" && /@tui:(?:sync-disable|block-disable)/.test(line);
+                const highlighted = ((inSpan || matchStyle || matchNode) && isGoTab) || (activeTab === "raw" && (matchStyle || matchNode || matchDirective));
                 const editable = isGoTab && isEditableGoExpressionLine(line);
                 const isEditingThis = editingLine?.lineNo === lineNo;
 
@@ -634,48 +669,73 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          {/* Structural AST Delta Summary */}
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--cs-border)", background: "var(--cs-card)", maxHeight: 150, overflowY: "auto" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: "var(--cs-text-dim)", marginBottom: 6 }}>
-              <span>AST &amp; IR DELTA SUMMARY</span>
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>
+          {/* Grouped 4-Bucket Structural AST Delta Summary */}
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--cs-border)", background: "var(--cs-card)", maxHeight: 205, overflowY: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: "var(--cs-text-dim)", marginBottom: 8 }}>
+              <span>AST &amp; IR DELTA BUCKETS</span>
+              <span style={{ fontFamily: "ui-monospace, monospace", fontVariantNumeric: "tabular-nums" }}>
                 <span style={{ color: "#22c55e" }}>+{changedLineStats.added}</span>{" "}
                 <span style={{ color: "#ef4444" }}>-{changedLineStats.removed}</span>
               </span>
             </div>
-            {astDeltas.length === 0 ? (
-              <div style={{ fontSize: 11.5, color: "var(--cs-text-dim)" }}>
-                No structural AST changes compared to the selected baseline. Make an edit on the stage or inspector to see live AST diffs.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {astDeltas.map((d, idx) => (
-                  <div key={`${d.category}-${d.symbol}-${idx}`} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 11.5 }}>
-                    <span
-                      style={{
-                        fontFamily: "ui-monospace, monospace",
-                        fontWeight: 700,
-                        fontSize: 10,
-                        padding: "0 5px",
-                        borderRadius: 4,
-                        background:
-                          d.kind === "added"
-                            ? "rgba(34, 197, 94, 0.16)"
-                            : d.kind === "removed"
-                            ? "rgba(239, 68, 68, 0.16)"
-                            : "rgba(234, 179, 8, 0.16)",
-                        color: d.kind === "added" ? "#22c55e" : d.kind === "removed" ? "#ef4444" : "#eab308",
-                      }}
-                    >
-                      {d.kind === "added" ? "+ADD" : d.kind === "removed" ? "-DEL" : "~MOD"}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {bucketGroups.map((bucket) => (
+                <div key={bucket.id} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10.5, fontWeight: 700, color: bucket.id === "locked_untouched" ? "#fbbf24" : "var(--cs-text-heading)", borderBottom: "1px solid var(--cs-border-subtle)", paddingBottom: 2 }}>
+                    <span>{bucket.label}</span>
+                    <span className="cs-mono" style={{ color: "var(--cs-text-dim)", fontVariantNumeric: "tabular-nums" }}>
+                      {bucket.items.length}
                     </span>
-                    <span style={{ color: "var(--cs-text-dim)", fontSize: 10.5 }}>{d.category}</span>
-                    <code style={{ color: "var(--cs-text-heading)", fontWeight: 600 }}>{d.symbol}</code>
-                    <span style={{ color: "var(--cs-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.detail}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                  {bucket.items.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "var(--cs-text-dim)" }}>No pending changes vs. baseline</div>
+                  ) : (
+                    bucket.items.map((d, idx) => {
+                      const tagLabel =
+                        d.kind === "added"
+                          ? "+ADD"
+                          : d.kind === "removed"
+                          ? "-DEL"
+                          : d.kind === "locked"
+                          ? "LOCKED"
+                          : d.kind === "untouched"
+                          ? "UNTOUCHED"
+                          : "~MOD";
+                      const tagColors =
+                        d.kind === "added"
+                          ? { bg: "rgba(34, 197, 94, 0.14)", fg: "#22c55e" }
+                          : d.kind === "removed"
+                          ? { bg: "rgba(239, 68, 68, 0.14)", fg: "#ef4444" }
+                          : d.kind === "locked"
+                          ? { bg: "rgba(245, 158, 11, 0.14)", fg: "#fbbf24" }
+                          : d.kind === "untouched"
+                          ? { bg: "var(--cs-mint-bg)", fg: "var(--cs-mint)" }
+                          : { bg: "rgba(234, 179, 8, 0.14)", fg: "#eab308" };
+                      return (
+                        <div key={`${bucket.id}-${d.category}-${d.symbol}-${idx}`} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 11 }}>
+                          <span
+                            style={{
+                              fontFamily: "ui-monospace, monospace",
+                              fontWeight: 700,
+                              fontSize: 9.5,
+                              padding: "0 5px",
+                              borderRadius: 4,
+                              background: tagColors.bg,
+                              color: tagColors.fg,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {tagLabel}
+                          </span>
+                          <code style={{ color: "var(--cs-text-heading)", fontWeight: 600, flexShrink: 0 }}>{d.symbol}</code>
+                          <span style={{ color: "var(--cs-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.detail}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Line-by-line Code Diff */}

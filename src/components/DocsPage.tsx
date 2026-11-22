@@ -45,10 +45,10 @@ const DOC_SECTIONS: DocSection[] = [
     summary:
       "Exports avoid monolithic single-file Go dumps. Theme tokens, declarative layout joins, Elm architecture wiring, and preview fixtures live in dedicated files you can edit safely.",
     bullets: [
-      "ui/theme_gen.go — Adaptive lipgloss.LightDark(hasDarkBG) color resolvers and named Lip Gloss styles.",
-      "ui/layout_gen.go — Responsive JoinHorizontal / JoinVertical composition with CollapseBelow breakpoints.",
-      "model.go, update.go, view.go, main.go — Idiomatic Bubble Tea v2 entrypoint and key/resize dispatch.",
-      "fixtures_preview_gen.go — Tagged //go:build charmstudio_preview for sandbox preview data without polluting production builds.",
+      "ui/theme_gen.go — Adaptive lipgloss.LightDark(hasDarkBG) color resolvers and named Lip Gloss styles (Studio-owned unless sync-disabled).",
+      "ui/layout_gen.go — Responsive JoinHorizontal / JoinVertical composition with CollapseBelow breakpoints (Studio-owned unless sync-disabled).",
+      "model.go, update.go, view.go, main.go — Hand-owned Elm runtime wiring, Update(tea.Msg), keybindings, and tea.Cmd async I/O.",
+      "fixtures_preview_gen.go — Tagged //go:build preview for sandbox preview data without leaking into production constructors.",
       "demo.tape & gum.sh — Ready-to-run VHS terminal recording tape and Gum shell prompt pipeline.",
     ],
     codeTitle: "ui/theme_gen.go",
@@ -65,34 +65,48 @@ const DOC_SECTIONS: DocSection[] = [
   },
   {
     id: "dst-sync",
-    title: "3-Tier dave/dst Round-Trip Sync",
-    kicker: "LOSSLESS AST PATCHING",
+    title: "Code-as-Truth & Surgical dave/dst Sync",
+    kicker: "OWNERSHIP & AST PATCHING",
     summary:
-      "Using dave/dst inside studio.wasm and the native desktop host, Charm Studio parses and surgically updates Go AST nodes while preserving comments, formatting, and custom Update() logic.",
+      "Using dave/dst inside studio.wasm and the native desktop host, Charm Studio patches only annotated or generated style/layout declarations while preserving comments, formatting, dynamic Go expressions, and hand-written Update() logic.",
     bullets: [
-      "Tier 1 (// @tui:id=<nodeId>): Links a Go style declaration or layout call directly to its visual pane on the canvas.",
-      "Tier 2 (// @tui:sync-lock or // @tui:sync-lock=Padding,Border): Freezes an entire style or specific properties from studio overwrites.",
-      "Tier 3 (// @tui:sync-disable): Instructs Charm Studio to skip modifying the file completely during round-trip patching.",
+      "Annotations (// @tui:id=<nodeId>, // @tui:style=<name>, // @tui:token=<name>): Map visual canvas panes and theme styles directly to Go declarations.",
+      "Escape hatch (// @tui:sync-disable or // @tui:block-disable): Locks a file or single declaration in the Inspector with one-click Re-enable Sync or View Raw Go.",
+      "Dynamic Go detection: Non-literal expressions (computed widths from terminal size, dynamic lipgloss.Color helpers) stay read-only unless explicitly overridden.",
+      "Bucketed diffs: Inspect changes grouped into Styles & Tokens, Layout & Overlays, tea.View Flags, and Locked / Hand-Owned Untouched.",
     ],
     codeTitle: "ui/theme_gen.go (with @tui directives)",
     code: `// @tui:id=sidebar
-// @tui:sync-lock=Margin
+// @tui:sync-disable
 SidebarStyle := lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
-	Padding(0, 1).
-	MarginRight(1)`,
+	Width(max(22, m.width/4)).
+	Padding(0, 1)`,
   },
   {
     id: "sizing-breakpoints",
     title: "Sizing Modes & Matrix Breakpoints",
     kicker: "RESPONSIVE TERMINAL CELL MATH",
     summary:
-      "Every terminal cell counts. Charm Studio pairs Fixed, Fit, and weighted Fill sizing with live 3-size Matrix overflow checks (58×18, 80×24, 116×30).",
+      "Every terminal cell counts. Charm Studio pairs Fixed, Fit, and weighted Fill sizing with live 3-size Matrix overflow checks (58×18, 80×24, 116×30), polarity switching, and color-profile downsampling.",
     bullets: [
       "Fixed: Reserves an exact number of columns or rows (e.g. a 30-col navigation rail or 1-row status footer).",
       "Fit: Shrinks tightly around inner widget content.",
       "Fill (Weight): Flex-distributes remaining cells cleanly across sibling panes.",
       "Collapse Below (<cols): Automatically hides secondary panes in ui/layout_gen.go below a column threshold.",
+      "Stress Lenses: Toggle Dark/Light polarity (lipgloss.LightDark) and TrueColor → ANSI 256 → ANSI 16 → ASCII downsampling.",
+    ],
+  },
+  {
+    id: "scope-boundaries",
+    title: "Workbench Scope & Hand-Owned Go Logic",
+    kicker: "WHERE STUDIO ENDS & YOUR GO BEGINS",
+    summary:
+      "Charm Studio is a TUI layout, Lip Gloss v2 style, Bubbles/Huh composition, and terminal-constraint workbench—not a replacement for writing real Go state machines, async commands, or domain logic.",
+    bullets: [
+      "Studio owns visual layout, borders, padding, LightDark tokens, responsive breakpoints, and fixture previews.",
+      "Your Go repo owns Update(msg tea.Msg) state transitions, tea.Cmd network/subprocess I/O, custom keymaps, and business logic.",
+      "Generated fixtures use //go:build preview so sample tables and lists never ship inside production app constructors.",
     ],
   },
 ];
@@ -234,7 +248,7 @@ export function DocsPage() {
               Charm v2 Codegen, Sync &amp; Layout Guide
             </h1>
             <p>
-              Everything you need to export idiomatic <code className="cs-mono">charm.land/*/v2</code> Go applications and keep hand-written Go files synced with <code className="cs-mono">dave/dst</code>.
+              A TUI layout, Lip Gloss v2 style, Bubbles/Huh composition, and terminal-constraint workbench. Keep hand-written <code className="cs-mono">Update()</code> state machines, <code className="cs-mono">tea.Cmd</code> I/O, and keybindings in Go while syncing visual files with <code className="cs-mono">dave/dst</code>.
             </p>
           </div>
         </header>

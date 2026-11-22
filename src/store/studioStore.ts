@@ -182,6 +182,8 @@ export interface StudioStoreValue {
   setRows: (r: number) => void;
   colorProfile: ColorProfile;
   setColorProfile: (p: ColorProfile) => void;
+  polarityOverride: "auto" | "dark" | "light";
+  setPolarityOverride: (p: "auto" | "dark" | "light") => void;
   showOverlay: boolean;
   setShowOverlay: (v: boolean | ((prev: boolean) => boolean)) => void;
   fontFamily: string;
@@ -189,11 +191,15 @@ export interface StudioStoreValue {
   customThemes: ThemePreset[];
   allPalettes: ThemePreset[];
   palette: ThemePreset;
+  effectivePalette: ThemePreset;
   selectPalette: (id: string) => void;
   addCustomTheme: (theme: ThemePreset) => void;
   clearCustomThemes: () => void;
   renderTick: number;
   bumpTick: () => void;
+  codeDrawerRequest: { tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw"; nodeId?: string; ts: number } | null;
+  setCodeDrawerRequest: (req: { tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw"; nodeId?: string; ts: number } | null) => void;
+  openCodeForSelection: (tab?: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw") => void;
 
   // Onboarding
   onboarding: OnboardingProgress;
@@ -222,6 +228,8 @@ export interface StudioStoreValue {
   updateView: (patch: Partial<IRViewConfig>) => void;
   updateSelectedStyle: (patch: Partial<IRStyle>) => void;
   unlockStyleProp: (styleName: string, prop?: string) => void;
+  reenableSync: (symbolKey: string) => void;
+  toggleOverrideDynamicProp: (key: string, prop: string, overrideStatic: boolean) => void;
   updateQuad: (field: "padding" | "margin", idx: number, val: number) => void;
   toggleBorderEdge: (idx: number) => void;
   addToken: (name: string) => boolean;
@@ -320,7 +328,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [cols, setCols] = useState(82);
   const [rows, setRows] = useState(24);
   const [colorProfile, setColorProfile] = useState<ColorProfile>("truecolor");
+  const [polarityOverride, setPolarityOverride] = useState<"auto" | "dark" | "light">("auto");
   const [showOverlay, setShowOverlay] = useState<boolean>(() => activeLens !== "visual");
+  const [codeDrawerRequest, setCodeDrawerRequest] = useState<{
+    tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw";
+    nodeId?: string;
+    ts: number;
+  } | null>(null);
 
   const [selectedId, setSelectedId] = useState<string>(TEMPLATES[0].defaultSelectedId);
   const [singleTel, setSingleTel] = useState<TelemetryNode[]>([]);
@@ -411,10 +425,24 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     saveDraft({ ir, paletteId, templateId });
   }, [ir, paletteId, templateId]);
 
-  const paletteDarkBg = useMemo(
-    () => (allPalettes.find((p) => p.id === paletteId) ?? allPalettes[0]).darkBG,
+  const palette = useMemo(
+    () => allPalettes.find((p) => p.id === paletteId) ?? allPalettes[0],
     [allPalettes, paletteId]
   );
+
+  const effectivePalette = useMemo<ThemePreset>(() => {
+    if (polarityOverride === "auto") return palette;
+    const isDark = polarityOverride === "dark";
+    if (isDark === palette.darkBG) return palette;
+    return {
+      ...palette,
+      darkBG: isDark,
+      background: isDark ? "#20162d" : "#e1e2e7",
+      foreground: isDark ? "#f4eaff" : "#3760bf",
+    };
+  }, [palette, polarityOverride]);
+
+  const paletteDarkBg = effectivePalette.darkBG;
 
   // Off-screen 3-size matrix fit check (debounced 150ms after engine ready)
   useEffect(() => {
@@ -657,9 +685,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const palette = useMemo(
-    () => allPalettes.find((p) => p.id === paletteId) ?? allPalettes[0],
-    [allPalettes, paletteId]
+  const openCodeForSelection = useCallback(
+    (tab?: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw") => {
+      const targetTab = tab ?? (ir.importedGo ? "raw" : "theme_gen");
+      setCodeDrawerRequest({ tab: targetTab, nodeId: selectedId, ts: Date.now() });
+      setActiveLens("code");
+    },
+    [ir.importedGo, selectedId, setActiveLens]
   );
 
   const selectedNode = useMemo(() => findNode(ir, selectedId), [ir, selectedId]);
@@ -851,7 +883,22 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const updateNode = useCallback(
     (nodeId: string, updater: (n: IRNode) => IRNode) => {
-      commitIr((prev) => updateNodeInDoc(prev, nodeId, updater));
+      commitIr((prev) => {
+        const nodeKey = `node:${nodeId}`;
+        if (prev.lockReasons?.[nodeKey] === "sync-disabled") return prev;
+        const lockedNodeProps = prev.lockedProps?.[nodeKey] ?? [];
+        if (lockedNodeProps.includes("*")) return prev;
+        const prevNode = findNode(prev, nodeId);
+        return updateNodeInDoc(prev, nodeId, (n) => {
+          const updated = updater(n);
+          if (!prevNode || lockedNodeProps.length === 0) return updated;
+          return {
+            ...updated,
+            width: lockedNodeProps.includes("width") ? prevNode.width : updated.width,
+            height: lockedNodeProps.includes("height") ? prevNode.height : updated.height,
+          };
+        });
+      });
     },
     [commitIr]
   );
@@ -916,9 +963,87 @@ export function StudioProvider({ children }: { children: ReactNode }) {
           if (remaining.length > 0) nextLocks[styleName] = remaining;
           else delete nextLocks[styleName];
         }
+        const nextReasons = prev.lockReasons ? { ...prev.lockReasons } : undefined;
+        if (nextReasons && !nextLocks[styleName]) {
+          delete nextReasons[styleName];
+        }
         return {
           ...prev,
           lockedProps: Object.keys(nextLocks).length > 0 ? nextLocks : undefined,
+          lockReasons: nextReasons && Object.keys(nextReasons).length > 0 ? nextReasons : undefined,
+        };
+      });
+    },
+    [commitIr]
+  );
+
+  const reenableSync = useCallback(
+    (symbolKey: string) => {
+      commitIr((prev) => {
+        const nextLocks = { ...(prev.lockedProps ?? {}) };
+        const nextReasons = { ...(prev.lockReasons ?? {}) };
+        let nextImported = prev.importedGo ? { ...prev.importedGo } : undefined;
+
+        if (symbolKey === "*") {
+          if (nextImported) {
+            nextImported.fileSyncDisabled = false;
+            nextImported.source = nextImported.source.replace(/^\s*\/\/\s*@tui:(?:sync-disable|block-disable)\b.*\n?/gm, "");
+          }
+        } else {
+          delete nextLocks[symbolKey];
+          delete nextReasons[symbolKey];
+          if (nextImported?.source) {
+            const rawSym = symbolKey.startsWith("node:") ? symbolKey.slice(5) : symbolKey;
+            const esc = rawSym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const symRe = new RegExp(
+              `(//\\s*@tui:(?:sync-disable|block-disable)\\b[^\\n]*\\n(?:\\s*//[^\\n]*\\n)*)(?=[^\\n]*\\b${esc}\\b)`,
+              "gi"
+            );
+            nextImported.source = nextImported.source.replace(symRe, "");
+          }
+        }
+
+        return {
+          ...prev,
+          lockedProps: Object.keys(nextLocks).length > 0 ? nextLocks : undefined,
+          lockReasons: Object.keys(nextReasons).length > 0 ? nextReasons : undefined,
+          importedGo: nextImported,
+        };
+      });
+    },
+    [commitIr]
+  );
+
+  const toggleOverrideDynamicProp = useCallback(
+    (key: string, prop: string, overrideStatic: boolean) => {
+      commitIr((prev) => {
+        const nextLocks = { ...(prev.lockedProps ?? {}) };
+        const nextOverridden = { ...(prev.overriddenProps ?? {}) };
+        const nextReasons = { ...(prev.lockReasons ?? {}) };
+
+        if (overrideStatic) {
+          const remaining = (nextLocks[key] ?? []).filter((p) => p !== prop);
+          if (remaining.length > 0) nextLocks[key] = remaining;
+          else delete nextLocks[key];
+
+          const curOv = nextOverridden[key] ?? [];
+          if (!curOv.includes(prop)) nextOverridden[key] = [...curOv, prop];
+        } else {
+          const curLocks = nextLocks[key] ?? [];
+          if (!curLocks.includes(prop)) nextLocks[key] = [...curLocks, prop];
+
+          const remainingOv = (nextOverridden[key] ?? []).filter((p) => p !== prop);
+          if (remainingOv.length > 0) nextOverridden[key] = remainingOv;
+          else delete nextOverridden[key];
+
+          if (!nextReasons[key]) nextReasons[key] = "dynamic";
+        }
+
+        return {
+          ...prev,
+          lockedProps: Object.keys(nextLocks).length > 0 ? nextLocks : undefined,
+          overriddenProps: Object.keys(nextOverridden).length > 0 ? nextOverridden : undefined,
+          lockReasons: Object.keys(nextReasons).length > 0 ? nextReasons : undefined,
         };
       });
     },
@@ -1057,6 +1182,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setRows,
     colorProfile,
     setColorProfile,
+    polarityOverride,
+    setPolarityOverride,
     showOverlay,
     setShowOverlay,
     fontFamily,
@@ -1064,11 +1191,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     customThemes,
     allPalettes,
     palette,
+    effectivePalette,
     selectPalette,
     addCustomTheme,
     clearCustomThemes,
     renderTick,
     bumpTick,
+    codeDrawerRequest,
+    setCodeDrawerRequest,
+    openCodeForSelection,
     onboarding,
     setOnboarding,
     markStep,
@@ -1093,6 +1224,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     updateView,
     updateSelectedStyle,
     unlockStyleProp,
+    reenableSync,
+    toggleOverrideDynamicProp,
     updateQuad,
     toggleBorderEdge,
     addToken,

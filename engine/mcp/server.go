@@ -309,11 +309,19 @@ func (s *Server) HandleMessage(raw []byte) ([]byte, bool) {
 				}},
 			})
 		case "charmstudio://selection":
+			var lockReason string
+			var dynExprs map[string]string
+			if node != nil && node.Style != "" {
+				lockReason = snap.IR.LockReasons[node.Style]
+				dynExprs = snap.IR.DynamicExprs[node.Style]
+			}
 			b, _ := json.MarshalIndent(map[string]any{
 				"selectedId":     snap.SelectedID,
 				"nodePath":       snap.NodePath,
 				"selectedNode":   snap.SelectedNode,
 				"selectedStyle":  snap.SelectedStyle,
+				"lockReason":     lockReason,
+				"dynamicExprs":   dynExprs,
 				"projectDir":     snap.ProjectDir,
 				"worktreeDir":    snap.WorktreeDir,
 				"worktreeBranch": snap.WorktreeBranch,
@@ -388,17 +396,17 @@ func (s *Server) toolSchemas() []map[string]any {
 		},
 		{
 			"name":        "list_migration_rules",
-			"description": "List embedded Charmbracelet v2 API migration rules (imports, view, messages, colors, bubbles, annotations).",
+			"description": "List embedded Charmbracelet v2 API, @tui:sync-disable ownership, and git worktree rules (imports, view, messages, colors, bubbles, annotations, workflow).",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"category": map[string]any{"type": "string", "description": "Optional filter category (imports, view, messages, colors, bubbles, annotations, all)."},
+					"category": map[string]any{"type": "string", "description": "Optional filter category (imports, view, messages, colors, bubbles, annotations, workflow, all)."},
 				},
 			},
 		},
 		{
 			"name":        "parse_go_source",
-			"description": "Parse Go source code using engine/astsync (dave/dst) to extract Lip Gloss v2 styles, tokens, tea.View, Bubbles/Huh widgets, and layout tree.",
+			"description": "Parse Go source code using engine/astsync (dave/dst) to extract Lip Gloss v2 styles, tokens, tea.View, Bubbles/Huh widgets, @tui:sync-disable locks, and dynamic Go expressions.",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"goSource"},
@@ -409,13 +417,13 @@ func (s *Server) toolSchemas() []map[string]any {
 		},
 		{
 			"name":        "patch_go_source",
-			"description": "Safely patch existing Go source (or a file inside the active worktree/project) with the active Studio IR using dave/dst while preserving comments and @tui:block-disable locks.",
+			"description": "Safely patch existing Go source (preferring an isolated git worktree when active) with the active Studio IR using dave/dst while preserving comments, dynamic Go expressions, and // @tui:sync-disable locks.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"existingGo": map[string]any{"type": "string", "description": "Raw Go source to patch (optional if relativePath is given)."},
+					"existingGo":   map[string]any{"type": "string", "description": "Raw Go source to patch (optional if relativePath is given)."},
 					"relativePath": map[string]any{"type": "string", "description": "Optional path relative to active worktree or project directory to read & write back cleanly."},
-					"writeFile": map[string]any{"type": "boolean", "description": "When true with relativePath, persists updated Go back to disk inside the active worktree/project."},
+					"writeFile":    map[string]any{"type": "boolean", "description": "When true with relativePath, persists updated Go back to disk inside the active worktree/project."},
 				},
 			},
 		},
@@ -495,17 +503,28 @@ func (s *Server) callTool(name string, rawArgs json.RawMessage) toolResult {
 			return textToolErr("node not found: " + targetID)
 		}
 		var stPtr *astsync.IRStyle
+		var styleLocks []string
+		var styleReason string
+		var styleDyn map[string]string
 		if node.Style != "" {
 			if st, ok := snap.IR.Styles[node.Style]; ok {
 				stCopy := st
 				stPtr = &stCopy
 			}
+			styleLocks = snap.IR.LockedProps[node.Style]
+			styleReason = snap.IR.LockReasons[node.Style]
+			styleDyn = snap.IR.DynamicExprs[node.Style]
 		}
 		return textToolOK(map[string]any{
-			"nodeId": targetID,
-			"path":   path,
-			"node":   node,
-			"style":  stPtr,
+			"nodeId":       targetID,
+			"path":         path,
+			"node":         node,
+			"style":        stPtr,
+			"lockedProps":  styleLocks,
+			"lockReason":   styleReason,
+			"dynamicExprs": styleDyn,
+			"nodeLocks":    snap.IR.LockedProps["node:"+targetID],
+			"nodeDynamic":  snap.IR.DynamicExprs["node:"+targetID],
 		})
 
 	case "list_migration_rules":

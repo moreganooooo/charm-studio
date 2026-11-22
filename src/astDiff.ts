@@ -1,9 +1,12 @@
 import type { IRDoc, IRNode, IRStyle } from "./types";
 import { computeGoDiffWithDst } from "./wasmEngine";
 
+export type DiffBucketId = "styles_tokens" | "layout_overlays" | "view_flags" | "locked_untouched";
+
 export interface AstDelta {
-  kind: "added" | "removed" | "modified";
-  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type";
+  kind: "added" | "removed" | "modified" | "untouched" | "locked";
+  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type" | "Lock";
+  bucket?: DiffBucketId;
   symbol: string;
   detail: string;
 }
@@ -243,6 +246,107 @@ export interface GoAstDiffResult {
   deltas: AstDelta[];
   lines: DiffLine[];
   engine: "dave/dst" | "ir-fallback";
+}
+
+export interface DiffBucketGroup {
+  id: DiffBucketId;
+  label: string;
+  items: AstDelta[];
+}
+
+export function assignDeltaBucket(d: AstDelta): DiffBucketId {
+  if (d.bucket) return d.bucket;
+  if (d.kind === "untouched" || d.kind === "locked" || d.category === "Lock") return "locked_untouched";
+  if (d.category === "Style" || d.category === "Token") return "styles_tokens";
+  if (d.category === "View") return "view_flags";
+  return "layout_overlays";
+}
+
+export function groupDeltasIntoBuckets(currDoc: IRDoc, deltas: AstDelta[]): DiffBucketGroup[] {
+  const buckets: Record<DiffBucketId, AstDelta[]> = {
+    styles_tokens: [],
+    layout_overlays: [],
+    view_flags: [],
+    locked_untouched: [],
+  };
+
+  for (const d of deltas) {
+    const b = assignDeltaBucket(d);
+    buckets[b].push({ ...d, bucket: b });
+  }
+
+  const seenLocked = new Set(buckets.locked_untouched.map((i) => `${i.category}:${i.symbol}`));
+
+  // Ensure hand-owned Elm logic is explicitly shown as untouched
+  const handOwned = currDoc.untouchedHandOwned && currDoc.untouchedHandOwned.length > 0
+    ? currDoc.untouchedHandOwned
+    : ["Init()", "Update(tea.Msg)", "tea.Cmd handlers"];
+
+  for (const fn of handOwned) {
+    const key = `Func:${fn}`;
+    if (!seenLocked.has(key)) {
+      seenLocked.add(key);
+      buckets.locked_untouched.push({
+        kind: "untouched",
+        category: "Func",
+        bucket: "locked_untouched",
+        symbol: fn,
+        detail: "Hand-owned application logic preserved untouched",
+      });
+    }
+  }
+
+  // Ensure @tui:sync-disable locks & non-overridden Dynamic Go expressions appear in Locked bucket
+  if (currDoc.importedGo?.fileSyncDisabled && !seenLocked.has("Lock:file")) {
+    seenLocked.add("Lock:file");
+    buckets.locked_untouched.push({
+      kind: "locked",
+      category: "Lock",
+      bucket: "locked_untouched",
+      symbol: currDoc.importedGo.label || "imported.go",
+      detail: "File-level // @tui:sync-disable",
+    });
+  }
+
+  for (const [sym, reason] of Object.entries(currDoc.lockReasons ?? {})) {
+    const key = `Lock:${sym}`;
+    if (seenLocked.has(key)) continue;
+    const overridden = currDoc.overriddenProps?.[sym] ?? [];
+    if (reason === "sync-disabled") {
+      seenLocked.add(key);
+      buckets.locked_untouched.push({
+        kind: "locked",
+        category: "Lock",
+        bucket: "locked_untouched",
+        symbol: sym,
+        detail: "Locked · // @tui:sync-disable",
+      });
+    } else {
+      const exprEntries = Object.entries(currDoc.dynamicExprs?.[sym] ?? {}).filter(
+        ([prop]) => !overridden.includes(prop)
+      );
+      if (exprEntries.length > 0 || (currDoc.lockedProps?.[sym]?.length ?? 0) > 0) {
+        seenLocked.add(key);
+        buckets.locked_untouched.push({
+          kind: "locked",
+          category: "Lock",
+          bucket: "locked_untouched",
+          symbol: sym,
+          detail:
+            exprEntries.length > 0
+              ? `Dynamic Go preserved: ${exprEntries.map(([k, v]) => `${k}=${v}`).join(", ")}`
+              : `Dynamic Go locked: ${(currDoc.lockedProps?.[sym] ?? []).join(", ")}`,
+        });
+      }
+    }
+  }
+
+  return [
+    { id: "styles_tokens", label: "Styles & Tokens", items: buckets.styles_tokens },
+    { id: "layout_overlays", label: "Layout & Overlays", items: buckets.layout_overlays },
+    { id: "view_flags", label: "tea.View Flags", items: buckets.view_flags },
+    { id: "locked_untouched", label: "Locked / Hand-Owned Untouched", items: buckets.locked_untouched },
+  ];
 }
 
 export function computeGoAstDiff(

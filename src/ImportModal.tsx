@@ -286,7 +286,9 @@ export function ImportModal({
           return rawRes.ok ? await rawRes.text() : "";
         })
       );
-      analyzeGo(texts.join("\n\n"), `${ghMeta.owner}/${ghMeta.repo}`);
+      const joined = texts.join("\n\n");
+      setGoText(joined);
+      analyzeGo(joined, `${ghMeta.owner}/${ghMeta.repo}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -554,27 +556,36 @@ export function ImportModal({
             {summary.syncDisabled && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, marginBottom: 8, background: "rgba(245, 158, 11, 0.14)", border: "1px solid rgba(245, 158, 11, 0.45)", color: "#fbbf24", fontSize: 11.5 }}>
                 <Lock size={13} />
-                <span>File contains <code>// @tui:sync-disable</code> — round-trip patching will leave this file untouched.</span>
+                <span>File-level <code>// @tui:sync-disable</code> active — round-trip patching will leave this file untouched.</span>
               </div>
             )}
 
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
               {summary.styleNames.map((n) => (
-                <code key={n} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "var(--cs-input)", color: "var(--cs-text-heading)", border: "1px solid var(--cs-btn-border)" }}>
+                <code key={n} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 5, background: "var(--cs-input)", color: "var(--cs-text-heading)", border: "1px solid var(--cs-btn-border)" }}>
                   {n}
                 </code>
               ))}
               {summary.detectedBubbles.map((b) => (
-                <code key={b} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "var(--cs-mint-bg)", color: "var(--cs-mint)", border: "1px solid var(--cs-mint-border)" }}>
+                <code key={b} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 5, background: "var(--cs-mint-bg)", color: "var(--cs-mint)", border: "1px solid var(--cs-mint-border)" }}>
                   {b}
                 </code>
               ))}
               {(summary.lockedSymbols ?? []).map((sym) => {
+                const reason = summary.lockReasons?.[sym];
                 const props = summary.lockedProps?.[sym];
-                const label = props && props.length > 0 && !props.includes("*") ? `${sym} (${props.join(", ")})` : sym;
+                const exprMap = summary.dynamicExprs?.[sym];
+                const label =
+                  reason === "sync-disabled"
+                    ? `${sym} · // @tui:sync-disable`
+                    : exprMap && Object.keys(exprMap).length > 0
+                    ? `${sym} · Dynamic Go (${Object.keys(exprMap).join(", ")})`
+                    : props && props.length > 0 && !props.includes("*")
+                    ? `${sym} (${props.join(", ")})`
+                    : sym;
                 return (
-                  <code key={sym} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(245, 158, 11, 0.12)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
-                    locked: {label}
+                  <code key={sym} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 5, background: "rgba(245, 158, 11, 0.12)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+                    {label}
                   </code>
                 );
               })}

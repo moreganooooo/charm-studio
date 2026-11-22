@@ -20,6 +20,8 @@ import { wailsTransport } from "./wasmEngine";
 interface Props {
   open: boolean;
   onClose: () => void;
+  initialTab?: "pty" | "mcp" | "worktrees";
+  initialInspectSessionId?: string | null;
 }
 
 const STARTER_PROMPTS = [
@@ -28,7 +30,12 @@ const STARTER_PROMPTS = [
   "Add responsive CollapseBelow breakpoints so narrow terminals stack cleanly",
 ];
 
-export function DesktopCompanionModal({ open, onClose }: Props) {
+export function DesktopCompanionModal({
+  open,
+  onClose,
+  initialTab,
+  initialInspectSessionId,
+}: Props) {
   const {
     cols,
     rows,
@@ -52,7 +59,7 @@ export function DesktopCompanionModal({ open, onClose }: Props) {
     refreshWorktrees,
   } = useStudioStore();
 
-  const [tab, setTab] = useState<"pty" | "mcp" | "worktrees">("pty");
+  const [tab, setTab] = useState<"pty" | "mcp" | "worktrees">(initialTab ?? "pty");
   const [bridgeDraft, setBridgeDraft] = useState(desktopBridgeUrl);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +70,27 @@ export function DesktopCompanionModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (initialTab) {
+      setTab(initialTab);
+    }
     void refreshDesktopConnection();
-  }, [open, refreshDesktopConnection]);
+  }, [open, initialTab, refreshDesktopConnection]);
+
+  useEffect(() => {
+    if (!open || !initialInspectSessionId || tab !== "worktrees") return;
+    let cancelled = false;
+    wailsTransport
+      .getWorktreeDiff(initialInspectSessionId)
+      .then((res) => {
+        if (!cancelled) setDiffResult(res);
+      })
+      .catch(() => {
+        // Ignore transient fetch errors if bridge/session is unavailable
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, initialInspectSessionId, tab]);
 
   if (!open) return null;
 

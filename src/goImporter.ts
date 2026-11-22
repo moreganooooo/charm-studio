@@ -13,6 +13,10 @@ export interface ExtractedGoSummary {
   syncDisabled?: boolean;
   lockedSymbols?: string[];
   lockedProps?: Record<string, string[]>;
+  lockReasons?: Record<string, "sync-disabled" | "dynamic">;
+  dynamicExprs?: Record<string, Record<string, string>>;
+  untouchedSymbols?: string[];
+  rawGoSource?: string;
   engineUsed?: "dave/dst" | "regex-fallback";
 }
 
@@ -63,10 +67,225 @@ function addLockedProp(map: Record<string, string[]>, styleName: string, prop: s
   }
 }
 
-function buildSummaryFromDstParsed(dstParsed: ReturnType<typeof parseGoWithDst>): ExtractedGoSummary | null {
+function hasSyncDisableDirective(text: string): boolean {
+  return /\/\/\s*@tui:(?:sync-disable|block-disable)\b/.test(text);
+}
+
+export function isFileLevelSyncDisable(src: string): boolean {
+  const lines = src.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("//") || trimmed.startsWith("/*")) {
+      if (hasSyncDisableDirective(trimmed)) return true;
+      continue;
+    }
+    if (/^package\s+\w+/.test(trimmed)) {
+      return hasSyncDisableDirective(trimmed);
+    }
+    break;
+  }
+  return false;
+}
+
+interface GoSyncMetadata {
+  fileSyncDisabled: boolean;
+  lockedSymbols: string[];
+  lockedProps: Record<string, string[]>;
+  lockReasons: Record<string, "sync-disabled" | "dynamic">;
+  dynamicExprs: Record<string, Record<string, string>>;
+  untouchedSymbols: string[];
+}
+
+function extractUntouchedFunctions(src: string): string[] {
+  const generatedFuncs = new Set(["NewTheme", "RenderApp", "ld", "lightDark"]);
+  const out: string[] = [];
+  const fnRe = /^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(([^)]*)\)/gm;
+  for (const m of src.matchAll(fnRe)) {
+    const name = m[1];
+    if (generatedFuncs.has(name) || name.startsWith("_")) continue;
+    const params = m[2].trim();
+    const label = name === "Update" && params.includes("tea.Msg")
+      ? "Update(tea.Msg)"
+      : `${name}()`;
+    if (!out.includes(label)) out.push(label);
+  }
+  return out;
+}
+
+function isSimpleColorExpr(args: string): boolean {
+  const trimmed = args.trim();
+  if (/^"#[0-9a-fA-F]{3,8}"$/.test(trimmed)) return true;
+  if (/^(?:lipgloss\.|compat\.)?Color\(\s*"#[0-9a-fA-F]{3,8}"\s*\)$/.test(trimmed)) return true;
+  if (/^(?:lipgloss\.|compat\.)?AdaptiveColor\s*\{/.test(trimmed)) return true;
+  if (/^(?:ld|lightDark)\(/.test(trimmed)) return true;
+  if (/^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)?$/.test(trimmed)) return true;
+  return false;
+}
+
+function extractGoSyncMetadata(src: string): GoSyncMetadata {
+  const fileSyncDisabled = isFileLevelSyncDisable(src);
+  const lockedProps: Record<string, string[]> = {};
+  const lockReasons: Record<string, "sync-disabled" | "dynamic"> = {};
+  const dynamicExprs: Record<string, Record<string, string>> = {};
+  const lockedSymbolsSet = new Set<string>();
+
+  const recordDynamic = (key: string, prop: string, expr: string) => {
+    addLockedProp(lockedProps, key, prop);
+    if (!lockReasons[key]) lockReasons[key] = "dynamic";
+    if (!dynamicExprs[key]) dynamicExprs[key] = {};
+    dynamicExprs[key][prop] = expr.trim();
+    lockedSymbolsSet.add(key);
+  };
+
+  // Scan named styles & struct/map keys with NewStyle()
+  const styleStartRe = /(?:(?:var\s+)?(\w+)\s*(?::?=|:))\s*(?:[a-zA-Z_]\w*\.)?NewStyle\(\)/g;
+  for (const m of src.matchAll(styleStartRe)) {
+    const rawName = m[1];
+    const styleName = rawName.charAt(0).toLowerCase() + rawName.slice(1);
+    const matchIdx = m.index ?? 0;
+    const lineStart = src.lastIndexOf("\n", matchIdx) + 1;
+    const lineEndIdx = src.indexOf("\n", matchIdx);
+    const currentLine = src.slice(lineStart, lineEndIdx >= 0 ? lineEndIdx : src.length);
+    const preContext = src.slice(Math.max(0, lineStart - 180), lineStart);
+    const preLines = preContext.split("\n").slice(-3).join("\n");
+
+    if (hasSyncDisableDirective(preLines) || hasSyncDisableDirective(currentLine)) {
+      lockedSymbolsSet.add(styleName);
+      addLockedProp(lockedProps, styleName, "*");
+      lockReasons[styleName] = "sync-disabled";
+      continue;
+    }
+
+    const startPos = matchIdx + m[0].length;
+    const rest = src.slice(startPos, startPos + 1400);
+    const chainLines: string[] = [];
+    for (const line of rest.split("\n")) {
+      const trimmed = line.trim();
+      if (chainLines.length > 0 && !trimmed.startsWith(".") && !chainLines[chainLines.length - 1].endsWith(".")) {
+        break;
+      }
+      chainLines.push(trimmed);
+      if (trimmed.endsWith(",") || trimmed.endsWith("}")) break;
+    }
+    const chain = chainLines.join(" ");
+
+    const callRe = /\.(\w+)\(/g;
+    for (const cm of chain.matchAll(callRe)) {
+      const method = cm[1];
+      const args = extractBalancedArgs(chain, (cm.index ?? 0) + method.length + 1).trim();
+      if (!args && (method === "Border" || method.startsWith("Padding") || method.startsWith("Margin"))) continue;
+
+      if (method === "Border") {
+        if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)/.test(args)) {
+          recordDynamic(styleName, "border", args);
+        }
+      } else if (method === "BorderTop" || method === "BorderRight" || method === "BorderBottom" || method === "BorderLeft") {
+        if (args !== "true" && args !== "false") recordDynamic(styleName, "border", args);
+      } else if (method === "Padding") {
+        if (!/^-?\d+(?:\s*,\s*-?\d+){0,3}$/.test(args)) recordDynamic(styleName, "padding", args);
+      } else if (method === "PaddingHorizontal" || method === "PaddingVertical" || method === "PaddingTop" || method === "PaddingRight" || method === "PaddingBottom" || method === "PaddingLeft") {
+        if (!/^-?\d+$/.test(args)) recordDynamic(styleName, "padding", args);
+      } else if (method === "Margin") {
+        if (!/^-?\d+(?:\s*,\s*-?\d+){0,3}$/.test(args)) recordDynamic(styleName, "margin", args);
+      } else if (method === "MarginTop" || method === "MarginRight" || method === "MarginBottom" || method === "MarginLeft") {
+        if (!/^-?\d+$/.test(args)) recordDynamic(styleName, "margin", args);
+      } else if (method === "Bold" || method === "Italic" || method === "Faint" || method === "Underline") {
+        if (args !== "true" && args !== "false") recordDynamic(styleName, method.toLowerCase(), args);
+      } else if (method === "BorderForeground" && args && !isSimpleColorExpr(args)) {
+        recordDynamic(styleName, "borderColor", args);
+      } else if (method === "Foreground" && args && !isSimpleColorExpr(args)) {
+        recordDynamic(styleName, "fg", args);
+      } else if (method === "Background" && args && !isSimpleColorExpr(args)) {
+        recordDynamic(styleName, "bg", args);
+      } else if ((method === "AlignHorizontal" || method === "Align") && args && !/lipgloss\.(?:Left|Center|Right)/.test(args)) {
+        recordDynamic(styleName, "alignH", args);
+      } else if (method === "AlignVertical" && args && !/lipgloss\.(?:Top|Center|Bottom)/.test(args)) {
+        recordDynamic(styleName, "alignV", args);
+      }
+    }
+  }
+
+  // Scan // @tui:id=<nodeId> layout annotations for block-level @tui:sync-disable and dynamic Width/Height
+  const idCommentRe = /\/\/\s*@tui:id=([a-zA-Z0-9_-]+)/g;
+  for (const m of src.matchAll(idCommentRe)) {
+    const nodeId = m[1];
+    const nodeKey = `node:${nodeId}`;
+    const idx = m.index ?? 0;
+    const windowBefore = src.slice(Math.max(0, idx - 140), idx);
+    const windowAfter = src.slice(idx, Math.min(src.length, idx + 420));
+    const snippetLines = windowAfter.split("\n").slice(0, 8).join("\n");
+    const adjacentHeader = windowBefore.split("\n").slice(-2).join("\n") + "\n" + snippetLines.split("\n").slice(0, 3).join("\n");
+
+    if (hasSyncDisableDirective(adjacentHeader)) {
+      lockedSymbolsSet.add(nodeKey);
+      addLockedProp(lockedProps, nodeKey, "*");
+      lockReasons[nodeKey] = "sync-disabled";
+      continue;
+    }
+
+    for (const dimMatch of snippetLines.matchAll(/\.(Width|Height)\(/g)) {
+      const dimProp = dimMatch[1].toLowerCase();
+      const dimArgs = extractBalancedArgs(snippetLines, (dimMatch.index ?? 0) + dimMatch[1].length + 1).trim();
+      if (dimArgs && !/^\d+$/.test(dimArgs)) {
+        recordDynamic(nodeKey, dimProp, dimArgs);
+      }
+    }
+  }
+
+  return {
+    fileSyncDisabled,
+    lockedSymbols: [...lockedSymbolsSet],
+    lockedProps,
+    lockReasons,
+    dynamicExprs,
+    untouchedSymbols: extractUntouchedFunctions(src),
+  };
+}
+
+function mergeSyncMetadata(summary: ExtractedGoSummary, combinedGo: string, hasNativeReasons: boolean): ExtractedGoSummary {
+  const meta = extractGoSyncMetadata(combinedGo);
+
+  const mergedLockedProps: Record<string, string[]> = { ...(summary.lockedProps ?? {}) };
+  for (const [k, props] of Object.entries(meta.lockedProps)) {
+    for (const p of props) addLockedProp(mergedLockedProps, k, p);
+  }
+
+  const mergedLockReasons: Record<string, "sync-disabled" | "dynamic"> = {
+    ...meta.lockReasons,
+    ...(summary.lockReasons ?? {}),
+  };
+
+  const mergedDynamicExprs: Record<string, Record<string, string>> = { ...meta.dynamicExprs };
+  for (const [k, exprMap] of Object.entries(summary.dynamicExprs ?? {})) {
+    mergedDynamicExprs[k] = { ...(mergedDynamicExprs[k] ?? {}), ...exprMap };
+  }
+
+  const lockedSymbolsSet = new Set<string>([
+    ...(summary.lockedSymbols ?? []),
+    ...meta.lockedSymbols,
+  ]);
+
+  const untouchedSymbols = summary.untouchedSymbols && summary.untouchedSymbols.length > 0
+    ? summary.untouchedSymbols
+    : meta.untouchedSymbols;
+
+  return {
+    ...summary,
+    syncDisabled: hasNativeReasons ? Boolean(summary.syncDisabled) : meta.fileSyncDisabled,
+    lockedSymbols: [...lockedSymbolsSet],
+    lockedProps: Object.keys(mergedLockedProps).length > 0 ? mergedLockedProps : undefined,
+    lockReasons: Object.keys(mergedLockReasons).length > 0 ? mergedLockReasons : undefined,
+    dynamicExprs: Object.keys(mergedDynamicExprs).length > 0 ? mergedDynamicExprs : undefined,
+    untouchedSymbols: untouchedSymbols.length > 0 ? untouchedSymbols : undefined,
+    rawGoSource: combinedGo,
+  };
+}
+
+function buildSummaryFromDstParsed(dstParsed: ReturnType<typeof parseGoWithDst>, combinedGo: string): ExtractedGoSummary | null {
   if (!dstParsed || dstParsed.error || !dstParsed.styles) return null;
   const styles = dstParsed.styles;
-  return {
+  const base: ExtractedGoSummary = {
     styles,
     tokens: dstParsed.tokens ?? {},
     view: dstParsed.view,
@@ -78,19 +297,23 @@ function buildSummaryFromDstParsed(dstParsed: ReturnType<typeof parseGoWithDst>)
     syncDisabled: Boolean(dstParsed.syncDisabled),
     lockedSymbols: dstParsed.lockedSymbols ?? [],
     lockedProps: dstParsed.lockedProps,
+    lockReasons: dstParsed.lockReasons,
+    dynamicExprs: dstParsed.dynamicExprs,
+    untouchedSymbols: dstParsed.untouchedSymbols,
     engineUsed: "dave/dst",
   };
+  return mergeSyncMetadata(base, combinedGo, Boolean(dstParsed.lockReasons));
 }
 
 export async function extractFromGoSourceAsync(combinedGo: string): Promise<ExtractedGoSummary> {
   const dstParsed = await parseGoWithTransport(combinedGo);
-  const fromDst = buildSummaryFromDstParsed(dstParsed);
+  const fromDst = buildSummaryFromDstParsed(dstParsed, combinedGo);
   if (fromDst) return fromDst;
   return extractFromGoSource(combinedGo);
 }
 
 export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
-  const fromDst = buildSummaryFromDstParsed(parseGoWithDst(combinedGo));
+  const fromDst = buildSummaryFromDstParsed(parseGoWithDst(combinedGo), combinedGo);
   if (fromDst) return fromDst;
 
   const tokens: Record<string, TokenPair> = {
@@ -179,12 +402,21 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     const styleName = rawName.charAt(0).toLowerCase() + rawName.slice(1);
     const matchIdx = m.index ?? 0;
 
-    // Check preceding comment lines for // @tui:block-disable
+    // Check preceding comment lines for // @tui:sync-disable or // @tui:block-disable
     const preContext = combinedGo.slice(Math.max(0, matchIdx - 140), matchIdx);
     const preLines = preContext.split("\n").slice(-3).join("\n");
-    if (/\/\/\s*@tui:block-disable/.test(preLines)) {
+    if (hasSyncDisableDirective(preLines)) {
       lockedSymbolsSet.add(styleName);
       addLockedProp(lockedProps, styleName, "*");
+      styles[styleName] = {
+        border: "rounded",
+        borderEdges: [true, true, true, true],
+        borderColor: "$borderIdle",
+        fg: "$textMain",
+        padding: [0, 1, 0, 1],
+        margin: [0, 0, 0, 0],
+        bold: false,
+      };
       continue;
     }
 
@@ -395,18 +627,22 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
   if (/charmbracelet\/glamour|charm\.land\/glamour/.test(combinedGo)) detectedBubbles.push("glamour:markdown");
   if (/charmbracelet\/wish|charm\.land\/wish/.test(combinedGo)) detectedBubbles.push("wish:ssh");
 
-  return {
-    styles,
-    tokens,
-    view: foundView ? viewCfg : undefined,
-    detectedBubbles,
-    styleNames: Object.keys(styles),
-    colorCount: allHexes.length,
-    syncDisabled: /\/\/\s*@tui:sync-disable/.test(combinedGo),
-    lockedSymbols: [...lockedSymbolsSet],
-    lockedProps: Object.keys(lockedProps).length > 0 ? lockedProps : undefined,
-    engineUsed: "regex-fallback",
-  };
+  return mergeSyncMetadata(
+    {
+      styles,
+      tokens,
+      view: foundView ? viewCfg : undefined,
+      detectedBubbles,
+      styleNames: Object.keys(styles),
+      colorCount: allHexes.length,
+      syncDisabled: isFileLevelSyncDisable(combinedGo),
+      lockedSymbols: [...lockedSymbolsSet],
+      lockedProps: Object.keys(lockedProps).length > 0 ? lockedProps : undefined,
+      engineUsed: "regex-fallback",
+    },
+    combinedGo,
+    false
+  );
 }
 
 function findFirstBoxId(node: IRNode): string | null {
@@ -450,6 +686,18 @@ export function buildIRFromExtracted(summary: ExtractedGoSummary, sourceLabel: s
       root: summary.root,
       overlays,
       ...(summary.lockedProps && Object.keys(summary.lockedProps).length > 0 ? { lockedProps: summary.lockedProps } : {}),
+      ...(summary.lockReasons && Object.keys(summary.lockReasons).length > 0 ? { lockReasons: summary.lockReasons } : {}),
+      ...(summary.dynamicExprs && Object.keys(summary.dynamicExprs).length > 0 ? { dynamicExprs: summary.dynamicExprs } : {}),
+      ...(summary.untouchedSymbols && summary.untouchedSymbols.length > 0 ? { untouchedHandOwned: summary.untouchedSymbols } : {}),
+      ...(summary.rawGoSource
+        ? {
+            importedGo: {
+              label: sourceLabel,
+              source: summary.rawGoSource,
+              fileSyncDisabled: Boolean(summary.syncDisabled),
+            },
+          }
+        : {}),
     };
     return {
       doc,
@@ -515,6 +763,18 @@ export function buildIRFromExtracted(summary: ExtractedGoSummary, sourceLabel: s
       },
     ],
     ...(summary.lockedProps && Object.keys(summary.lockedProps).length > 0 ? { lockedProps: summary.lockedProps } : {}),
+    ...(summary.lockReasons && Object.keys(summary.lockReasons).length > 0 ? { lockReasons: summary.lockReasons } : {}),
+    ...(summary.dynamicExprs && Object.keys(summary.dynamicExprs).length > 0 ? { dynamicExprs: summary.dynamicExprs } : {}),
+    ...(summary.untouchedSymbols && summary.untouchedSymbols.length > 0 ? { untouchedHandOwned: summary.untouchedSymbols } : {}),
+    ...(summary.rawGoSource
+      ? {
+          importedGo: {
+            label: sourceLabel,
+            source: summary.rawGoSource,
+            fileSyncDisabled: Boolean(summary.syncDisabled),
+          },
+        }
+      : {}),
   };
 
   return { doc, firstNodeId: panes[0]?.id ?? "shell" };

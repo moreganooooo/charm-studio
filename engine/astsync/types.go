@@ -90,27 +90,34 @@ type ViewConfig struct {
 }
 
 type IRDoc struct {
-	Tokens      map[string]TokenPair `json:"tokens"`
-	Styles      map[string]IRStyle   `json:"styles"`
-	View        *ViewConfig          `json:"view,omitempty"`
-	Root        IRNode               `json:"root"`
-	Overlays    []IROverlay          `json:"overlays"`
-	LockedProps map[string][]string  `json:"lockedProps,omitempty"`
+	Tokens           map[string]TokenPair            `json:"tokens"`
+	Styles           map[string]IRStyle              `json:"styles"`
+	View             *ViewConfig                     `json:"view,omitempty"`
+	Root             IRNode                          `json:"root"`
+	Overlays         []IROverlay                     `json:"overlays"`
+	LockedProps      map[string][]string             `json:"lockedProps,omitempty"`
+	LockReasons      map[string]string               `json:"lockReasons,omitempty"`
+	DynamicExprs     map[string]map[string]string    `json:"dynamicExprs,omitempty"`
+	OverriddenProps  map[string][]string             `json:"overriddenProps,omitempty"`
+	UntouchedSymbols []string                        `json:"untouchedSymbols,omitempty"`
 }
 
 type GoParseResult struct {
-	Styles          map[string]IRStyle   `json:"styles"`
-	Tokens          map[string]TokenPair `json:"tokens"`
-	View            *ViewConfig          `json:"view,omitempty"`
-	Root            *IRNode              `json:"root,omitempty"`
-	Overlays        []IROverlay          `json:"overlays,omitempty"`
-	DetectedBubbles []string             `json:"detectedBubbles"`
-	StyleNames      []string             `json:"styleNames"`
-	ColorCount      int                  `json:"colorCount"`
-	SyncDisabled    bool                 `json:"syncDisabled"`
-	LockedSymbols   []string             `json:"lockedSymbols"`
-	LockedProps     map[string][]string  `json:"lockedProps,omitempty"`
-	Error           string               `json:"error,omitempty"`
+	Styles           map[string]IRStyle            `json:"styles"`
+	Tokens           map[string]TokenPair          `json:"tokens"`
+	View             *ViewConfig                   `json:"view,omitempty"`
+	Root             *IRNode                       `json:"root,omitempty"`
+	Overlays         []IROverlay                   `json:"overlays,omitempty"`
+	DetectedBubbles  []string                      `json:"detectedBubbles"`
+	StyleNames       []string                      `json:"styleNames"`
+	ColorCount       int                           `json:"colorCount"`
+	SyncDisabled     bool                          `json:"syncDisabled"`
+	LockedSymbols    []string                      `json:"lockedSymbols"`
+	LockedProps      map[string][]string           `json:"lockedProps,omitempty"`
+	LockReasons      map[string]string             `json:"lockReasons,omitempty"`
+	DynamicExprs     map[string]map[string]string  `json:"dynamicExprs,omitempty"`
+	UntouchedSymbols []string                      `json:"untouchedSymbols,omitempty"`
+	Error            string                        `json:"error,omitempty"`
 }
 
 type GoSyncResult struct {
@@ -118,13 +125,15 @@ type GoSyncResult struct {
 	PatchedSymbols []string            `json:"patchedSymbols"`
 	LockedSymbols  []string            `json:"lockedSymbols"`
 	LockedProps    map[string][]string `json:"lockedProps,omitempty"`
+	LockReasons    map[string]string   `json:"lockReasons,omitempty"`
 	SyncDisabled   bool                `json:"syncDisabled"`
 	Error          string              `json:"error,omitempty"`
 }
 
 type AstDelta struct {
-	Kind     string `json:"kind"`     // "added", "removed", "modified"
-	Category string `json:"category"` // "Node", "Style", "Token", "Overlay", "View", "Func", "Type"
+	Kind     string `json:"kind"`               // "added", "removed", "modified", "untouched", "locked"
+	Category string `json:"category"`           // "Node", "Style", "Token", "Overlay", "View", "Func", "Type", "Lock"
+	Bucket   string `json:"bucket,omitempty"`   // "styles_tokens", "layout_overlays", "view_flags", "locked_untouched"
 	Symbol   string `json:"symbol"`
 	Detail   string `json:"detail"`
 }

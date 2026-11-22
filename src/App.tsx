@@ -6,8 +6,10 @@ import {
   Check,
   CheckCircle2,
   Code2,
+  FolderGit2,
   GitBranch,
   Sparkles,
+  Terminal,
   X,
 } from "lucide-react";
 import { AuthModal, type LocalUser } from "./AuthModal";
@@ -43,7 +45,7 @@ import { MATRIX_PRESETS, StudioProvider, useStudioStore } from "./store/studioSt
 import { supabase } from "./supabaseClient";
 import { TerminalViewport } from "./TerminalViewport";
 import { TooltipProvider } from "./Tooltip";
-import type { ColorProfile, MatrixFitStatus } from "./types";
+import { findNode, type ColorProfile, type IRNode, type MatrixFitStatus, type TelemetryNode } from "./types";
 import { WidgetPickerModal } from "./WidgetPickerModal";
 
 const COACH_KEY = "charmstudio:coachDismissed:v1";
@@ -94,7 +96,7 @@ function StudioShell() {
     customThemes,
     addCustomTheme,
     clearCustomThemes,
-    palette,
+    effectivePalette,
     allPalettes,
     selectPalette,
     viewMode,
@@ -107,6 +109,8 @@ function StudioShell() {
     setRows,
     colorProfile,
     setColorProfile,
+    polarityOverride,
+    setPolarityOverride,
     showOverlay,
     setShowOverlay,
     selectedId,
@@ -143,6 +147,9 @@ function StudioShell() {
     setPreviewMode,
     ptyStatus,
     desktopConnected,
+    projectDir,
+    worktrees,
+    activeWorktreeId,
   } = useStudioStore();
 
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -154,10 +161,21 @@ function StudioShell() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
+  const [desktopInitialTab, setDesktopInitialTab] = useState<"pty" | "mcp" | "worktrees">("pty");
+  const [desktopInspectSessionId, setDesktopInspectSessionId] = useState<string | null>(null);
   const [scenesOpen, setScenesOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [hybridEditLine, setHybridEditLine] = useState<{ lineNo: number; value: string } | null>(null);
   const [hybridPulseLive, setHybridPulseLive] = useState(false);
+
+  const openDesktopCompanion = (
+    tab: "pty" | "mcp" | "worktrees" = "pty",
+    inspectSessionId: string | null = null
+  ) => {
+    setDesktopInitialTab(tab);
+    setDesktopInspectSessionId(inspectSessionId);
+    setDesktopOpen(true);
+  };
 
   const [coachDismissed, setCoachDismissed] = useState<boolean>(() => {
     try {
@@ -368,6 +386,15 @@ function StudioShell() {
 
   const selectedTel = singleTel.find((t) => t.id === selectedId) ?? null;
   const primaryOverlay = ir.overlays[0] ?? null;
+  const allocatedBoundsMap = useMemo(() => computeAllocatedBoundsMap(ir.root, cols, rows), [ir.root, cols, rows]);
+  const overflowingNodes = useMemo(
+    () => singleTel.filter((t) => t.overflowX || t.overflowY),
+    [singleTel]
+  );
+  const activeWorktree = useMemo(
+    () => worktrees.find((wt) => wt.id === activeWorktreeId || wt.activeInPty) ?? worktrees[0] ?? null,
+    [worktrees, activeWorktreeId]
+  );
 
   const dismissCoach = () => {
     setCoachDismissed(true);
@@ -398,7 +425,7 @@ function StudioShell() {
             setImportOpen(true);
           }}
           onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-          onOpenDesktop={() => setDesktopOpen(true)}
+          onOpenDesktop={() => openDesktopCompanion("pty", null)}
           onOpenProjects={() => setProjectsOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenGlossary={() => setGlossaryOpen(true)}
@@ -571,7 +598,8 @@ function StudioShell() {
                       Dense
                     </button>
                   ) : (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: CHARM_TOKENS.textMuted }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: CHARM_TOKENS.textMuted }}>
+                      <BreakpointQuickButtons cols={cols} rows={rows} onSelectSize={(c, r) => { setCols(c); setRows(r); }} />
                       <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                         <span>Cols</span>
                         <input
@@ -620,6 +648,8 @@ function StudioShell() {
                     ))}
                   </select>
 
+                  <PolaritySegmented value={polarityOverride} onChange={setPolarityOverride} />
+
                   <select
                     aria-label="Color profile"
                     value={colorProfile}
@@ -665,7 +695,7 @@ function StudioShell() {
                         if (desktopConnected) {
                           setPreviewMode("pty");
                         } else {
-                          setDesktopOpen(true);
+                          openDesktopCompanion("pty", null);
                         }
                       }}
                       title={desktopConnected ? "Switch to Native PTY runner" : "Connect Wails Desktop Companion for Native PTY"}
@@ -683,15 +713,121 @@ function StudioShell() {
               </div>
             )}
 
-            {/* Multi-Size Fit Pill in Hybrid Lens */}
+            {/* Terminal Stress-Test Lens Bar in Hybrid Lens */}
             {activeLens === "hybrid" && (
-              <div style={{ width: "min(760px, 100%)", display: "flex", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  width: "min(760px, 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  padding: "7px 11px",
+                  borderRadius: 10,
+                  background: CHARM_TOKENS.bgSurface,
+                  border: `1px solid ${CHARM_TOKENS.border}`,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <BreakpointQuickButtons cols={cols} rows={rows} onSelectSize={(c, r) => { setCols(c); setRows(r); }} />
+                  <PolaritySegmented value={polarityOverride} onChange={setPolarityOverride} />
+                  <select
+                    aria-label="Color profile"
+                    value={colorProfile}
+                    onChange={(e) => setColorProfile(e.target.value as ColorProfile)}
+                    style={compactSelect}
+                  >
+                    <option value="truecolor">TrueColor</option>
+                    <option value="ansi256">ANSI 256</option>
+                    <option value="ansi16">ANSI 16</option>
+                    <option value="ascii">ASCII</option>
+                  </select>
+                </div>
+
                 <MatrixFitPill
                   status={matrixFitStatus}
                   onSelectOverflow={(nodeId) => setSelectedId(nodeId)}
                 />
               </div>
             )}
+
+            {/* Contextual Worktree & PTY Status Strip (Hybrid / Code when Desktop Companion connected) */}
+            {desktopConnected &&
+              activeLens !== "visual" &&
+              (worktrees.length > 0 || Boolean(activeWorktreeId) || Boolean(projectDir.trim())) && (
+                <div
+                  style={{
+                    width: activeLens === "code" ? "min(920px, 100%)" : "min(760px, 100%)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: 10,
+                    padding: "7px 12px",
+                    borderRadius: 10,
+                    background: CHARM_TOKENS.bgSurface,
+                    border: `1px solid ${activeWorktree ? CHARM_TOKENS.mintBorder : CHARM_TOKENS.border}`,
+                    fontSize: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
+                      <FolderGit2 size={13} style={{ color: activeWorktree ? CHARM_TOKENS.mint : CHARM_TOKENS.lilac }} />
+                      <span>
+                        {activeWorktree
+                          ? `Worktree: ${activeWorktree.branch}`
+                          : "Desktop Repo"}
+                      </span>
+                    </span>
+                    <span className="cs-mono" style={{ fontSize: 11.5, color: CHARM_TOKENS.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+                      {activeWorktree ? `base ${activeWorktree.baseBranch}` : projectDir.trim()}
+                    </span>
+                    <span aria-hidden="true" style={{ color: CHARM_TOKENS.textDim }}>·</span>
+                    <span
+                      className="cs-mono"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11.5,
+                        fontVariantNumeric: "tabular-nums",
+                        color: ptyStatus?.state === "error" ? "#fb7185" : ptyStatus?.state === "running" ? CHARM_TOKENS.mint : CHARM_TOKENS.textMuted,
+                      }}
+                    >
+                      <Terminal size={12} />
+                      <span>
+                        PTY {ptyStatus?.state ?? "idle"}
+                        {ptyStatus?.lastBuildMs ? ` (${ptyStatus.lastBuildMs} ms)` : ""}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                    {activeWorktree && (
+                      <button
+                        onClick={() => openDesktopCompanion("worktrees", activeWorktree.id)}
+                        style={{
+                          ...studioStyles.secondaryBtn,
+                          padding: "4px 9px",
+                          fontSize: 11.5,
+                          borderColor: CHARM_TOKENS.mintBorder,
+                          color: CHARM_TOKENS.mint,
+                        }}
+                      >
+                        <GitBranch size={12} />
+                        <span>Inspect Diff</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => openDesktopCompanion("worktrees", null)}
+                      style={{ ...studioStyles.secondaryBtn, padding: "4px 9px", fontSize: 11.5 }}
+                    >
+                      <span>Worktrees ({worktrees.length})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
             {/* Centered Hero Terminal Viewport(s) */}
             {activeLens === "code" && viewMode === "matrix" ? (
@@ -715,7 +851,7 @@ function StudioShell() {
                     rows={vp.rows}
                     fontSize={matrixDense ? 9.5 : 11}
                     fontFamily={fontFamily}
-                    palette={palette}
+                    palette={effectivePalette}
                     colorProfile={colorProfile}
                     showOverlay={showOverlay}
                     overlayMode={showOverlay ? "full-box-model" : "none"}
@@ -737,7 +873,7 @@ function StudioShell() {
                   rows={rows}
                   fontSize={14}
                   fontFamily={fontFamily}
-                  palette={palette}
+                  palette={effectivePalette}
                   colorProfile={colorProfile}
                   showOverlay={terminalOverlayMode !== "none"}
                   overlayMode={terminalOverlayMode}
@@ -769,19 +905,52 @@ function StudioShell() {
                   snapshotActionRef={snapshotActionRef}
                 />
 
-                {selectedTel?.overflowMsg && (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#fda4af",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
+                {activeLens !== "visual" && overflowingNodes.length > 0 && (
+                  <OverflowDiagnosticsCard
+                    overflowingNodes={overflowingNodes}
+                    allocatedBoundsMap={allocatedBoundsMap}
+                    cols={cols}
+                    rows={rows}
+                    doc={ir}
+                    onSelectNode={setSelectedId}
+                    onEnableTruncate={(nodeId) => {
+                      const target = findNode(ir, nodeId);
+                      if (!target?.style) return;
+                      const styleKey = target.style;
+                      const locks = ir.lockedProps?.[styleKey] ?? [];
+                      if (ir.lockReasons?.[styleKey] === "sync-disabled" || locks.includes("*")) return;
+                      commitIr((prev) => {
+                        const prevStyle = prev.styles[styleKey];
+                        if (!prevStyle) return prev;
+                        return {
+                          ...prev,
+                          styles: {
+                            ...prev.styles,
+                            [styleKey]: { ...prevStyle, truncate: true },
+                          },
+                        };
+                      });
+                      setSelectedId(nodeId);
                     }}
-                  >
-                    <AlertTriangle size={13} />
-                    <span>{selectedTel.overflowMsg}</span>
-                  </div>
+                    onCollapseBelow={(nodeId, threshold) => {
+                      updateNode(nodeId, (n) => ({
+                        ...n,
+                        width: { ...(n.width ?? { mode: "fixed", value: 24 }), collapseBelow: threshold },
+                      }));
+                      setSelectedId(nodeId);
+                    }}
+                    onSwitchToFill={(nodeId) => {
+                      updateNode(nodeId, (n) => ({
+                        ...n,
+                        width: {
+                          ...(n.width ?? { mode: "fill" }),
+                          mode: "fill",
+                          weight: n.width?.weight ?? 1,
+                        },
+                      }));
+                      setSelectedId(nodeId);
+                    }}
+                  />
                 )}
 
                 {activeLens !== "visual" && selectedTel && (
@@ -793,7 +962,11 @@ function StudioShell() {
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    #{selectedTel.id} · outer {selectedTel.margin.w}×{selectedTel.margin.h} · content {selectedTel.content.w}×{selectedTel.content.h}
+                    #{selectedTel.id} · actual {selectedTel.actualW ?? Math.max(selectedTel.margin.w, selectedTel.border.w)}×
+                    {selectedTel.actualH ?? Math.max(selectedTel.margin.h, selectedTel.border.h)} · allocated{" "}
+                    {selectedTel.allocatedW ?? allocatedBoundsMap.get(selectedTel.id)?.w ?? cols}×
+                    {selectedTel.allocatedH ?? allocatedBoundsMap.get(selectedTel.id)?.h ?? rows} · content{" "}
+                    {selectedTel.content.w}×{selectedTel.content.h}
                   </div>
                 )}
               </div>
@@ -1032,7 +1205,7 @@ function StudioShell() {
             setImportInitialTab(user ? "github" : "upload");
             setImportOpen(true);
           }}
-          onOpenDesktop={() => setDesktopOpen(true)}
+          onOpenDesktop={() => openDesktopCompanion("pty", null)}
           onOpenProjects={() => setProjectsOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -1199,6 +1372,8 @@ function StudioShell() {
         <DesktopCompanionModal
           open={desktopOpen}
           onClose={() => setDesktopOpen(false)}
+          initialTab={desktopInitialTab}
+          initialInspectSessionId={desktopInspectSessionId}
         />
       </div>
     </TooltipProvider>
@@ -1213,6 +1388,7 @@ const stageToggleBtn = (active: boolean): React.CSSProperties => ({
   fontWeight: active ? 700 : 600,
   background: active ? CHARM_TOKENS.pinkBg : "transparent",
   color: active ? CHARM_TOKENS.pinkSoft : CHARM_TOKENS.textMuted,
+  whiteSpace: "nowrap",
 });
 
 const compactNumInput: React.CSSProperties = {
@@ -1224,6 +1400,7 @@ const compactNumInput: React.CSSProperties = {
   color: CHARM_TOKENS.textHeading,
   fontSize: 12,
   textAlign: "center",
+  fontVariantNumeric: "tabular-nums",
 };
 
 const compactSelect: React.CSSProperties = {
@@ -1235,6 +1412,293 @@ const compactSelect: React.CSSProperties = {
   fontSize: 11.5,
   fontWeight: 600,
 };
+
+function BreakpointQuickButtons({
+  cols,
+  rows,
+  onSelectSize,
+}: {
+  cols: number;
+  rows: number;
+  onSelectSize: (c: number, r: number) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Terminal breakpoint presets"
+      style={{
+        display: "inline-flex",
+        background: "var(--cs-input)",
+        border: `1px solid ${CHARM_TOKENS.border}`,
+        borderRadius: 8,
+        padding: 2,
+      }}
+    >
+      {MATRIX_PRESETS.map((bp) => {
+        const active = cols === bp.cols && rows === bp.rows;
+        return (
+          <button
+            key={bp.title}
+            onClick={() => onSelectSize(bp.cols, bp.rows)}
+            title={bp.title}
+            className="cs-mono"
+            style={{
+              ...stageToggleBtn(active),
+              padding: "3px 8px",
+              fontSize: 11,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {bp.cols}×{bp.rows}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PolaritySegmented({
+  value,
+  onChange,
+}: {
+  value: "auto" | "dark" | "light";
+  onChange: (next: "auto" | "dark" | "light") => void;
+}) {
+  const options: { id: "auto" | "dark" | "light"; label: string }[] = [
+    { id: "auto", label: "Auto" },
+    { id: "dark", label: "Dark BG" },
+    { id: "light", label: "Light BG" },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Terminal background polarity"
+      title="Test lipgloss.LightDark(isDark) contrast across dark and light terminal backgrounds"
+      style={{
+        display: "inline-flex",
+        background: "var(--cs-input)",
+        border: `1px solid ${CHARM_TOKENS.border}`,
+        borderRadius: 8,
+        padding: 2,
+      }}
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          onClick={() => onChange(opt.id)}
+          style={{
+            ...stageToggleBtn(value === opt.id),
+            padding: "3px 8px",
+            fontSize: 11,
+          }}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function computeAllocatedBoundsMap(
+  root: IRNode,
+  totalW: number,
+  totalH: number
+): Map<string, { w: number; h: number }> {
+  const map = new Map<string, { w: number; h: number }>();
+
+  const walk = (node: IRNode, w: number, h: number) => {
+    map.set(node.id, { w: Math.max(0, Math.round(w)), h: Math.max(0, Math.round(h)) });
+    if (node.kind === "Box" || !node.children?.length) return;
+
+    const visibleChildren = node.children.filter(
+      (c) => !c.width?.collapseBelow || totalW >= c.width.collapseBelow
+    );
+    if (visibleChildren.length === 0) return;
+
+    if (node.kind === "JoinHorizontal") {
+      let fixedSum = 0;
+      let fillWeightSum = 0;
+      for (const ch of visibleChildren) {
+        if (ch.width?.mode === "fixed") {
+          fixedSum += ch.width.value ?? 20;
+        } else {
+          fillWeightSum += Math.max(1, ch.width?.weight ?? 1);
+        }
+      }
+      const remainingW = Math.max(0, w - fixedSum);
+      for (const ch of visibleChildren) {
+        const cw =
+          ch.width?.mode === "fixed"
+            ? ch.width.value ?? 20
+            : fillWeightSum > 0
+            ? (remainingW * Math.max(1, ch.width?.weight ?? 1)) / fillWeightSum
+            : w / visibleChildren.length;
+        const chH = ch.height?.mode === "fixed" ? Math.min(h, ch.height.value ?? h) : h;
+        walk(ch, cw, chH);
+      }
+    } else {
+      let fixedSum = 0;
+      let fillWeightSum = 0;
+      for (const ch of visibleChildren) {
+        if (ch.height?.mode === "fixed") {
+          fixedSum += ch.height.value ?? 5;
+        } else {
+          fillWeightSum += Math.max(1, ch.height?.weight ?? 1);
+        }
+      }
+      const remainingH = Math.max(0, h - fixedSum);
+      for (const ch of visibleChildren) {
+        const chH =
+          ch.height?.mode === "fixed"
+            ? ch.height.value ?? 5
+            : fillWeightSum > 0
+            ? (remainingH * Math.max(1, ch.height?.weight ?? 1)) / fillWeightSum
+            : h / visibleChildren.length;
+        const cw = ch.width?.mode === "fixed" ? Math.min(w, ch.width.value ?? w) : w;
+        walk(ch, cw, chH);
+      }
+    }
+  };
+
+  walk(root, totalW, totalH);
+  return map;
+}
+
+function OverflowDiagnosticsCard({
+  overflowingNodes,
+  allocatedBoundsMap,
+  cols,
+  rows,
+  doc,
+  onSelectNode,
+  onEnableTruncate,
+  onCollapseBelow,
+  onSwitchToFill,
+}: {
+  overflowingNodes: TelemetryNode[];
+  allocatedBoundsMap: Map<string, { w: number; h: number }>;
+  cols: number;
+  rows: number;
+  doc: ReturnType<typeof useStudioStore>["ir"];
+  onSelectNode: (id: string) => void;
+  onEnableTruncate: (id: string) => void;
+  onCollapseBelow: (id: string, threshold: number) => void;
+  onSwitchToFill: (id: string) => void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-label="Box-model overflow diagnostics"
+      style={{
+        width: "min(760px, 100%)",
+        padding: "10px 12px",
+        borderRadius: 10,
+        background: "rgba(255, 211, 122, 0.08)",
+        border: "1px solid rgba(255, 211, 122, 0.4)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: CHARM_TOKENS.gold }}>
+          <AlertTriangle size={13} />
+          <span>Box-Model Overflow Diagnostics</span>
+        </div>
+        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, fontVariantNumeric: "tabular-nums" }}>
+          {overflowingNodes.length} pane{overflowingNodes.length === 1 ? "" : "s"} exceeding allocated cells ({cols}×{rows})
+        </span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {overflowingNodes.map((t) => {
+          const node = findNode(doc, t.id);
+          const alloc = allocatedBoundsMap.get(t.id);
+          const allocW = t.allocatedW ?? alloc?.w ?? cols;
+          const allocH = t.allocatedH ?? alloc?.h ?? rows;
+          const actualW = t.actualW ?? Math.max(t.margin.w, t.border.w);
+          const actualH = t.actualH ?? Math.max(t.margin.h, t.border.h);
+          const styleKey = node?.style;
+          const styleObj = styleKey ? doc.styles[styleKey] : undefined;
+          const styleLocked = Boolean(
+            styleKey && (doc.lockReasons?.[styleKey] === "sync-disabled" || doc.lockedProps?.[styleKey]?.includes("*"))
+          );
+          const nodeLocked = doc.lockReasons?.[`node:${t.id}`] === "sync-disabled";
+
+          const canTruncate = Boolean(styleObj && !styleObj.truncate && !styleLocked);
+          const canCollapse = Boolean(node && !nodeLocked && (node.width?.collapseBelow ?? 0) < 70 && t.id !== doc.root.id);
+          const canFillWidth = Boolean(node && !nodeLocked && node.width?.mode === "fixed" && t.id !== doc.root.id);
+
+          return (
+            <div
+              key={t.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 8,
+                paddingTop: 6,
+                borderTop: "1px solid rgba(255, 211, 122, 0.22)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
+                <button
+                  onClick={() => onSelectNode(t.id)}
+                  className="cs-mono"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: CHARM_TOKENS.textHeading,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  #{t.id}
+                </button>
+                <span className="cs-mono" style={{ color: CHARM_TOKENS.gold, fontVariantNumeric: "tabular-nums" }}>
+                  actual {actualW}×{actualH} vs allocated {allocW}×{allocH}
+                </span>
+                {t.overflowMsg && (
+                  <span style={{ color: CHARM_TOKENS.textMuted }}>{t.overflowMsg}</span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                {canTruncate && (
+                  <button
+                    onClick={() => onEnableTruncate(t.id)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                  >
+                    Enable Truncate
+                  </button>
+                )}
+                {canCollapse && (
+                  <button
+                    onClick={() => onCollapseBelow(t.id, 70)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                  >
+                    CollapseBelow 70 cols
+                  </button>
+                )}
+                {canFillWidth && (
+                  <button
+                    onClick={() => onSwitchToFill(t.id)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                  >
+                    Switch to Fill Width
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function MatrixFitPill({
   status,
@@ -1252,14 +1716,11 @@ function MatrixFitPill({
           display: "inline-flex",
           alignItems: "center",
           gap: 5,
-          padding: "4px 10px",
-          borderRadius: 999,
-          background: CHARM_TOKENS.mintBg,
-          border: `1px solid ${CHARM_TOKENS.mintBorder}`,
           color: CHARM_TOKENS.mint,
           fontSize: 11,
           fontWeight: 600,
           whiteSpace: "nowrap",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         <Check size={12} />
@@ -1284,13 +1745,14 @@ function MatrixFitPill({
         alignItems: "center",
         gap: 5,
         padding: "4px 10px",
-        borderRadius: 999,
+        borderRadius: 7,
         background: "rgba(255, 211, 122, 0.14)",
         border: "1px solid rgba(255, 211, 122, 0.45)",
         color: CHARM_TOKENS.gold,
         fontSize: 11,
         fontWeight: 700,
         whiteSpace: "nowrap",
+        fontVariantNumeric: "tabular-nums",
       }}
     >
       <AlertTriangle size={12} />

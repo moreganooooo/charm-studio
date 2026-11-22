@@ -141,6 +141,15 @@ export interface IRDoc {
   overlays: IROverlay[];
   view?: IRViewConfig;
   lockedProps?: Record<string, string[]>;
+  lockReasons?: Record<string, "sync-disabled" | "dynamic">;
+  dynamicExprs?: Record<string, Record<string, string>>;
+  overriddenProps?: Record<string, string[]>;
+  importedGo?: {
+    label: string;
+    source: string;
+    fileSyncDisabled?: boolean;
+  };
+  untouchedHandOwned?: string[];
 }
 
 export interface Rect {
@@ -158,6 +167,10 @@ export interface TelemetryNode {
   border: Rect;
   padding: Rect;
   content: Rect;
+  allocatedW?: number;
+  allocatedH?: number;
+  actualW?: number;
+  actualH?: number;
   overflowX: boolean;
   overflowY: boolean;
   overflowMsg?: string;

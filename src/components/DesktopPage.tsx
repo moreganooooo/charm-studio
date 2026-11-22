@@ -138,7 +138,7 @@ export function DesktopPage() {
               Connect your real Go binary &amp; coding agents
             </h1>
             <p>
-              Start in the browser with zero setup via <code className="cs-mono">WasmTransport</code>, then pair with the Go 1.26+ Wails v3 companion (<code className="cs-mono">WailsTransport</code>) when you want native incremental builds, real PTY streaming, and MCP context for Claude Code, Cursor, or Codex.
+              Charm Studio handles visual layout, Lip Gloss v2 styling, Bubbles/Huh composition, and terminal stress-testing—while your local Go repo owns state transitions, <code className="cs-mono">tea.Cmd</code> I/O, keybindings, and domain logic. Pair browser WASM with the Wails v3 companion (<code className="cs-mono">WailsTransport</code>) for incremental <code className="cs-mono">go build</code>, native PTY streaming, and MCP worktree workflows.
             </p>
           </div>
 
@@ -198,7 +198,7 @@ export function DesktopPage() {
               <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.pinkSoft }}>Go 1.26+</span>
             </div>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: CHARM_TOKENS.textMuted }}>
-              Bridges local filesystem repos over <code className="cs-mono">:43120</code> or native Wails v3 webview bindings.
+              Bridges local filesystem repos over <code className="cs-mono">:43120</code> or native Wails v3 webview bindings without overwriting hand-owned <code className="cs-mono">Update()</code> logic.
             </p>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: CHARM_TOKENS.textBody }}>
               <li>Watches repo changes, runs <code className="cs-mono">go build</code>, streams <code className="cs-mono">xpty</code> to <code className="cs-mono">xterm.js</code></li>
@@ -207,6 +207,16 @@ export function DesktopPage() {
               <li>One-click merge or discard once verified in the live PTY</li>
             </ul>
           </div>
+        </section>
+
+        {/* Honest Scope & Code Ownership */}
+        <section className="secondary-card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: CHARM_TOKENS.textHeading }}>
+            Scope &amp; Code Ownership Boundaries
+          </h2>
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: CHARM_TOKENS.textMuted }}>
+            Studio is built as a visual layout and terminal-constraint workbench—not a replacement for writing real Go application logic. Generated files (<code className="cs-mono">ui/theme_gen.go</code>, <code className="cs-mono">ui/layout_gen.go</code>, and <code className="cs-mono">//go:build preview</code> fixtures) stay cleanly separated from hand-owned <code className="cs-mono">model.go</code>, <code className="cs-mono">update.go</code>, and <code className="cs-mono">view.go</code>, and any symbol marked <code className="cs-mono">// @tui:sync-disable</code> or dynamic Go expression is respected read-only.
+          </p>
         </section>
 
         {/* Copyable CLI Commands */}

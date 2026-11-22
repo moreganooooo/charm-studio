@@ -103,6 +103,9 @@ func TestParseGoSourceLayoutAndLocks(t *testing.T) {
 	if locks := res.LockedProps["badge"]; len(locks) != 1 || locks[0] != "fg" {
 		t.Fatalf("expected dynamic fg lock on badge, got %v", locks)
 	}
+	if res.LockReasons["badge"] != "dynamic" || res.DynamicExprs["badge"]["fg"] != "statusColor(isDark)" {
+		t.Fatalf("expected dynamic expression capture on badge.fg, got reason=%q exprs=%v", res.LockReasons["badge"], res.DynamicExprs["badge"])
+	}
 	if res.Root == nil || res.Root.ID != "body" || len(res.Root.Children) != 2 {
 		t.Fatalf("expected body root with 2 children, got %+v", res.Root)
 	}
@@ -111,6 +114,17 @@ func TestParseGoSourceLayoutAndLocks(t *testing.T) {
 	}
 	if len(res.Overlays) != 1 || res.Overlays[0].ID != "helpModal" {
 		t.Fatalf("expected helpModal overlay, got %+v", res.Overlays)
+	}
+}
+
+func TestBlockLevelSyncDisableDoesNotLockFile(t *testing.T) {
+	src := strings.Replace(sampleThemeAndLayoutGo, "Main: lipgloss.NewStyle()", "// @tui:sync-disable\n\t\tMain: lipgloss.NewStyle()", 1)
+	res := ParseGoSource(src)
+	if res.SyncDisabled {
+		t.Fatalf("expected block-level @tui:sync-disable NOT to set file-level SyncDisabled")
+	}
+	if res.LockReasons["main"] != "sync-disabled" {
+		t.Fatalf("expected main lockReason=sync-disabled, got %q", res.LockReasons["main"])
 	}
 }
 
@@ -179,6 +193,13 @@ func TestSyncGoSourcePreservesDynamicAndPatchesWidgets(t *testing.T) {
 	if locks := syncRes.LockedProps["badge"]; len(locks) != 1 || locks[0] != "fg" {
 		t.Fatalf("expected lockedProps badge=[fg], got %v", syncRes.LockedProps)
 	}
+
+	// Explicitly override dynamic badge.fg with static token
+	doc.OverriddenProps = map[string][]string{"badge": {"fg"}}
+	overrideRes := SyncGoSource(sampleThemeAndLayoutGo, doc)
+	if strings.Contains(overrideRes.UpdatedGo, "Foreground(statusColor(isDark))") {
+		t.Fatalf("expected OverriddenProps to replace dynamic Foreground on badge")
+	}
 }
 
 func TestComputeGoDiff(t *testing.T) {
@@ -188,12 +209,19 @@ func TestComputeGoDiff(t *testing.T) {
 		t.Fatalf("expected non-zero line diff counts, got +%d -%d", diff.Added, diff.Removed)
 	}
 	foundViewDelta := false
+	foundLockedBucket := false
 	for _, d := range diff.Deltas {
-		if d.Category == "View" && strings.Contains(d.Detail, "Updated App") {
+		if d.Category == "View" && d.Bucket == "view_flags" && strings.Contains(d.Detail, "Updated App") {
 			foundViewDelta = true
+		}
+		if d.Bucket == "locked_untouched" {
+			foundLockedBucket = true
 		}
 	}
 	if !foundViewDelta {
-		t.Fatalf("expected View AST delta, got %+v", diff.Deltas)
+		t.Fatalf("expected View AST delta with view_flags bucket, got %+v", diff.Deltas)
+	}
+	if !foundLockedBucket {
+		t.Fatalf("expected locked_untouched bucket entries, got %+v", diff.Deltas)
 	}
 }

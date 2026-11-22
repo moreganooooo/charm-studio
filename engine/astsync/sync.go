@@ -13,13 +13,18 @@ import (
 	"github.com/dave/dst/dstutil"
 )
 
-func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string, tokenVarNames map[string]string, existingExpr dst.Expr) (dst.Expr, []string) {
+func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string, tokenVarNames map[string]string, existingExpr dst.Expr, overridden []string) (dst.Expr, []string) {
 	if ldFuncName == "" {
 		ldFuncName = "ld"
+	}
+	overriddenSet := map[string]bool{}
+	for _, p := range overridden {
+		overriddenSet[p] = true
 	}
 
 	// Preserve any dynamic Go argument expressions from an existing chain so partial locks are lossless
 	preservedDynamic := map[string]dst.Expr{}
+	preservedDynamicCalls := map[string]*dst.CallExpr{}
 	if existingExpr != nil {
 		cur := existingExpr
 		for {
@@ -34,21 +39,78 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 			if len(call.Args) == 1 {
 				switch sel.Sel.Name {
 				case "Foreground":
-					if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
-						preservedDynamic["Foreground"] = dst.Clone(call.Args[0]).(dst.Expr)
+					if !overriddenSet["fg"] {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+							preservedDynamic["Foreground"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
 					}
 				case "Background":
-					if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
-						preservedDynamic["Background"] = dst.Clone(call.Args[0]).(dst.Expr)
+					if !overriddenSet["bg"] {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+							preservedDynamic["Background"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
 					}
 				case "BorderForeground":
-					if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
-						preservedDynamic["BorderForeground"] = dst.Clone(call.Args[0]).(dst.Expr)
+					if !overriddenSet["borderColor"] {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+							preservedDynamic["BorderForeground"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
 					}
 				case "Bold", "Italic", "Faint", "Underline":
-					if _, ok := boolIdentVal(call.Args[0]); !ok {
-						preservedDynamic[sel.Sel.Name] = dst.Clone(call.Args[0]).(dst.Expr)
+					if !overriddenSet[lowerFirst(sel.Sel.Name)] {
+						if _, ok := boolIdentVal(call.Args[0]); !ok {
+							preservedDynamic[sel.Sel.Name] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
 					}
+				case "Border":
+					if !overriddenSet["border"] {
+						isStd := false
+						if bCall, ok := call.Args[0].(*dst.CallExpr); ok {
+							if bSel, ok := bCall.Fun.(*dst.SelectorExpr); ok {
+								switch bSel.Sel.Name {
+								case "RoundedBorder", "ThickBorder", "DoubleBorder", "NormalBorder":
+									isStd = true
+								}
+							}
+						}
+						if !isStd {
+							preservedDynamic["Border"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
+					}
+				case "AlignHorizontal", "Align":
+					if !overriddenSet["alignH"] {
+						if _, ok := parseLipAlign(call.Args[0]); !ok {
+							preservedDynamic["AlignHorizontal"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
+					}
+				case "AlignVertical":
+					if !overriddenSet["alignV"] {
+						if _, ok := parseLipAlign(call.Args[0]); !ok {
+							preservedDynamic["AlignVertical"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
+					}
+				}
+			}
+			if strings.HasPrefix(sel.Sel.Name, "Padding") && !overriddenSet["padding"] {
+				isLit := false
+				if sel.Sel.Name == "Padding" {
+					_, isLit = readQuadArgs(call.Args)
+				} else if len(call.Args) == 1 {
+					_, isLit = intLitVal(call.Args[0])
+				}
+				if !isLit {
+					preservedDynamicCalls["padding"] = dst.Clone(call).(*dst.CallExpr)
+				}
+			}
+			if strings.HasPrefix(sel.Sel.Name, "Margin") && !overriddenSet["margin"] {
+				isLit := false
+				if sel.Sel.Name == "Margin" {
+					_, isLit = readQuadArgs(call.Args)
+				} else if len(call.Args) == 1 {
+					_, isLit = intLitVal(call.Args[0])
+				}
+				if !isLit {
+					preservedDynamicCalls["margin"] = dst.Clone(call).(*dst.CallExpr)
 				}
 			}
 			cur = sel.X
@@ -88,7 +150,10 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 
 	var lockedProps []string
 
-	if spec.Border != "" && spec.Border != "none" {
+	if dyn, ok := preservedDynamic["Border"]; ok {
+		chain("Border", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "border")
+	} else if spec.Border != "" && spec.Border != "none" {
 		bFn := "NormalBorder"
 		switch spec.Border {
 		case "rounded":
@@ -129,10 +194,20 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 		chain("Background", colorExpr(spec.Bg))
 	}
 
-	if spec.Padding != [4]int{0, 0, 0, 0} {
+	if dynCall, ok := preservedDynamicCalls["padding"]; ok {
+		if sel, ok := dynCall.Fun.(*dst.SelectorExpr); ok {
+			chain(sel.Sel.Name, dynCall.Args...)
+			lockedProps = appendUniqueStr(lockedProps, "padding")
+		}
+	} else if spec.Padding != [4]int{0, 0, 0, 0} {
 		chain("Padding", intLit(spec.Padding[0]), intLit(spec.Padding[1]), intLit(spec.Padding[2]), intLit(spec.Padding[3]))
 	}
-	if spec.Margin != [4]int{0, 0, 0, 0} {
+	if dynCall, ok := preservedDynamicCalls["margin"]; ok {
+		if sel, ok := dynCall.Fun.(*dst.SelectorExpr); ok {
+			chain(sel.Sel.Name, dynCall.Args...)
+			lockedProps = appendUniqueStr(lockedProps, "margin")
+		}
+	} else if spec.Margin != [4]int{0, 0, 0, 0} {
 		chain("Margin", intLit(spec.Margin[0]), intLit(spec.Margin[1]), intLit(spec.Margin[2]), intLit(spec.Margin[3]))
 	}
 
@@ -161,7 +236,10 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 		chain("Underline", boolIdent(true))
 	}
 
-	if spec.AlignH != "" && spec.AlignH != "left" {
+	if dyn, ok := preservedDynamic["AlignHorizontal"]; ok {
+		chain("AlignHorizontal", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "alignH")
+	} else if spec.AlignH != "" && spec.AlignH != "left" {
 		pos := "Left"
 		if spec.AlignH == "center" {
 			pos = "Center"
@@ -170,7 +248,10 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 		}
 		chain("AlignHorizontal", &dst.SelectorExpr{X: dst.NewIdent("lipgloss"), Sel: dst.NewIdent(pos)})
 	}
-	if spec.AlignV != "" && spec.AlignV != "top" {
+	if dyn, ok := preservedDynamic["AlignVertical"]; ok {
+		chain("AlignVertical", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "alignV")
+	} else if spec.AlignV != "" && spec.AlignV != "top" {
 		pos := "Top"
 		if spec.AlignV == "center" {
 			pos = "Center"
@@ -415,6 +496,20 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 	patched := map[string]bool{}
 	locked := map[string]bool{}
 	lockedProps := map[string][]string{}
+	lockReasons := map[string]string{}
+
+	getOverridden := func(styleKey string) []string {
+		if doc.OverriddenProps == nil {
+			return nil
+		}
+		if o, ok := doc.OverriddenProps[styleKey]; ok {
+			return o
+		}
+		if o, ok := doc.OverriddenProps[lowerFirst(styleKey)]; ok {
+			return o
+		}
+		return nil
+	}
 
 	lookupStyle := func(goName string) (IRStyle, string, bool) {
 		if st, ok := doc.Styles[goName]; ok {
@@ -458,10 +553,12 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 	dstutil.Apply(f, func(c *dstutil.Cursor) bool {
 		switch node := c.Node().(type) {
 		case *dst.ValueSpec:
-			if hasDirective(node.Decs.Start, "@tui:block-disable") || hasDirective(node.Decs.Start, "@tui:sync-disable") {
+			if hasSyncDisableDirective(node.Decs.Start) || hasSyncDisableDirective(node.Decs.End) {
 				for _, n := range node.Names {
-					locked[n.Name] = true
-					lockedProps[lowerFirst(n.Name)] = []string{"*"}
+					key := lowerFirst(n.Name)
+					locked[key] = true
+					lockedProps[key] = []string{"*"}
+					lockReasons[key] = "sync-disabled"
 				}
 				return false
 			}
@@ -475,25 +572,30 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 					}
 				} else if st, styleKey, ok := lookupStyle(nameIdent.Name); ok {
 					if _, isStyle := parseStyleChain(node.Values[i], func(dst.Expr) (string, bool) { return "", false }); isStyle {
-						newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, node.Values[i])
+						newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, node.Values[i], getOverridden(styleKey))
 						node.Values[i] = newExpr
 						patched[nameIdent.Name] = true
 						if len(propLocks) > 0 {
 							lockedProps[styleKey] = propLocks
+							lockReasons[styleKey] = "dynamic"
+							locked[styleKey] = true
 						}
 					} else {
-						locked[nameIdent.Name] = true
+						locked[styleKey] = true
 						lockedProps[styleKey] = []string{"*"}
+						lockReasons[styleKey] = "dynamic"
 					}
 				}
 			}
 
 		case *dst.AssignStmt:
-			if hasDirective(node.Decs.Start, "@tui:block-disable") || hasDirective(node.Decs.Start, "@tui:sync-disable") {
+			if hasSyncDisableDirective(node.Decs.Start) || hasSyncDisableDirective(node.Decs.End) {
 				for _, lhs := range node.Lhs {
 					if id, ok := lhs.(*dst.Ident); ok {
-						locked[id.Name] = true
-						lockedProps[lowerFirst(id.Name)] = []string{"*"}
+						key := lowerFirst(id.Name)
+						locked[key] = true
+						lockedProps[key] = []string{"*"}
+						lockReasons[key] = "sync-disabled"
 					}
 				}
 				return false
@@ -513,15 +615,18 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 						}
 					} else if st, styleKey, ok := lookupStyle(ident.Name); ok {
 						if _, isStyle := parseStyleChain(rhs, func(dst.Expr) (string, bool) { return "", false }); isStyle {
-							newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, rhs)
+							newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, rhs, getOverridden(styleKey))
 							node.Rhs[i] = newExpr
 							patched[ident.Name] = true
 							if len(propLocks) > 0 {
 								lockedProps[styleKey] = propLocks
+								lockReasons[styleKey] = "dynamic"
+								locked[styleKey] = true
 							}
 						} else {
-							locked[ident.Name] = true
+							locked[styleKey] = true
 							lockedProps[styleKey] = []string{"*"}
+							lockReasons[styleKey] = "dynamic"
 						}
 					} else {
 						// Patch Bubbles / Huh constructors & slice literals
@@ -646,13 +751,22 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 
 		case *dst.KeyValueExpr:
 			if ident, ok := node.Key.(*dst.Ident); ok {
+				if hasSyncDisableDirective(node.Decs.Start) || hasSyncDisableDirective(node.Decs.End) {
+					key := lowerFirst(ident.Name)
+					locked[key] = true
+					lockedProps[key] = []string{"*"}
+					lockReasons[key] = "sync-disabled"
+					return false
+				}
 				if st, styleKey, ok := lookupStyle(ident.Name); ok {
 					if _, isStyle := parseStyleChain(node.Value, func(dst.Expr) (string, bool) { return "", false }); isStyle {
-						newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, node.Value)
+						newExpr, propLocks := buildStyleExpr(st, doc.Tokens, ldFuncName, tokenVarNames, node.Value, getOverridden(styleKey))
 						node.Value = newExpr
 						patched[ident.Name] = true
 						if len(propLocks) > 0 {
 							lockedProps[styleKey] = propLocks
+							lockReasons[styleKey] = "dynamic"
+							locked[styleKey] = true
 						}
 					}
 				}
@@ -678,6 +792,9 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 	sort.Strings(out.LockedSymbols)
 	if len(lockedProps) > 0 {
 		out.LockedProps = lockedProps
+	}
+	if len(lockReasons) > 0 {
+		out.LockReasons = lockReasons
 	}
 	return out
 }

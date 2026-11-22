@@ -240,6 +240,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "added",
 				Category: "Node",
+				Bucket:   "layout_overlays",
 				Symbol:   "#" + id,
 				Detail:   fmt.Sprintf("%s (%s)", node.Kind, node.ContentType),
 			})
@@ -261,6 +262,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 				deltas = append(deltas, AstDelta{
 					Kind:     "modified",
 					Category: "Node",
+					Bucket:   "layout_overlays",
 					Symbol:   "#" + id,
 					Detail:   strings.Join(diffs, ", "),
 				})
@@ -277,6 +279,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "removed",
 				Category: "Node",
+				Bucket:   "layout_overlays",
 				Symbol:   "#" + id,
 				Detail:   prevNodes[id].Kind,
 			})
@@ -296,6 +299,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "added",
 				Category: "Style",
+				Bucket:   "styles_tokens",
 				Symbol:   name,
 				Detail:   fmt.Sprintf("border=%s", st.Border),
 			})
@@ -303,6 +307,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "modified",
 				Category: "Style",
+				Bucket:   "styles_tokens",
 				Symbol:   name,
 				Detail:   strings.Join(changes, ", "),
 			})
@@ -318,6 +323,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "removed",
 				Category: "Style",
+				Bucket:   "styles_tokens",
 				Symbol:   name,
 				Detail:   "style removed",
 			})
@@ -337,6 +343,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "added",
 				Category: "Token",
+				Bucket:   "styles_tokens",
 				Symbol:   "$" + name,
 				Detail:   fmt.Sprintf("%s / %s", pair.Light, pair.Dark),
 			})
@@ -344,6 +351,7 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "modified",
 				Category: "Token",
+				Bucket:   "styles_tokens",
 				Symbol:   "$" + name,
 				Detail:   fmt.Sprintf("%s/%s -> %s/%s", oldPair.Light, oldPair.Dark, pair.Light, pair.Dark),
 			})
@@ -383,13 +391,14 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 			deltas = append(deltas, AstDelta{
 				Kind:     "modified",
 				Category: "View",
+				Bucket:   "view_flags",
 				Symbol:   "tea.View",
 				Detail:   strings.Join(vDiffs, ", "),
 			})
 		}
 	}
 
-	// 5. Structural Types & Functions
+	// 5. Structural Types & Functions + Hand-Owned Untouched
 	bFuncs, bTypes, bErr := collectDeclsMap(beforeGo)
 	aFuncs, aTypes, aErr := collectDeclsMap(afterGo)
 	if bErr == nil && aErr == nil {
@@ -400,14 +409,14 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 		sort.Strings(typeNames)
 		for _, tn := range typeNames {
 			if _, ok := bTypes[tn]; !ok {
-				deltas = append(deltas, AstDelta{Kind: "added", Category: "Type", Symbol: tn, Detail: "type added"})
+				deltas = append(deltas, AstDelta{Kind: "added", Category: "Type", Bucket: "layout_overlays", Symbol: tn, Detail: "type added"})
 			} else if bTypes[tn] != aTypes[tn] {
-				deltas = append(deltas, AstDelta{Kind: "modified", Category: "Type", Symbol: tn, Detail: "struct/type fields updated"})
+				deltas = append(deltas, AstDelta{Kind: "modified", Category: "Type", Bucket: "layout_overlays", Symbol: tn, Detail: "struct/type fields updated"})
 			}
 		}
 		for tn := range bTypes {
 			if _, ok := aTypes[tn]; !ok {
-				deltas = append(deltas, AstDelta{Kind: "removed", Category: "Type", Symbol: tn, Detail: "type removed"})
+				deltas = append(deltas, AstDelta{Kind: "removed", Category: "Type", Bucket: "layout_overlays", Symbol: tn, Detail: "type removed"})
 			}
 		}
 
@@ -418,15 +427,47 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 		sort.Strings(funcNames)
 		for _, fn := range funcNames {
 			if _, ok := bFuncs[fn]; !ok {
-				deltas = append(deltas, AstDelta{Kind: "added", Category: "Func", Symbol: fn, Detail: "function added"})
+				deltas = append(deltas, AstDelta{Kind: "added", Category: "Func", Bucket: "layout_overlays", Symbol: fn, Detail: "function added"})
 			} else if bFuncs[fn] != aFuncs[fn] {
-				deltas = append(deltas, AstDelta{Kind: "modified", Category: "Func", Symbol: fn, Detail: "implementation updated"})
+				deltas = append(deltas, AstDelta{Kind: "modified", Category: "Func", Bucket: "layout_overlays", Symbol: fn, Detail: "implementation updated"})
+			} else if !strings.HasSuffix(fn, ".NewTheme") && !strings.HasSuffix(fn, ".RenderApp") && fn != "NewTheme" && fn != "RenderApp" && fn != "ld" && fn != "lightDark" {
+				deltas = append(deltas, AstDelta{Kind: "untouched", Category: "Func", Bucket: "locked_untouched", Symbol: fn, Detail: "hand-owned logic untouched"})
 			}
 		}
 		for fn := range bFuncs {
 			if _, ok := aFuncs[fn]; !ok {
-				deltas = append(deltas, AstDelta{Kind: "removed", Category: "Func", Symbol: fn, Detail: "function removed"})
+				deltas = append(deltas, AstDelta{Kind: "removed", Category: "Func", Bucket: "layout_overlays", Symbol: fn, Detail: "function removed"})
 			}
+		}
+	}
+
+	// 6. @tui:sync-disable locks & dynamic Go expressions preserved
+	if len(afterParsed.LockReasons) > 0 {
+		lockSyms := make([]string, 0, len(afterParsed.LockReasons))
+		for sym := range afterParsed.LockReasons {
+			lockSyms = append(lockSyms, sym)
+		}
+		sort.Strings(lockSyms)
+		for _, sym := range lockSyms {
+			reason := afterParsed.LockReasons[sym]
+			detail := "Dynamic Go expression preserved"
+			if reason == "sync-disabled" {
+				detail = "Locked · // @tui:sync-disable"
+			} else if exprMap, ok := afterParsed.DynamicExprs[sym]; ok && len(exprMap) > 0 {
+				var exprParts []string
+				for pk, ev := range exprMap {
+					exprParts = append(exprParts, fmt.Sprintf("%s=%s", pk, ev))
+				}
+				sort.Strings(exprParts)
+				detail = "Dynamic Go: " + strings.Join(exprParts, ", ")
+			}
+			deltas = append(deltas, AstDelta{
+				Kind:     "locked",
+				Category: "Lock",
+				Bucket:   "locked_untouched",
+				Symbol:   sym,
+				Detail:   detail,
+			})
 		}
 	}
 

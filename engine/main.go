@@ -94,6 +94,10 @@ type TelemetryNode struct {
     Border      Rect   `json:"border"`
     Padding     Rect   `json:"padding"`
     Content     Rect   `json:"content"`
+    AllocatedW  int    `json:"allocatedW,omitempty"`
+    AllocatedH  int    `json:"allocatedH,omitempty"`
+    ActualW     int    `json:"actualW,omitempty"`
+    ActualH     int    `json:"actualH,omitempty"`
     OverflowX   bool   `json:"overflowX"`
     OverflowY   bool   `json:"overflowY"`
     OverflowMsg string `json:"overflowMsg,omitempty"`
@@ -697,6 +701,10 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, doc 
             Border:      bRect,
             Padding:     pRect,
             Content:     cRect,
+            AllocatedW:  availW,
+            AllocatedH:  availH,
+            ActualW:     actualW,
+            ActualH:     actualH,
             OverflowX:   overX,
             OverflowY:   overY,
             OverflowMsg: msg,

@@ -48,6 +48,9 @@ export interface GoParseResponse {
   syncDisabled?: boolean;
   lockedSymbols?: string[];
   lockedProps?: Record<string, string[]>;
+  lockReasons?: Record<string, "sync-disabled" | "dynamic">;
+  dynamicExprs?: Record<string, Record<string, string>>;
+  untouchedSymbols?: string[];
   error?: string;
 }
 
@@ -56,13 +59,15 @@ export interface GoSyncResponse {
   patchedSymbols?: string[];
   lockedSymbols?: string[];
   lockedProps?: Record<string, string[]>;
+  lockReasons?: Record<string, "sync-disabled" | "dynamic">;
   syncDisabled?: boolean;
   error?: string;
 }
 
 export interface GoDiffDeltaDTO {
-  kind: "added" | "removed" | "modified";
-  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type";
+  kind: "added" | "removed" | "modified" | "untouched" | "locked";
+  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type" | "Lock";
+  bucket?: "styles_tokens" | "layout_overlays" | "view_flags" | "locked_untouched";
   symbol: string;
   detail: string;
 }
