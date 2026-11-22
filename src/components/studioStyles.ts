@@ -97,7 +97,7 @@ export const studioStyles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     background: CHARM_TOKENS.bgSurface,
     border: `1px solid ${CHARM_TOKENS.border}`,
-    boxShadow: "var(--cs-shadow)",
+    boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--cs-shadow)",
     padding: 18,
     display: "flex",
     flexDirection: "column",
@@ -115,6 +115,7 @@ export const studioStyles: Record<string, React.CSSProperties> = {
     background: CHARM_TOKENS.bgCode,
     border: `1px solid ${CHARM_TOKENS.border}`,
     borderRadius: 16,
+    boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 30px rgba(0, 0, 0, 0.28)",
     overflow: "hidden",
   },
   stepBtn: {

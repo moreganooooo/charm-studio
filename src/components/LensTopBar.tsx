@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
+  Camera,
   Check,
   ChevronDown,
   Command,
@@ -34,6 +35,7 @@ interface Props {
   onOpenGlossary: () => void;
   onOpenGuide: () => void;
   onOpenAuth: () => void;
+  onSnapshotPng?: () => void;
 }
 
 const LENSES: { id: StudioLens; label: string }[] = [
@@ -54,6 +56,7 @@ export function LensTopBar({
   onOpenGlossary,
   onOpenGuide,
   onOpenAuth,
+  onSnapshotPng,
 }: Props) {
   const {
     activeLens,
@@ -244,12 +247,22 @@ export function LensTopBar({
                 border: `1px solid ${CHARM_TOKENS.borderStrong}`,
                 borderRadius: 12,
                 padding: 6,
-                boxShadow: "var(--cs-shadow)",
+                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--cs-shadow)",
                 display: "flex",
                 flexDirection: "column",
                 gap: 2,
               }}
             >
+              {onSnapshotPng && (
+                <MenuItem
+                  icon={<Camera size={13} style={{ color: CHARM_TOKENS.pink }} />}
+                  label="Snapshot PNG (Aubergine Card)"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onSnapshotPng();
+                  }}
+                />
+              )}
               <MenuItem
                 icon={<GitBranch size={13} />}
                 label="Import Go / GitHub"

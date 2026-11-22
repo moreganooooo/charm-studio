@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, Code2, Copy, Download, GitCompare, Keyboard } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Code2, Copy, Download, GitCompare, Keyboard } from "lucide-react";
 import { computeAstDeltas, computeGoAstDiff } from "../astDiff";
 import {
   generateEntryMainGo,
@@ -57,19 +57,22 @@ const CODE_FILE_INFO: Record<CodeFileTab, string> = {
   json: "ir.json — Portable Layout IR JSON representing the full tree, widget data, styles & tokens.",
 };
 
-const CODE_TABS: { id: CodeFileTab; label: string; proOnly?: boolean }[] = [
+const CORE_GO_TABS: { id: CodeFileTab; label: string }[] = [
   { id: "theme_gen", label: "theme_gen.go" },
   { id: "layout_gen", label: "layout_gen.go" },
   { id: "model", label: "model.go" },
   { id: "update", label: "update.go" },
   { id: "view", label: "view.go" },
+];
+
+const MORE_FILE_TABS: { id: CodeFileTab; label: string }[] = [
   { id: "fixtures_preview", label: "fixtures_preview_gen.go" },
   { id: "main", label: "main.go" },
   { id: "gomod", label: "go.mod" },
   { id: "vhs", label: "demo.tape" },
   { id: "gum", label: "gum.sh" },
   { id: "readme", label: "README.md" },
-  { id: "json", label: "ir.json", proOnly: true },
+  { id: "json", label: "ir.json" },
 ];
 
 function renderFileForDoc(
@@ -117,7 +120,6 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
     past,
     templateId,
     palette,
-    workspaceMode,
     goModuleName,
     setGoModuleName,
     markStep,
@@ -138,6 +140,19 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
   const [zipStatus, setZipStatus] = useState<string | null>(null);
   const [editingLine, setEditingLine] = useState<{ lineNo: number; value: string } | null>(null);
   const [pulseActive, setPulseActive] = useState(false);
+  const [moreFilesOpen, setMoreFilesOpen] = useState(false);
+  const moreFilesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreFilesOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (moreFilesRef.current && !moreFilesRef.current.contains(e.target as Node)) {
+        setMoreFilesOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutside);
+    return () => window.removeEventListener("mousedown", handleOutside);
+  }, [moreFilesOpen]);
 
   useEffect(() => {
     if (!lastKeyPulse || activeLens !== "code") return;
@@ -155,7 +170,8 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
     };
   }, [lastKeyPulse, activeLens]);
 
-  const activeTab: CodeFileTab = workspaceMode === "studio" && codeFile === "json" ? "model" : codeFile;
+  const activeTab: CodeFileTab = codeFile;
+  const activeMoreTab = MORE_FILE_TABS.find((t) => t.id === activeTab) ?? null;
 
   const generatedResult = useMemo(
     () => renderFileForDoc(ir, activeTab, goModuleName, palette.label),
@@ -329,20 +345,129 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
               <option value="template">vs. Template Baseline</option>
             </select>
           )}
+
+          <button onClick={copyOutput} style={{ ...btnStyle(copied), marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            <span>{copied ? "Copied" : "Copy File"}</span>
+          </button>
         </div>
       </div>
 
-      {/* Multi-Tab File Bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "10px 14px", borderBottom: "1px solid var(--cs-border)", flexWrap: "wrap" }}>
-        {CODE_TABS.filter((t) => !t.proOnly || workspaceMode === "pro").map((t) => (
-          <button key={t.id} onClick={() => setCodeFile(t.id)} style={pillStyle(activeTab === t.id)}>
-            {t.label}
+      {/* Single-Row Core Go Tab Strip + More Files Selector */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "8px 12px",
+          borderBottom: "1px solid var(--cs-border)",
+          background: "var(--cs-bg-surface)",
+          position: "relative",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            flex: 1,
+            minWidth: 0,
+            overflowX: "auto",
+            flexWrap: "nowrap",
+            scrollbarWidth: "none",
+          }}
+        >
+          {CORE_GO_TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => {
+                setCodeFile(t.id);
+                setMoreFilesOpen(false);
+              }}
+              style={{
+                ...pillStyle(activeTab === t.id),
+                padding: "3px 8px",
+                fontSize: 11,
+                fontWeight: activeTab === t.id ? 700 : 500,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div ref={moreFilesRef} style={{ position: "relative", flexShrink: 0 }}>
+          <button
+            onClick={() => setMoreFilesOpen((v) => !v)}
+            aria-expanded={moreFilesOpen}
+            style={{
+              ...pillStyle(Boolean(activeMoreTab)),
+              padding: "3px 8px",
+              fontSize: 11,
+              fontWeight: activeMoreTab ? 700 : 600,
+              whiteSpace: "nowrap",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <span>{activeMoreTab ? activeMoreTab.label : "More files"}</span>
+            <ChevronDown size={11} />
           </button>
-        ))}
-        <button onClick={copyOutput} style={{ ...btnStyle(copied), marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4 }}>
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? "Copied" : "Copy File"}</span>
-        </button>
+
+          {moreFilesOpen && (
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "calc(100% + 6px)",
+                width: 210,
+                zIndex: 80,
+                background: CHARM_TOKENS.bgSurface,
+                border: `1px solid ${CHARM_TOKENS.borderStrong}`,
+                borderRadius: 10,
+                padding: 5,
+                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--cs-shadow)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              {MORE_FILE_TABS.map((t) => {
+                const selected = activeTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setCodeFile(t.id);
+                      setMoreFilesOpen(false);
+                    }}
+                    className="cs-mono"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "6px 9px",
+                      borderRadius: 7,
+                      border: "none",
+                      background: selected ? CHARM_TOKENS.pinkBg : "transparent",
+                      color: selected ? CHARM_TOKENS.pinkSoft : CHARM_TOKENS.text,
+                      fontSize: 11.5,
+                      fontWeight: selected ? 700 : 500,
+                    }}
+                  >
+                    <span>{t.label}</span>
+                    {selected && <Check size={12} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: "8px 16px", fontSize: 11.5, color: "var(--cs-text-muted)", borderBottom: "1px solid var(--cs-border)", background: "var(--cs-nav-bg)", lineHeight: 1.45, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
@@ -373,122 +498,139 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
       {drawerMode === "source" ? (
         <div
           style={{
-            margin: 0,
-            padding: "12px 0",
-            overflow: "auto",
             flex: 1,
-            fontSize: 11.5,
-            lineHeight: 1.55,
-            fontFamily: "var(--cs-font-mono)",
-            color: "var(--cs-text)",
+            overflowX: "auto",
+            overflowY: "auto",
             background: "var(--cs-bg-code)",
           }}
         >
-          {(() => {
-            const targetKey = pulseActive && lastKeyPulse ? lastKeyPulse.nodeId : highlightNodeId || selectedNode?.id || "";
-            const spansForTarget = [
-              ...(generatedSpans[targetKey] ?? []),
-              ...(highlightStyleName && highlightStyleName !== targetKey ? generatedSpans[highlightStyleName] ?? [] : []),
-              ...(pulseActive && activeTab === "update" ? generatedSpans.keybinding ?? [] : []),
-            ];
-            const activeSpan =
-              spansForTarget.find((s) => (pulseActive ? s.property === "keybinding" : s.property === activeProperty)) ??
-              spansForTarget[0] ??
-              null;
+          <pre
+            style={{
+              margin: 0,
+              padding: "12px 0",
+              minWidth: "max-content",
+              width: "100%",
+              fontSize: 11.5,
+              lineHeight: 1.55,
+              fontFamily: "var(--cs-font-mono)",
+              color: "var(--cs-text)",
+            }}
+          >
+            {(() => {
+              const targetKey = pulseActive && lastKeyPulse ? lastKeyPulse.nodeId : highlightNodeId || selectedNode?.id || "";
+              const spansForTarget = [
+                ...(generatedSpans[targetKey] ?? []),
+                ...(highlightStyleName && highlightStyleName !== targetKey ? generatedSpans[highlightStyleName] ?? [] : []),
+                ...(pulseActive && activeTab === "update" ? generatedSpans.keybinding ?? [] : []),
+              ];
+              const activeSpan =
+                spansForTarget.find((s) => (pulseActive ? s.property === "keybinding" : s.property === activeProperty)) ??
+                spansForTarget[0] ??
+                null;
 
-            return generatedOutput.split("\n").map((line, idx) => {
-              const lineNo = idx + 1;
-              const inSpan = Boolean(activeSpan && lineNo >= activeSpan.startLine && lineNo <= activeSpan.endLine);
-              const isPulseHit = pulseActive && activeTab === "update" && inSpan;
-              const isHighlightLine = Boolean(activeSpan?.highlightLine === lineNo);
-              const matchStyle = Boolean(highlightStyleName && line.includes(highlightStyleName));
-              const matchNode = Boolean(highlightNodeId && line.includes(highlightNodeId));
-              const highlighted = (inSpan || matchStyle || matchNode) && isGoTab;
-              const editable = isGoTab && isEditableGoExpressionLine(line);
-              const isEditingThis = editingLine?.lineNo === lineNo;
+              return generatedOutput.split("\n").map((line, idx) => {
+                const lineNo = idx + 1;
+                const inSpan = Boolean(activeSpan && lineNo >= activeSpan.startLine && lineNo <= activeSpan.endLine);
+                const isPulseHit = pulseActive && activeTab === "update" && inSpan;
+                const isHighlightLine = Boolean(activeSpan?.highlightLine === lineNo);
+                const matchStyle = Boolean(highlightStyleName && line.includes(highlightStyleName));
+                const matchNode = Boolean(highlightNodeId && line.includes(highlightNodeId));
+                const highlighted = (inSpan || matchStyle || matchNode) && isGoTab;
+                const editable = isGoTab && isEditableGoExpressionLine(line);
+                const isEditingThis = editingLine?.lineNo === lineNo;
 
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    if (editable && !isEditingThis) {
-                      setEditingLine({ lineNo, value: line.trim() });
-                    }
-                  }}
-                  title={editable ? "Click to edit Go expression directly" : undefined}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "0 14px 0 11px",
-                    borderLeft: isPulseHit
-                      ? "3px solid #6dffc2"
-                      : isHighlightLine || highlighted
-                      ? "3px solid var(--cs-pink)"
-                      : "3px solid transparent",
-                    background: isPulseHit
-                      ? "rgba(109, 255, 194, 0.16)"
-                      : isHighlightLine
-                      ? "rgba(255, 94, 174, 0.2)"
-                      : highlighted
-                      ? "rgba(255, 94, 174, 0.1)"
-                      : "transparent",
-                    cursor: editable ? "pointer" : "default",
-                  }}
-                >
-                  <span
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => {
+                      if (editable && !isEditingThis) {
+                        setEditingLine({ lineNo, value: line.trim() });
+                      }
+                    }}
+                    title={editable ? "Click to edit Go expression directly" : undefined}
                     style={{
-                      width: 30,
-                      flexShrink: 0,
-                      color: "var(--cs-text-dim)",
-                      userSelect: "none",
-                      textAlign: "right",
-                      paddingRight: 10,
-                      fontVariantNumeric: "tabular-nums",
+                      display: "flex",
+                      alignItems: "center",
+                      minWidth: "100%",
+                      paddingRight: 18,
+                      background: isPulseHit
+                        ? "rgba(109, 255, 194, 0.16)"
+                        : isHighlightLine
+                        ? "rgba(255, 94, 174, 0.2)"
+                        : highlighted
+                        ? "rgba(255, 94, 174, 0.1)"
+                        : "transparent",
+                      cursor: editable ? "pointer" : "default",
                     }}
                   >
-                    {lineNo}
-                  </span>
-                  {isEditingThis ? (
-                    <input
-                      autoFocus
-                      value={editingLine.value}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setEditingLine({ lineNo, value: e.target.value })}
-                      onBlur={() => setEditingLine(null)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          applyInlineGoExpression(editingLine.value, {
-                            doc: ir,
-                            targetNode: selectedNode,
-                            updateSelectedStyle,
-                            updateNode,
-                            setActiveProperty,
-                          });
-                          setEditingLine(null);
-                        } else if (e.key === "Escape") {
-                          setEditingLine(null);
-                        }
-                      }}
+                    <span
                       style={{
-                        flex: 1,
-                        background: "#150f1d",
-                        color: "#f4eaff",
-                        border: "1px solid #ff5eae",
-                        borderRadius: 4,
-                        padding: "1px 6px",
-                        fontFamily: "var(--cs-font-mono)",
-                        fontSize: 11.5,
-                        outline: "none",
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 2,
+                        width: 44,
+                        flexShrink: 0,
+                        color: "var(--cs-text-dim)",
+                        background: "var(--cs-bg-code)",
+                        borderLeft: isPulseHit
+                          ? "3px solid #6dffc2"
+                          : isHighlightLine || highlighted
+                          ? "3px solid var(--cs-pink)"
+                          : "3px solid transparent",
+                        borderRight: "1px solid var(--cs-border-subtle)",
+                        userSelect: "none",
+                        textAlign: "right",
+                        paddingLeft: 6,
+                        paddingRight: 8,
+                        marginRight: 10,
+                        fontVariantNumeric: "tabular-nums",
                       }}
-                    />
-                  ) : (
-                    <span style={{ whiteSpace: "pre" }}>{line}</span>
-                  )}
-                </div>
-              );
-            });
-          })()}
+                    >
+                      {lineNo}
+                    </span>
+                    {isEditingThis ? (
+                      <input
+                        autoFocus
+                        value={editingLine.value}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setEditingLine({ lineNo, value: e.target.value })}
+                        onBlur={() => setEditingLine(null)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            applyInlineGoExpression(editingLine.value, {
+                              doc: ir,
+                              targetNode: selectedNode,
+                              updateSelectedStyle,
+                              updateNode,
+                              setActiveProperty,
+                            });
+                            setEditingLine(null);
+                          } else if (e.key === "Escape") {
+                            setEditingLine(null);
+                          }
+                        }}
+                        style={{
+                          minWidth: 260,
+                          flex: 1,
+                          background: "#150f1d",
+                          color: "#f4eaff",
+                          border: "1px solid #ff5eae",
+                          borderRadius: 4,
+                          padding: "1px 6px",
+                          fontFamily: "var(--cs-font-mono)",
+                          fontSize: 11.5,
+                          outline: "none",
+                        }}
+                      />
+                    ) : (
+                      <span style={{ whiteSpace: "pre" }}>{line}</span>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </pre>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
@@ -537,31 +679,57 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
           </div>
 
           {/* Line-by-line Code Diff */}
-          <div style={{ flex: 1, overflow: "auto", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5, lineHeight: 1.55 }}>
-            {diffLines.map((line, idx) => {
-              const bg =
-                line.type === "add"
-                  ? "rgba(34, 197, 94, 0.12)"
-                  : line.type === "del"
-                  ? "rgba(239, 68, 68, 0.12)"
-                  : "transparent";
-              const markerColor =
-                line.type === "add" ? "#22c55e" : line.type === "del" ? "#ef4444" : "var(--cs-text-dim)";
-              return (
-                <div key={idx} style={{ display: "flex", background: bg, padding: "0 12px" }}>
-                  <span style={{ width: 32, flexShrink: 0, color: "var(--cs-text-dim)", userSelect: "none", textAlign: "right", paddingRight: 8 }}>
-                    {line.oldLine ?? ""}
-                  </span>
-                  <span style={{ width: 32, flexShrink: 0, color: "var(--cs-text-dim)", userSelect: "none", textAlign: "right", paddingRight: 8 }}>
-                    {line.newLine ?? ""}
-                  </span>
-                  <span style={{ width: 14, flexShrink: 0, color: markerColor, fontWeight: 700, userSelect: "none" }}>
-                    {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
-                  </span>
-                  <span style={{ whiteSpace: "pre", color: "var(--cs-text)" }}>{line.text}</span>
-                </div>
-              );
-            })}
+          <div style={{ flex: 1, overflowX: "auto", overflowY: "auto", background: "var(--cs-bg-code)" }}>
+            <pre
+              style={{
+                margin: 0,
+                padding: "8px 0",
+                minWidth: "max-content",
+                width: "100%",
+                fontFamily: "var(--cs-font-mono)",
+                fontSize: 11.5,
+                lineHeight: 1.55,
+              }}
+            >
+              {diffLines.map((line, idx) => {
+                const bg =
+                  line.type === "add"
+                    ? "rgba(34, 197, 94, 0.12)"
+                    : line.type === "del"
+                    ? "rgba(239, 68, 68, 0.12)"
+                    : "transparent";
+                const markerColor =
+                  line.type === "add" ? "#22c55e" : line.type === "del" ? "#ef4444" : "var(--cs-text-dim)";
+                return (
+                  <div key={idx} style={{ display: "flex", minWidth: "100%", background: bg, paddingRight: 16 }}>
+                    <span
+                      style={{
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 2,
+                        display: "inline-flex",
+                        flexShrink: 0,
+                        background: "var(--cs-bg-code)",
+                        borderRight: "1px solid var(--cs-border-subtle)",
+                        marginRight: 8,
+                        paddingLeft: 8,
+                      }}
+                    >
+                      <span style={{ width: 28, color: "var(--cs-text-dim)", userSelect: "none", textAlign: "right", paddingRight: 6 }}>
+                        {line.oldLine ?? ""}
+                      </span>
+                      <span style={{ width: 28, color: "var(--cs-text-dim)", userSelect: "none", textAlign: "right", paddingRight: 6 }}>
+                        {line.newLine ?? ""}
+                      </span>
+                      <span style={{ width: 14, color: markerColor, fontWeight: 700, userSelect: "none" }}>
+                        {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
+                      </span>
+                    </span>
+                    <span style={{ whiteSpace: "pre", color: "var(--cs-text)" }}>{line.text}</span>
+                  </div>
+                );
+              })}
+            </pre>
           </div>
         </div>
       )}

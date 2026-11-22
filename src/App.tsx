@@ -175,6 +175,7 @@ function StudioShell() {
   const [projectBusy, setProjectBusy] = useState(false);
 
   const inspectorScrollRef = useRef<HTMLDivElement>(null);
+  const snapshotActionRef = useRef<(() => void) | null>(null);
 
   const allProjects = useMemo(() => {
     const cloudIds = new Set(cloudProjects.map((p) => p.id));
@@ -387,6 +388,11 @@ function StudioShell() {
           onOpenGlossary={() => setGlossaryOpen(true)}
           onOpenGuide={() => setGuideOpen(true)}
           onOpenAuth={() => setAuthOpen(true)}
+          onSnapshotPng={
+            previewMode === "wasm" && !(activeLens === "code" && viewMode === "matrix")
+              ? () => snapshotActionRef.current?.()
+              : undefined
+          }
         />
 
         {/* Auth Error or Post-Login Sync Notice */}
@@ -493,7 +499,7 @@ function StudioShell() {
               flex: 1,
               minWidth: 0,
               overflow: "auto",
-              background: CHARM_TOKENS.bgGround,
+              background: "var(--cs-stage-bg)",
               padding: "20px 24px",
               display: "flex",
               flexDirection: "column",
@@ -744,6 +750,7 @@ function StudioShell() {
                     setRightTab("inspector");
                     setTimeout(() => inspectorScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 40);
                   }}
+                  snapshotActionRef={snapshotActionRef}
                 />
 
                 {selectedTel?.overflowMsg && (
@@ -886,91 +893,109 @@ function StudioShell() {
                 </div>
 
                 <div
-                  className="cs-mono"
                   style={{
-                    padding: "10px 0",
-                    fontSize: 12,
-                    lineHeight: 1.55,
-                    color: CHARM_TOKENS.text,
                     overflowX: "auto",
+                    background: CHARM_TOKENS.bgCode,
                   }}
                 >
-                  {linkedGoSlice.lines.map((item) => {
-                    const editable = isEditableGoExpressionLine(item.text);
-                    const isEditing = hybridEditLine?.lineNo === item.lineNo;
-                    return (
-                      <div
-                        key={item.lineNo}
-                        onClick={() => {
-                          if (editable && !isEditing) {
-                            setHybridEditLine({ lineNo: item.lineNo, value: item.text.trim() });
-                          }
-                        }}
-                        title={editable ? "Click to edit Go expression directly" : undefined}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "1px 14px 1px 10px",
-                          whiteSpace: "pre",
-                          background: item.isHighlighted ? "rgba(255, 94, 174, 0.16)" : "transparent",
-                          borderLeft: item.isHighlighted ? `3px solid ${CHARM_TOKENS.pink}` : "3px solid transparent",
-                          color: item.isHighlighted ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
-                          cursor: editable ? "pointer" : "default",
-                        }}
-                      >
-                        <span
+                  <pre
+                    className="cs-mono"
+                    style={{
+                      margin: 0,
+                      padding: "10px 0",
+                      minWidth: "max-content",
+                      width: "100%",
+                      fontSize: 12,
+                      lineHeight: 1.55,
+                      color: CHARM_TOKENS.text,
+                    }}
+                  >
+                    {linkedGoSlice.lines.map((item) => {
+                      const editable = isEditableGoExpressionLine(item.text);
+                      const isEditing = hybridEditLine?.lineNo === item.lineNo;
+                      return (
+                        <div
+                          key={item.lineNo}
+                          onClick={() => {
+                            if (editable && !isEditing) {
+                              setHybridEditLine({ lineNo: item.lineNo, value: item.text.trim() });
+                            }
+                          }}
+                          title={editable ? "Click to edit Go expression directly" : undefined}
                           style={{
-                            width: 30,
-                            flexShrink: 0,
-                            color: CHARM_TOKENS.textDim,
-                            userSelect: "none",
-                            textAlign: "right",
-                            paddingRight: 10,
-                            fontVariantNumeric: "tabular-nums",
+                            display: "flex",
+                            alignItems: "center",
+                            minWidth: "100%",
+                            paddingRight: 18,
+                            whiteSpace: "pre",
+                            background: item.isHighlighted ? "rgba(255, 94, 174, 0.16)" : "transparent",
+                            color: item.isHighlighted ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
+                            cursor: editable ? "pointer" : "default",
                           }}
                         >
-                          {item.lineNo}
-                        </span>
-                        {isEditing ? (
-                          <input
-                            autoFocus
-                            value={hybridEditLine.value}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => setHybridEditLine({ lineNo: item.lineNo, value: e.target.value })}
-                            onBlur={() => setHybridEditLine(null)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                applyInlineGoExpression(hybridEditLine.value, {
-                                  doc: ir,
-                                  targetNode: selectedNode,
-                                  updateSelectedStyle,
-                                  updateNode,
-                                  setActiveProperty,
-                                });
-                                setHybridEditLine(null);
-                              } else if (e.key === "Escape") {
-                                setHybridEditLine(null);
-                              }
-                            }}
+                          <span
                             style={{
-                              flex: 1,
-                              background: "#150f1d",
-                              color: "#f4eaff",
-                              border: `1px solid ${CHARM_TOKENS.pink}`,
-                              borderRadius: 4,
-                              padding: "1px 6px",
-                              fontFamily: "var(--cs-font-mono)",
-                              fontSize: 12,
-                              outline: "none",
+                              position: "sticky",
+                              left: 0,
+                              zIndex: 2,
+                              width: 44,
+                              flexShrink: 0,
+                              color: CHARM_TOKENS.textDim,
+                              background: "var(--cs-bg-code)",
+                              borderLeft: item.isHighlighted ? `3px solid ${CHARM_TOKENS.pink}` : "3px solid transparent",
+                              borderRight: "1px solid var(--cs-border-subtle)",
+                              userSelect: "none",
+                              textAlign: "right",
+                              paddingLeft: 6,
+                              paddingRight: 8,
+                              marginRight: 10,
+                              fontVariantNumeric: "tabular-nums",
                             }}
-                          />
-                        ) : (
-                          <span>{item.text || " "}</span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          >
+                            {item.lineNo}
+                          </span>
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={hybridEditLine.value}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setHybridEditLine({ lineNo: item.lineNo, value: e.target.value })}
+                              onBlur={() => setHybridEditLine(null)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  applyInlineGoExpression(hybridEditLine.value, {
+                                    doc: ir,
+                                    targetNode: selectedNode,
+                                    updateSelectedStyle,
+                                    updateNode,
+                                    setActiveProperty,
+                                  });
+                                  setHybridEditLine(null);
+                                } else if (e.key === "Escape") {
+                                  setHybridEditLine(null);
+                                }
+                              }}
+                              style={{
+                                minWidth: 260,
+                                flex: 1,
+                                background: "#150f1d",
+                                color: "#f4eaff",
+                                border: `1px solid ${CHARM_TOKENS.pink}`,
+                                borderRadius: 4,
+                                padding: "1px 6px",
+                                fontFamily: "var(--cs-font-mono)",
+                                fontSize: 12,
+                                outline: "none",
+                              }}
+                            />
+                          ) : (
+                            <span>{item.text || " "}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </pre>
                 </div>
               </section>
             )}

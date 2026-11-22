@@ -2,6 +2,7 @@
 [data-theme="dark"] {
   /* Core Charm Aubergine Surfaces */
   --cs-bg-ground: #150f1d;
+  --cs-stage-bg: radial-gradient(circle at 50% 42%, #221731 0%, #150f1d 72%);
   --cs-bg-surface: #20162d;
   --cs-bg-code: #0f0a16;
   --cs-border: #3a2a4f;
@@ -59,6 +60,7 @@
 
 [data-theme="light"] {
   --cs-bg-ground: #f7f3fc;
+  --cs-stage-bg: radial-gradient(circle at 50% 42%, #ffffff 0%, #f7f3fc 75%);
   --cs-bg-surface: #ffffff;
   --cs-bg-code: #f0e8fa;
   --cs-border: #dfd3f0;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Terminal as TerminalIcon, Trash2 } from "lucide-react";
+import { AlertTriangle, Camera, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Terminal as TerminalIcon, Trash2 } from "lucide-react";
 import { useStudioStore } from "./store/studioStore";
 import { Tooltip } from "./Tooltip";
 import type { PtyStatus } from "./previewTransport";
@@ -134,6 +134,7 @@ interface Props {
   onQuickDelete?: (id: string) => void;
   onQuickInlineEdit?: (id: string, nextContent: string) => void;
   onRequestInspectData?: (id: string) => void;
+  snapshotActionRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 const FONT_STACK = `"JetBrains Mono", "SF Mono", Menlo, monospace`;
@@ -173,6 +174,7 @@ export function TerminalViewport({
   onQuickDelete,
   onQuickInlineEdit,
   onRequestInspectData,
+  snapshotActionRef,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const xtermHostRef = useRef<HTMLDivElement>(null);
@@ -205,6 +207,141 @@ export function TerminalViewport({
   const [dragEdgeInfo, setDragEdgeInfo] = useState<{ key: string; x: number; y: number; label: string } | null>(null);
   const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.38 });
   const [inlineEdit, setInlineEdit] = useState<{ id: string; text: string } | null>(null);
+  const [snapshotSaved, setSnapshotSaved] = useState(false);
+
+  const exportSnapshotPng = () => {
+    const srcCanvas = canvasRef.current;
+    if (!srcCanvas || !ready || mode !== "wasm") return;
+
+    const scale = Math.max(2, window.devicePixelRatio || 1);
+    const cssW = Math.ceil(cols * cellSize.w);
+    const cssH = Math.ceil(rows * cellSize.h);
+    const outerPad = 36;
+    const headerH = 34;
+    const innerPad = 10;
+    const radius = 12;
+
+    const cardW = cssW + innerPad * 2;
+    const cardH = headerH + cssH + innerPad * 2;
+    const totalW = cardW + outerPad * 2;
+    const totalH = cardH + outerPad * 2;
+
+    const out = document.createElement("canvas");
+    out.width = Math.ceil(totalW * scale);
+    out.height = Math.ceil(totalH * scale);
+    const ctx = out.getContext("2d");
+    if (!ctx) return;
+
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+
+    // Padded Charm Aubergine backdrop with subtle radial spotlight
+    const bgGrad = ctx.createRadialGradient(totalW * 0.5, totalH * 0.42, 10, totalW * 0.5, totalH * 0.42, Math.max(totalW, totalH) * 0.65);
+    bgGrad.addColorStop(0, "#291c3a");
+    bgGrad.addColorStop(1, "#150f1d");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    // Card drop shadow
+    const drawRoundedPath = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    };
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetY = 12;
+    drawRoundedPath(outerPad, outerPad, cardW, cardH, radius);
+    ctx.fillStyle = palette.background;
+    ctx.fill();
+    ctx.restore();
+
+    // Clip card body for chrome header + terminal canvas
+    ctx.save();
+    drawRoundedPath(outerPad, outerPad, cardW, cardH, radius);
+    ctx.clip();
+
+    ctx.fillStyle = palette.background;
+    ctx.fillRect(outerPad, outerPad, cardW, cardH);
+
+    // Window chrome header
+    ctx.fillStyle = palette.darkBG ? "#1b1326" : "#f3ecfc";
+    ctx.fillRect(outerPad, outerPad, cardW, headerH);
+    ctx.fillStyle = palette.darkBG ? "rgba(185, 162, 255, 0.16)" : "rgba(28, 19, 38, 0.1)";
+    ctx.fillRect(outerPad, outerPad + headerH - 1, cardW, 1);
+
+    // Window dots
+    const dotColors = ["#ff5eae", "#ffd37a", "#6dffc2"];
+    dotColors.forEach((c, idx) => {
+      ctx.beginPath();
+      ctx.arc(outerPad + 16 + idx * 14, outerPad + headerH / 2, 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = c;
+      ctx.fill();
+    });
+
+    // Header label
+    ctx.fillStyle = palette.darkBG ? "#c8b6ff" : "#5b37f0";
+    ctx.font = `600 11.5px "JetBrains Mono", "SF Mono", Menlo, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${title} · ${cols}×${rows}`, outerPad + cardW / 2, outerPad + headerH / 2);
+
+    // Terminal HiDPI canvas
+    ctx.drawImage(srcCanvas, outerPad + innerPad, outerPad + headerH + innerPad, cssW, cssH);
+    ctx.restore();
+
+    // Hairline border + top inner highlight
+    drawRoundedPath(outerPad + 0.5, outerPad + 0.5, cardW - 1, cardH - 1, radius);
+    ctx.strokeStyle = "rgba(185, 162, 255, 0.28)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.beginPath();
+    ctx.moveTo(outerPad + radius, outerPad + 1);
+    ctx.lineTo(outerPad + cardW - radius, outerPad + 1);
+    ctx.stroke();
+
+    const triggerDownload = (url: string, revoke: boolean) => {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `charm-studio-${cols}x${rows}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      if (revoke) setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    if (out.toBlob) {
+      out.toBlob((blob) => {
+        if (blob) {
+          triggerDownload(URL.createObjectURL(blob), true);
+        }
+      }, "image/png");
+    } else {
+      triggerDownload(out.toDataURL("image/png"), false);
+    }
+
+    setSnapshotSaved(true);
+    setTimeout(() => setSnapshotSaved(false), 1600);
+  };
+
+  useEffect(() => {
+    if (!snapshotActionRef) return;
+    snapshotActionRef.current = exportSnapshotPng;
+    return () => {
+      snapshotActionRef.current = null;
+    };
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -544,14 +681,6 @@ export function TerminalViewport({
   const canMutateSelected = selectedNode && selectedId !== doc.root.id && !doc.overlays.some((o) => o.node.id === selectedId);
 
   const canvasPixelW = Math.ceil(cols * cellSize.w);
-  const quickBarLeft = selectedTel
-    ? Math.max(6, Math.min(canvasPixelW - 310, selectedTel.margin.x * cellSize.w + 6))
-    : 6;
-  const quickBarTop = selectedTel
-    ? selectedTel.margin.y <= 1
-      ? Math.max(6, selectedTel.margin.y * cellSize.h + 8)
-      : Math.max(6, selectedTel.margin.y * cellSize.h - 28)
-    : 6;
 
   return (
     <div
@@ -568,80 +697,164 @@ export function TerminalViewport({
         overflow: "hidden",
         background: "var(--cs-panel)",
         boxShadow: focused
-          ? "0 0 0 2px var(--cs-pink-bg), var(--cs-shadow)"
-          : "0 14px 36px rgba(0,0,0,0.22)",
+          ? "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 2px var(--cs-pink-bg), var(--cs-shadow)"
+          : "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 36px rgba(0,0,0,0.22)",
         outline: "none",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderBottom: "1px solid var(--cs-border)", fontSize: 12, gap: 8, background: "var(--cs-card-alt)" }}>
-        <span style={{ fontWeight: 600, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span>{title}</span>
-          <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
-          {focused && (
-            <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
-              <span style={{ color: "var(--cs-pink)", marginLeft: 4, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Keyboard size={12} />
-                <span>Keys → #{selectedId}</span>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          borderBottom: "1px solid var(--cs-border)",
+          background: "var(--cs-card-alt)",
+          boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", fontSize: 12, gap: 8 }}>
+          <span style={{ fontWeight: 600, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span>{title}</span>
+            <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
+            {focused && (
+              <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
+                <span style={{ color: "var(--cs-pink)", marginLeft: 4, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Keyboard size={12} />
+                  <span>Keys → #{selectedId}</span>
+                </span>
+              </Tooltip>
+            )}
+          </span>
+
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {mode === "wasm" && ready && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  exportSnapshotPng();
+                }}
+                title="Export HiDPI PNG snapshot framed on a padded Charm Aubergine card for GitHub READMEs"
+                style={{
+                  ...qBtn,
+                  borderColor: snapshotSaved ? "var(--cs-mint-border)" : "var(--cs-btn-border)",
+                  color: snapshotSaved ? "var(--cs-mint)" : "var(--cs-btn-text)",
+                }}
+              >
+                {snapshotSaved ? <Check size={11} /> : <Camera size={11} />}
+                <span>{snapshotSaved ? "Saved PNG" : "Snapshot PNG"}</span>
+              </button>
+            )}
+
+            {mode === "pty" ? (
+              <span
+                style={{
+                  color: ptyStatus?.state === "error" ? "#e11d48" : "var(--cs-mint)",
+                  background: ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.14)" : "var(--cs-mint-bg)",
+                  border: `1px solid ${ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.45)" : "var(--cs-mint-border)"}`,
+                  borderRadius: 999,
+                  padding: "1px 8px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <TerminalIcon size={11} />
+                <span>
+                  Native PTY · {ptyStatus?.state ?? "idle"}
+                  {ptyStatus?.lastBuildMs ? ` (${ptyStatus.lastBuildMs}ms)` : ""}
+                </span>
               </span>
-            </Tooltip>
-          )}
-        </span>
-        {mode === "pty" ? (
-          <span
+            ) : effectiveOverlayMode === "padding-band" && selectedStyleObj ? (
+              <span
+                className="cs-mono"
+                style={{
+                  color: "var(--cs-pink-soft)",
+                  background: "var(--cs-pink-bg)",
+                  border: "1px solid var(--cs-pink-border)",
+                  borderRadius: 999,
+                  padding: "1px 8px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                Padding({selectedStyleObj.padding[0]}, {selectedStyleObj.padding[1]})
+              </span>
+            ) : overflows.length > 0 ? (
+              <Tooltip
+                title="Layout Overflow Detected"
+                content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to select and adjust Width or Collapse Below.`}
+              >
+                <span
+                  onClick={() => onSelect(overflows[0].id)}
+                  style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
+                >
+                  <AlertTriangle size={11} />
+                  <span>Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}</span>
+                </span>
+              </Tooltip>
+            ) : (
+              <Tooltip content="Every pane fits cleanly inside this terminal size with zero clipping.">
+                <span style={{ color: "var(--cs-mint)", background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", borderRadius: 999, padding: "1px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Check size={11} />
+                  <span>Clean</span>
+                </span>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+
+        {/* Docked Selected Node Quick-Action Bar (keeps 100% of terminal cells unobstructed) */}
+        {mode === "wasm" && showQuickBar && ready && selectedNode?.kind === "Box" && (
+          <div
+            onClick={(e) => e.stopPropagation()}
             style={{
-              color: ptyStatus?.state === "error" ? "#e11d48" : "var(--cs-mint)",
-              background: ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.14)" : "var(--cs-mint-bg)",
-              border: `1px solid ${ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.45)" : "var(--cs-mint-border)"}`,
-              borderRadius: 999,
-              padding: "1px 8px",
-              fontSize: 11,
-              fontWeight: 600,
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
+              flexWrap: "wrap",
               gap: 4,
-            }}
-          >
-            <TerminalIcon size={11} />
-            <span>
-              Native PTY · {ptyStatus?.state ?? "idle"}
-              {ptyStatus?.lastBuildMs ? ` (${ptyStatus.lastBuildMs}ms)` : ""}
-            </span>
-          </span>
-        ) : effectiveOverlayMode === "padding-band" && selectedStyleObj ? (
-          <span
-            className="cs-mono"
-            style={{
-              color: "var(--cs-pink-soft)",
-              background: "var(--cs-pink-bg)",
-              border: "1px solid var(--cs-pink-border)",
-              borderRadius: 999,
-              padding: "1px 8px",
+              padding: "5px 10px",
+              borderTop: "1px solid var(--cs-border-subtle)",
+              background: "var(--cs-panel)",
               fontSize: 11,
-              fontWeight: 600,
             }}
           >
-            Padding({selectedStyleObj.padding[0]}, {selectedStyleObj.padding[1]})
-          </span>
-        ) : overflows.length > 0 ? (
-          <Tooltip
-            title="Layout Overflow Detected"
-            content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to select and adjust Width or Collapse Below.`}
-          >
-            <span
-              onClick={() => onSelect(overflows[0].id)}
-              style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
-            >
-              <AlertTriangle size={11} />
-              <span>Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}</span>
+            <span className="cs-mono" style={{ fontWeight: 700, color: "var(--cs-pink)", paddingRight: 4 }}>
+              #{selectedId}
             </span>
-          </Tooltip>
-        ) : (
-          <Tooltip content="Every pane fits cleanly inside this terminal size with zero clipping.">
-            <span style={{ color: "var(--cs-mint)", background: "var(--cs-mint-bg)", border: "1px solid var(--cs-mint-border)", borderRadius: 999, padding: "1px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <Check size={11} />
-              <span>Clean</span>
-            </span>
-          </Tooltip>
+            {onQuickSplit && canMutateSelected && (
+              <>
+                <button onClick={() => onQuickSplit(selectedId, "JoinHorizontal")} title="Split Right (Row)" style={qBtn}>
+                  <Columns2 size={11} />
+                  <span>Split R</span>
+                </button>
+                <button onClick={() => onQuickSplit(selectedId, "JoinVertical")} title="Split Below (Stack)" style={qBtn}>
+                  <Rows2 size={11} />
+                  <span>Split B</span>
+                </button>
+              </>
+            )}
+            {onQuickWidgetPicker && (
+              <button onClick={() => onQuickWidgetPicker(selectedId)} title="Insert Charm component beside this pane" style={qBtn}>
+                <Plus size={11} />
+                <span>Widget</span>
+              </button>
+            )}
+            <button onClick={() => openInlineEditForNode(selectedId)} title="Edit pane text / data" style={qBtn}>
+              <Pencil size={11} />
+              <span>Edit</span>
+            </button>
+            {onQuickClone && canMutateSelected && (
+              <button onClick={() => onQuickClone(selectedId)} title="Duplicate pane" style={qBtn}>
+                <Copy size={11} />
+              </button>
+            )}
+            {onQuickDelete && canMutateSelected && (
+              <button onClick={() => onQuickDelete(selectedId)} title="Delete pane" style={{ ...qBtn, color: "#e11d48" }}>
+                <Trash2 size={11} />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -812,6 +1025,8 @@ export function TerminalViewport({
             {splitEdges.map((edge) => {
               const hot = hoveredEdgeKey === edge.key || dragEdgeInfo?.key === edge.key;
               if (edge.axis === "x") {
+                const spanPx = Math.max(8, edge.span * cellSize.h);
+                const pillH = Math.min(28, Math.max(10, spanPx - 4));
                 return (
                   <div
                     key={edge.key}
@@ -821,10 +1036,10 @@ export function TerminalViewport({
                     title="Drag seam to resize pane width in terminal cells"
                     style={{
                       position: "absolute",
-                      left: 6 + edge.seamX * cellSize.w - 3,
+                      left: 6 + edge.seamX * cellSize.w - 4,
                       top: 6 + edge.seamY * cellSize.h,
-                      width: 6,
-                      height: Math.max(8, edge.span * cellSize.h),
+                      width: 8,
+                      height: spanPx,
                       cursor: "col-resize",
                       zIndex: 19,
                       display: "flex",
@@ -832,19 +1047,35 @@ export function TerminalViewport({
                       justifyContent: "center",
                     }}
                   >
+                    {hot && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          bottom: 0,
+                          left: 3,
+                          width: 2,
+                          background: "rgba(255, 94, 174, 0.55)",
+                          borderRadius: 2,
+                        }}
+                      />
+                    )}
                     <div
                       style={{
-                        width: hot ? 2 : 0,
-                        height: "100%",
-                        background: "#ff5eae",
-                        borderRadius: 2,
-                        boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.7)" : "none",
-                        transition: "width 100ms ease",
+                        position: "relative",
+                        width: 4,
+                        height: pillH,
+                        borderRadius: 999,
+                        background: hot ? "#ff5eae" : "rgba(255, 94, 174, 0.35)",
+                        boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.75)" : "0 1px 3px rgba(0, 0, 0, 0.45)",
+                        transition: "background 140ms ease, box-shadow 140ms ease",
                       }}
                     />
                   </div>
                 );
               }
+              const spanPx = Math.max(8, edge.span * cellSize.w);
+              const pillW = Math.min(28, Math.max(10, spanPx - 4));
               return (
                 <div
                   key={edge.key}
@@ -855,9 +1086,9 @@ export function TerminalViewport({
                   style={{
                     position: "absolute",
                     left: 6 + edge.seamX * cellSize.w,
-                    top: 6 + edge.seamY * cellSize.h - 3,
-                    width: Math.max(8, edge.span * cellSize.w),
-                    height: 6,
+                    top: 6 + edge.seamY * cellSize.h - 4,
+                    width: spanPx,
+                    height: 8,
                     cursor: "row-resize",
                     zIndex: 19,
                     display: "flex",
@@ -865,14 +1096,28 @@ export function TerminalViewport({
                     justifyContent: "center",
                   }}
                 >
+                  {hot && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        top: 3,
+                        height: 2,
+                        background: "rgba(255, 94, 174, 0.55)",
+                        borderRadius: 2,
+                      }}
+                    />
+                  )}
                   <div
                     style={{
-                      height: hot ? 2 : 0,
-                      width: "100%",
-                      background: "#ff5eae",
-                      borderRadius: 2,
-                      boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.7)" : "none",
-                      transition: "height 100ms ease",
+                      position: "relative",
+                      width: pillW,
+                      height: 4,
+                      borderRadius: 999,
+                      background: hot ? "#ff5eae" : "rgba(255, 94, 174, 0.35)",
+                      boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.75)" : "0 1px 3px rgba(0, 0, 0, 0.45)",
+                      transition: "background 140ms ease, box-shadow 140ms ease",
                     }}
                   />
                 </div>
@@ -904,66 +1149,6 @@ export function TerminalViewport({
               </div>
             )}
           </>
-        )}
-
-        {/* Floating On-Canvas Quick-Action Bar */}
-        {mode === "wasm" && showQuickBar && ready && selectedTel && selectedNode?.kind === "Box" && !inlineEdit && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute",
-              left: quickBarLeft,
-              top: quickBarTop,
-              zIndex: 20,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "3px 6px",
-              borderRadius: 7,
-              background: "var(--cs-surface)",
-              border: "1px solid var(--cs-pink-border)",
-              boxShadow: "var(--cs-shadow)",
-              fontSize: 11,
-              whiteSpace: "nowrap",
-              transition: "opacity 150ms ease, transform 150ms ease",
-            }}
-          >
-            <span style={{ fontWeight: 700, color: "var(--cs-pink)", padding: "0 4px", fontFamily: "ui-monospace, monospace" }}>
-              #{selectedId}
-            </span>
-            {onQuickSplit && canMutateSelected && (
-              <>
-                <button onClick={() => onQuickSplit(selectedId, "JoinHorizontal")} title="Split Right (Row)" style={qBtn}>
-                  <Columns2 size={11} />
-                  <span>Split R</span>
-                </button>
-                <button onClick={() => onQuickSplit(selectedId, "JoinVertical")} title="Split Below (Stack)" style={qBtn}>
-                  <Rows2 size={11} />
-                  <span>Split B</span>
-                </button>
-              </>
-            )}
-            {onQuickWidgetPicker && (
-              <button onClick={() => onQuickWidgetPicker(selectedId)} title="Insert Charm component beside this pane" style={qBtn}>
-                <Plus size={11} />
-                <span>Widget</span>
-              </button>
-            )}
-            <button onClick={() => openInlineEditForNode(selectedId)} title="Edit pane text / data" style={qBtn}>
-              <Pencil size={11} />
-              <span>Edit</span>
-            </button>
-            {onQuickClone && canMutateSelected && (
-              <button onClick={() => onQuickClone(selectedId)} title="Duplicate pane" style={qBtn}>
-                <Copy size={11} />
-              </button>
-            )}
-            {onQuickDelete && canMutateSelected && (
-              <button onClick={() => onQuickDelete(selectedId)} title="Delete pane" style={{ ...qBtn, color: "#e11d48" }}>
-                <Trash2 size={11} />
-              </button>
-            )}
-          </div>
         )}
 
         {/* Double-Click Inline Quick-Edit Popover */}

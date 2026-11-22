@@ -65,11 +65,17 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
   } = useStudioStore();
 
   const [hybridTab, setHybridTab] = useState<"inspector" | "full">("inspector");
+  const [showGoHovered, setShowGoHovered] = useState(false);
 
   const padV = selectedStyle?.padding[0] ?? 0;
   const padH = selectedStyle?.padding[1] ?? 0;
   const currentBorder = selectedStyle?.border ?? "rounded";
-  const currentAccentHex = resolveColorHex(selectedStyle?.borderColor || selectedStyle?.fg, ir.tokens);
+  const activeColorRef = selectedStyle
+    ? selectedStyle.border === "none"
+      ? selectedStyle.fg
+      : selectedStyle.borderColor || selectedStyle.fg
+    : "";
+  const currentAccentHex = resolveColorHex(activeColorRef, ir.tokens);
 
   const setSymmetricPadding = (axis: "v" | "h", nextVal: number) => {
     if (!selectedStyle) return;
@@ -261,53 +267,71 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                     Accent
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    {CHARM_SWATCHES.map((sw) => {
-                      const active =
-                        selectedStyle.borderColor === sw.token ||
-                        selectedStyle.borderColor.toLowerCase() === sw.hex ||
-                        currentAccentHex.toLowerCase() === sw.hex;
+                    {(() => {
+                      const displayedTokens = new Set([
+                        ...CHARM_SWATCHES.filter((s) => s.token.startsWith("$")).map((s) => s.token),
+                        ...Object.keys(ir.tokens)
+                          .filter((k) => !["accent", "borderIdle", "modalGlow"].includes(k))
+                          .slice(0, 3)
+                          .map((k) => `$${k}`),
+                      ]);
+                      const matchesDisplayedToken = displayedTokens.has(activeColorRef);
+
                       return (
-                        <button
-                          key={sw.label}
-                          onClick={() => applySwatch(sw)}
-                          title={sw.label}
-                          aria-label={`Accent ${sw.label}`}
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: "50%",
-                            background: sw.hex,
-                            border: active ? "3px solid #ffffff" : `2px solid ${CHARM_TOKENS.borderStrong}`,
-                            boxShadow: active ? `0 0 0 2px ${CHARM_TOKENS.pink}` : "none",
-                            padding: 0,
-                          }}
-                        />
+                        <>
+                          {CHARM_SWATCHES.map((sw) => {
+                            const active = matchesDisplayedToken
+                              ? activeColorRef === sw.token
+                              : activeColorRef.toLowerCase() === sw.hex || currentAccentHex.toLowerCase() === sw.hex;
+                            return (
+                              <button
+                                key={sw.label}
+                                onClick={() => applySwatch(sw)}
+                                title={sw.label}
+                                aria-label={`Accent ${sw.label}`}
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: "50%",
+                                  background: sw.hex,
+                                  border: active ? "1px solid rgba(255, 255, 255, 0.9)" : `2px solid ${CHARM_TOKENS.borderStrong}`,
+                                  outline: active ? "2px solid #ffffff" : "none",
+                                  outlineOffset: active ? 2 : 0,
+                                  padding: 0,
+                                  transition: "outline-color 120ms ease, transform 120ms ease",
+                                }}
+                              />
+                            );
+                          })}
+                          {Object.entries(ir.tokens)
+                            .filter(([k]) => !["accent", "borderIdle", "modalGlow"].includes(k))
+                            .slice(0, 3)
+                            .map(([k, pair]) => {
+                              const tokenRef = `$${k}`;
+                              const active = activeColorRef === tokenRef;
+                              return (
+                                <button
+                                  key={k}
+                                  onClick={() => applySwatch({ token: tokenRef, hex: pair.dark })}
+                                  title={`${k} (${pair.dark})`}
+                                  aria-label={`Token ${k}`}
+                                  style={{
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: "50%",
+                                    background: pair.dark,
+                                    border: active ? "1px solid rgba(255, 255, 255, 0.9)" : `2px solid ${CHARM_TOKENS.borderStrong}`,
+                                    outline: active ? "2px solid #ffffff" : "none",
+                                    outlineOffset: active ? 2 : 0,
+                                    padding: 0,
+                                    transition: "outline-color 120ms ease, transform 120ms ease",
+                                  }}
+                                />
+                              );
+                            })}
+                        </>
                       );
-                    })}
-                    {Object.entries(ir.tokens)
-                      .filter(([k]) => !["accent", "borderIdle", "modalGlow"].includes(k))
-                      .slice(0, 3)
-                      .map(([k, pair]) => {
-                        const tokenRef = `$${k}`;
-                        const active = selectedStyle.borderColor === tokenRef;
-                        return (
-                          <button
-                            key={k}
-                            onClick={() => applySwatch({ token: tokenRef, hex: pair.dark })}
-                            title={`${k} (${pair.dark})`}
-                            aria-label={`Token ${k}`}
-                            style={{
-                              width: 30,
-                              height: 30,
-                              borderRadius: "50%",
-                              background: pair.dark,
-                              border: active ? "3px solid #ffffff" : `2px solid ${CHARM_TOKENS.borderStrong}`,
-                              boxShadow: active ? `0 0 0 2px ${CHARM_TOKENS.pink}` : "none",
-                              padding: 0,
-                            }}
-                          />
-                        );
-                      })}
+                    })()}
                   </div>
                 </div>
 
@@ -348,17 +372,20 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
         {/* 40px Collapsed Edge Tab: "Show the Go" */}
         <button
           onClick={() => setActiveLens("hybrid")}
+          onMouseEnter={() => setShowGoHovered(true)}
+          onMouseLeave={() => setShowGoHovered(false)}
           title="Switch to Hybrid lens to inspect Lip Gloss v2 Go bindings"
           style={{
             width: 40,
             flexShrink: 0,
-            background: CHARM_TOKENS.bgSurface,
+            background: showGoHovered ? "rgba(185, 162, 255, 0.14)" : CHARM_TOKENS.bgSurface,
             border: "none",
-            borderLeft: `1px solid ${CHARM_TOKENS.border}`,
-            borderTop: `1px solid ${CHARM_TOKENS.border}`,
-            borderBottom: `1px solid ${CHARM_TOKENS.border}`,
+            borderLeft: `1px solid ${showGoHovered ? CHARM_TOKENS.lilac : CHARM_TOKENS.border}`,
+            borderTop: `1px solid ${showGoHovered ? CHARM_TOKENS.lilac : CHARM_TOKENS.border}`,
+            borderBottom: `1px solid ${showGoHovered ? CHARM_TOKENS.lilac : CHARM_TOKENS.border}`,
             borderTopLeftRadius: 12,
             borderBottomLeftRadius: 12,
+            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
             color: CHARM_TOKENS.text,
             display: "flex",
             flexDirection: "column",
@@ -366,9 +393,9 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
             justifyContent: "center",
             gap: 10,
             padding: "14px 0",
+            transition: "background 150ms ease, border-color 150ms ease",
           }}
         >
-          <Code2 size={14} style={{ color: CHARM_TOKENS.lilac }} />
           <span
             style={{
               writingMode: "vertical-rl",
@@ -376,12 +403,21 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
               fontSize: 12,
               fontWeight: 700,
               letterSpacing: "0.04em",
-              color: CHARM_TOKENS.lilac,
+              color: showGoHovered ? CHARM_TOKENS.textHeading : CHARM_TOKENS.lilac,
               whiteSpace: "nowrap",
+              transition: "color 150ms ease",
             }}
           >
             Show the Go
           </span>
+          <Code2
+            size={14}
+            style={{
+              color: showGoHovered ? CHARM_TOKENS.pink : CHARM_TOKENS.lilac,
+              transform: "rotate(180deg)",
+              transition: "color 150ms ease",
+            }}
+          />
         </button>
       </div>
     );
@@ -478,23 +514,24 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                       borderRadius: 12,
                       border: `1px dashed ${CHARM_TOKENS.borderStrong}`,
                       background: CHARM_TOKENS.bgCode,
-                      padding: 10,
+                      padding: 12,
                     }}
                   >
-                    {/* Border + Interactive 4-Side Padding Band */}
+                    {/* Border + Interactive 4-Side Padding Band with 22px 46px Gutters */}
                     <div
                       style={{
+                        position: "relative",
                         borderRadius: currentBorder === "rounded" ? 10 : 4,
                         border:
                           currentBorder === "none"
                             ? `1px dotted ${CHARM_TOKENS.border}`
                             : `${currentBorder === "thick" ? 2 : 1}px solid ${CHARM_TOKENS.pink}`,
                         background: CHARM_TOKENS.pinkBg,
-                        padding: 8,
+                        padding: "22px 46px",
+                        minHeight: 118,
                         display: "flex",
-                        flexDirection: "column",
                         alignItems: "center",
-                        gap: 6,
+                        justifyContent: "center",
                       }}
                     >
                       {/* Top Padding Zone */}
@@ -502,21 +539,24 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                         onMouseEnter={() => setHoveredProperty("padding-v")}
                         onMouseLeave={() => setHoveredProperty(null)}
                         style={{
-                          width: "100%",
+                          position: "absolute",
+                          top: 3,
+                          left: 46,
+                          right: 46,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: 6,
-                          padding: "3px 6px",
+                          gap: 5,
+                          padding: "2px 6px",
                           borderRadius: 6,
-                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.24)" : "transparent",
                           transition: "background 120ms ease",
                         }}
                       >
                         <button onClick={() => setSymmetricPadding("v", padV - 1)} style={miniStep} aria-label="Decrease top/bottom padding">
                           -
                         </button>
-                        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textHeading, minWidth: 52, textAlign: "center" }}>
+                        <span className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.textHeading, minWidth: 46, textAlign: "center" }}>
                           top: {padV}
                         </span>
                         <button onClick={() => setSymmetricPadding("v", padV + 1)} style={miniStep} aria-label="Increase top/bottom padding">
@@ -524,63 +564,104 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                         </button>
                       </div>
 
-                      {/* Left + Content + Right Padding Row */}
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 6 }}>
-                        <div
-                          onMouseEnter={() => setHoveredProperty("padding-h")}
-                          onMouseLeave={() => setHoveredProperty(null)}
+                      {/* Left Padding Gutter (46px wide) */}
+                      <div
+                        onMouseEnter={() => setHoveredProperty("padding-h")}
+                        onMouseLeave={() => setHoveredProperty(null)}
+                        style={{
+                          position: "absolute",
+                          left: 4,
+                          top: 22,
+                          bottom: 22,
+                          width: 38,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 3,
+                          borderRadius: 6,
+                          background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.24)" : "transparent",
+                          transition: "background 120ms ease",
+                        }}
+                      >
+                        <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase left/right padding">+</button>
+                        <span
+                          className="cs-mono"
                           style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: 3,
-                            padding: "4px 3px",
-                            borderRadius: 6,
-                            background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.22)" : "transparent",
-                            transition: "background 120ms ease",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: CHARM_TOKENS.textHeading,
+                            background: "var(--cs-bg-code)",
+                            border: `1px solid ${CHARM_TOKENS.pinkBorder}`,
+                            borderRadius: 999,
+                            padding: "1px 5px",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase left/right padding">+</button>
-                          <span className="cs-mono" style={{ fontSize: 10, color: CHARM_TOKENS.textHeading }}>L:{padH}</span>
-                          <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease left/right padding">-</button>
-                        </div>
+                          L: {padH}
+                        </span>
+                        <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease left/right padding">-</button>
+                      </div>
 
-                        <div
-                          style={{
-                            flex: 1,
-                            padding: "10px 8px",
-                            borderRadius: 6,
-                            background: CHARM_TOKENS.bgSurface,
-                            border: `1px solid ${CHARM_TOKENS.border}`,
-                            textAlign: "center",
-                            fontSize: 11.5,
-                            color: CHARM_TOKENS.text,
-                          }}
-                        >
-                          <div style={{ fontWeight: 700 }}>{getFriendlyNodeName(selectedNode)}</div>
-                          <div className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.lilac, marginTop: 2 }}>
-                            Padding({padV}, {padH})
-                          </div>
+                      {/* Inner Content Box */}
+                      <div
+                        style={{
+                          width: "100%",
+                          padding: "12px 10px",
+                          borderRadius: 6,
+                          background: CHARM_TOKENS.bgSurface,
+                          border: `1px solid ${CHARM_TOKENS.border}`,
+                          textAlign: "center",
+                          fontSize: 11.5,
+                          color: CHARM_TOKENS.text,
+                          boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {getFriendlyNodeName(selectedNode)}
                         </div>
+                        <div className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.lilac, marginTop: 2 }}>
+                          Padding({padV}, {padH})
+                        </div>
+                      </div>
 
-                        <div
-                          onMouseEnter={() => setHoveredProperty("padding-h")}
-                          onMouseLeave={() => setHoveredProperty(null)}
+                      {/* Right Padding Gutter (46px wide) */}
+                      <div
+                        onMouseEnter={() => setHoveredProperty("padding-h")}
+                        onMouseLeave={() => setHoveredProperty(null)}
+                        style={{
+                          position: "absolute",
+                          right: 4,
+                          top: 22,
+                          bottom: 22,
+                          width: 38,
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 3,
+                          borderRadius: 6,
+                          background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.24)" : "transparent",
+                          transition: "background 120ms ease",
+                        }}
+                      >
+                        <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase right padding">+</button>
+                        <span
+                          className="cs-mono"
                           style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            gap: 3,
-                            padding: "4px 3px",
-                            borderRadius: 6,
-                            background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.22)" : "transparent",
-                            transition: "background 120ms ease",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: CHARM_TOKENS.textHeading,
+                            background: "var(--cs-bg-code)",
+                            border: `1px solid ${CHARM_TOKENS.pinkBorder}`,
+                            borderRadius: 999,
+                            padding: "1px 5px",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase right padding">+</button>
-                          <span className="cs-mono" style={{ fontSize: 10, color: CHARM_TOKENS.textHeading }}>R:{padH}</span>
-                          <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease right padding">-</button>
-                        </div>
+                          R: {padH}
+                        </span>
+                        <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease right padding">-</button>
                       </div>
 
                       {/* Bottom Padding Zone */}
@@ -588,19 +669,22 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                         onMouseEnter={() => setHoveredProperty("padding-v")}
                         onMouseLeave={() => setHoveredProperty(null)}
                         style={{
-                          width: "100%",
+                          position: "absolute",
+                          bottom: 3,
+                          left: 46,
+                          right: 46,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          gap: 6,
-                          padding: "3px 6px",
+                          gap: 5,
+                          padding: "2px 6px",
                           borderRadius: 6,
-                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.24)" : "transparent",
                           transition: "background 120ms ease",
                         }}
                       >
                         <button onClick={() => setSymmetricPadding("v", padV - 1)} style={miniStep} aria-label="Decrease bottom padding">-</button>
-                        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textHeading, minWidth: 52, textAlign: "center" }}>
+                        <span className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.textHeading, minWidth: 46, textAlign: "center" }}>
                           btm: {padV}
                         </span>
                         <button onClick={() => setSymmetricPadding("v", padV + 1)} style={miniStep} aria-label="Increase bottom padding">+</button>
