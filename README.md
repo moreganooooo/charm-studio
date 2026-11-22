@@ -34,7 +34,7 @@ Stop guessing terminal cell math in the dark. Tweak borders, padding, margins, a
 ### 1. Build the Go WASM Engine
 ```bash
 cd engine
-./build-wasm.sh
+bash build-wasm.sh
 ```
 This compiles `charm.land/lipgloss/v2` + `bubbles/v2` to `public/studio.wasm` and copies `wasm_exec.js`.
 
