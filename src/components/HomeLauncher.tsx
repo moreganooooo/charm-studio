@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, FolderUp } from "lucide-react";
 import { fetchGitHubRepoToIR } from "../githubImportHelper";
 import { buildIRFromExtracted, extractFromGoSourceAsync } from "../goImporter";
@@ -6,21 +6,21 @@ import { RouteLink, useRouter } from "../router";
 import { PALETTES, useStudioStore } from "../store/studioStore";
 import { TEMPLATES } from "../templates";
 import { TerminalViewport } from "../TerminalViewport";
-import type { IRDoc, StudioLens } from "../types";
+import { findNode, type IRDoc, type StudioLens } from "../types";
 import { SiteNavBar } from "./SiteNavBar";
 import { CHARM_TOKENS } from "./studioStyles";
+import "./HomeLauncher.css";
 
 interface StarterSceneCard {
   templateId: string;
   title: string;
-  selectedId: string;
 }
 
 const STARTER_SCENES: StarterSceneCard[] = [
-  { templateId: "infra-dashboard", title: "Infra Dashboard", selectedId: "mainPane" },
-  { templateId: "lazygit-kanban", title: "3-Pane Git", selectedId: "diffPane" },
-  { templateId: "huh-onboarding", title: "Huh Form", selectedId: "huhFormPane" },
-  { templateId: "glow-reader", title: "Glow Docs", selectedId: "markdownPane" },
+  { templateId: "infra-dashboard", title: "Infra Dashboard" },
+  { templateId: "lazygit-kanban", title: "3-Pane Git" },
+  { templateId: "huh-onboarding", title: "Huh Form" },
+  { templateId: "glow-reader", title: "Glow Docs" },
 ];
 
 const SPACING_PRESETS: Record<1 | 2 | 3, { pad: [number, number, number, number]; goArgs: string }> = {
@@ -39,14 +39,29 @@ export function HomeLauncher() {
   const [previewSelectedId, setPreviewSelectedId] = useState("mainPane");
   const [previewTick, setPreviewTick] = useState(0);
 
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [previewCols, setPreviewCols] = useState(58);
+
+  // Size the live cell grid to its column without scaling the canvas or its hit targets.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!stage || !ctx) return;
+    const observer = new ResizeObserver(([entry]) => {
+      ctx.font = `10px ${fontFamily}`;
+      const cellWidth = Math.ceil(ctx.measureText("M").width * 10) / 10;
+      const frameChrome = 14; // Two 6px insets and two 1px borders.
+      setPreviewCols(Math.max(1, Math.min(84, Math.floor((entry.contentRect.width - frameChrome) / cellWidth))));
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [fontFamily]);
+
   // Fast-track import input
   const [importInput, setImportInput] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-
-  // Bottom card hover state
-  const [hoveredSceneId, setHoveredSceneId] = useState<string | null>(null);
 
   const showcasePalette = useMemo(() => {
     if (appMode === "light") {
@@ -63,8 +78,10 @@ export function HomeLauncher() {
     if (cloned.styles.sidebar) {
       cloned.styles.sidebar.padding = [pad[0], Math.max(1, pad[1] - 1), pad[2], Math.max(1, pad[3] - 1)];
     }
+    const status = findNode(cloned, "statusBar");
+    if (status && previewCols < 70) status.content = "Click a pane · ↑/↓ or j/k to navigate";
     return cloned;
-  }, [spacingPreset]);
+  }, [spacingPreset, previewCols]);
 
   const handleOpenTemplate = (templateId: string) => {
     loadTemplate(templateId);
@@ -140,12 +157,13 @@ export function HomeLauncher() {
 
   return (
     <div
+      className="launcher"
       style={{
         minHeight: "100vh",
         position: "relative",
         overflowX: "hidden",
         background: isDark
-          ? "radial-gradient(ellipse 46% 52% at 24% 52%, rgba(255, 94, 174, 0.14) 0%, rgba(21, 15, 29, 0) 70%), radial-gradient(ellipse 42% 48% at 72% 40%, rgba(185, 162, 255, 0.12) 0%, rgba(21, 15, 29, 0) 72%), #140d1c"
+          ? "radial-gradient(ellipse at 23% 49%, rgba(130, 49, 107, 0.14), transparent 53%), #160f1e"
           : CHARM_TOKENS.bgGround,
         color: CHARM_TOKENS.text,
         fontFamily: CHARM_TOKENS.fontUi,
@@ -163,15 +181,15 @@ export function HomeLauncher() {
           padding: "clamp(28px, 4.5vh, 52px) clamp(20px, 4vw, 44px) 44px",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "space-between",
-          gap: "clamp(32px, 4.5vh, 52px)",
+          justifyContent: "center",
+          gap: "clamp(44px, 7.5vh, 88px)",
         }}
       >
         {/* HERO SPLIT STAGE */}
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
             gap: "clamp(28px, 4vw, 54px)",
             alignItems: "center",
           }}
@@ -181,9 +199,9 @@ export function HomeLauncher() {
             <h1
               style={{
                 margin: 0,
-                fontSize: "clamp(3.15rem, 5.4vw, 4.65rem)",
+                fontSize: "clamp(3.65rem, 7vw, 5.65rem)",
                 fontWeight: 800,
-                lineHeight: 0.96,
+                lineHeight: 0.98,
                 letterSpacing: "-0.038em",
                 color: CHARM_TOKENS.textHeading,
               }}
@@ -355,45 +373,14 @@ export function HomeLauncher() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Layered Live WASM Terminal + Floating Lens Pill + Overlapping Go Snippet */}
-          <div
-            style={{
-              position: "relative",
-              padding: "16px 8px 66px",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            {/* Faint Terminal Grid Backdrop */}
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                inset: -12,
-                backgroundImage: isDark
-                  ? "linear-gradient(to right, rgba(185, 162, 255, 0.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(185, 162, 255, 0.055) 1px, transparent 1px)"
-                  : "linear-gradient(to right, rgba(109, 74, 255, 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(109, 74, 255, 0.06) 1px, transparent 1px)",
-                backgroundSize: "24px 24px",
-                maskImage: "radial-gradient(ellipse 85% 80% at 52% 48%, #000 45%, transparent 100%)",
-                WebkitMaskImage: "radial-gradient(ellipse 85% 80% at 52% 48%, #000 45%, transparent 100%)",
-                pointerEvents: "none",
-              }}
-            />
-
+          {/* RIGHT COLUMN: Live WASM terminal, floating lens controls and Go snippet */}
+          <div className="launcher-stage" ref={stageRef}>
             {/* Crisp Minimal Sparkle Accents */}
             <span aria-hidden="true" className="cs-mono" style={{ position: "absolute", left: 4, top: 28, fontSize: 14, color: CHARM_TOKENS.mint, opacity: 0.8 }}>+</span>
             <span aria-hidden="true" className="cs-mono" style={{ position: "absolute", right: 12, bottom: 94, fontSize: 13, color: CHARM_TOKENS.pink, opacity: 0.75 }}>+</span>
 
             {/* Real Go WASM Terminal Frame */}
-            <div
-              style={{
-                position: "relative",
-                maxWidth: "100%",
-                zIndex: 2,
-                filter: "drop-shadow(0 26px 48px rgba(0, 0, 0, 0.55))",
-              }}
-            >
+            <div className="launcher-terminal">
               <TerminalViewport
                 title=""
                 chrome="minimal"
@@ -405,7 +392,7 @@ export function HomeLauncher() {
                       gap: 3,
                       padding: 2,
                       borderRadius: 7,
-                      background: "rgba(15, 10, 22, 0.75)",
+                      background: CHARM_TOKENS.bgCode,
                       border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                     }}
                   >
@@ -418,6 +405,7 @@ export function HomeLauncher() {
                         <button
                           key={lvl}
                           onClick={() => setSpacingPreset(lvl)}
+                          aria-pressed={active}
                           className="cs-mono"
                           title={`Padding(${SPACING_PRESETS[lvl].goArgs})`}
                           style={{
@@ -438,7 +426,7 @@ export function HomeLauncher() {
                 }
                 doc={showcaseDoc}
                 renderTick={previewTick}
-                cols={58}
+                cols={previewCols}
                 rows={16}
                 fontSize={10}
                 fontFamily={fontFamily}
@@ -456,72 +444,38 @@ export function HomeLauncher() {
                 onSelect={setPreviewSelectedId}
                 onInteract={() => setPreviewTick((t) => t + 1)}
               />
+
+              <div className="launcher-lenses" role="group" aria-label="Preview lens mode">
+                {(["visual", "hybrid", "code"] as StudioLens[]).map((lens) => {
+                  const active = previewLens === lens;
+                  return (
+                    <button
+                      key={lens}
+                      onClick={() => setPreviewLens(lens)}
+                      aria-pressed={active}
+                      style={{
+                        border: "none",
+                        borderRadius: 999,
+                        padding: "7px clamp(12px, 1.2vw, 20px)",
+                        fontSize: 12.5,
+                        fontWeight: active ? 700 : 600,
+                        textTransform: "capitalize",
+                        background: active
+                          ? "linear-gradient(105deg, #ff79bc, #e3b1da 46%, #75f3c6)"
+                          : "transparent",
+                        color: active ? "#0e1714" : CHARM_TOKENS.text,
+                        boxShadow: active ? "0 0 14px rgba(109, 255, 194, 0.35)" : "none",
+                        transition: "all 140ms ease",
+                      }}
+                    >
+                      {lens}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Floating Center Visual / Hybrid / Code Pill */}
-            <div
-              role="group"
-              aria-label="Preview lens mode"
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)",
-                bottom: 108,
-                zIndex: 6,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                padding: 4,
-                borderRadius: 999,
-                background: isDark ? "rgba(21, 14, 32, 0.9)" : "rgba(255, 255, 255, 0.92)",
-                backdropFilter: "blur(12px)",
-                border: "1px solid rgba(109, 255, 194, 0.45)",
-                boxShadow: "0 12px 32px rgba(0, 0, 0, 0.55), 0 0 20px rgba(109, 255, 194, 0.18)",
-              }}
-            >
-              {(["visual", "hybrid", "code"] as StudioLens[]).map((lens) => {
-                const active = previewLens === lens;
-                return (
-                  <button
-                    key={lens}
-                    onClick={() => setPreviewLens(lens)}
-                    style={{
-                      border: "none",
-                      borderRadius: 999,
-                      padding: "6px 15px",
-                      fontSize: 12.5,
-                      fontWeight: active ? 700 : 600,
-                      textTransform: "capitalize",
-                      background: active
-                        ? "linear-gradient(135deg, #6dffc2 0%, #52ebcc 100%)"
-                        : "transparent",
-                      color: active ? "#0e1714" : CHARM_TOKENS.text,
-                      boxShadow: active ? "0 0 14px rgba(109, 255, 194, 0.35)" : "none",
-                      transition: "all 140ms ease",
-                    }}
-                  >
-                    {lens}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Overlapping Bottom-Right Go Code Snippet Card */}
-            <div
-              style={{
-                position: "absolute",
-                right: 14,
-                bottom: 0,
-                zIndex: 7,
-                width: "min(335px, 88%)",
-                borderRadius: 13,
-                background: isDark ? "rgba(17, 12, 26, 0.94)" : CHARM_TOKENS.bgSurface,
-                backdropFilter: "blur(14px)",
-                border: `1px solid ${isDark ? "rgba(185, 162, 255, 0.32)" : CHARM_TOKENS.borderStrong}`,
-                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 22px 48px rgba(0, 0, 0, 0.65)",
-                padding: "13px 16px",
-              }}
-            >
+            <div className="launcher-snippet">
               <pre
                 className="cs-mono"
                 style={{
@@ -564,80 +518,38 @@ export function HomeLauncher() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(235px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 248px), 1fr))",
               gap: 18,
             }}
           >
             {STARTER_SCENES.map((scene) => {
               const tpl = TEMPLATES.find((t) => t.id === scene.templateId) ?? TEMPLATES[0];
-              const isHovered = hoveredSceneId === scene.templateId;
               return (
                 <button
                   key={scene.templateId}
                   onClick={() => handleOpenTemplate(scene.templateId)}
-                  onMouseEnter={() => setHoveredSceneId(scene.templateId)}
-                  onMouseLeave={() => setHoveredSceneId(null)}
-                  style={{
-                    textAlign: "center",
-                    background: isDark
-                      ? "linear-gradient(180deg, rgba(35, 24, 52, 0.72) 0%, rgba(19, 13, 28, 0.92) 100%)"
-                      : CHARM_TOKENS.bgSurface,
-                    border: `1px solid ${
-                      isHovered
-                        ? CHARM_TOKENS.pinkBorder
-                        : isDark
-                        ? "rgba(185, 162, 255, 0.2)"
-                        : CHARM_TOKENS.border
-                    }`,
-                    borderRadius: 16,
-                    padding: "14px 14px 16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 12,
-                    boxShadow: isHovered
-                      ? "0 16px 34px rgba(0, 0, 0, 0.45), 0 0 20px rgba(255, 94, 174, 0.16)"
-                      : "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 26px rgba(0, 0, 0, 0.28)",
-                    transform: isHovered ? "translateY(-3px)" : "translateY(0)",
-                    transition: "transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
-                  }}
+                  className="launcher-scene"
                 >
-                  <span
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: isHovered ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
-                      letterSpacing: "-0.01em",
-                    }}
-                  >
+                  <span className="launcher-scene-title">
                     {scene.title}
                   </span>
 
                   {/* Real Go WASM Miniature Preview */}
-                  <div
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      pointerEvents: "none",
-                      borderRadius: 10,
-                    }}
-                  >
+                  <div className="launcher-miniature" inert aria-hidden="true">
                     <TerminalViewport
                       title=""
                       chrome="minimal"
                       doc={tpl.doc}
                       renderTick={0}
-                      cols={44}
-                      rows={10}
-                      fontSize={6.5}
+                      cols={76}
+                      rows={14}
+                      fontSize={4.5}
                       fontFamily={fontFamily}
                       palette={showcasePalette}
                       colorProfile="truecolor"
                       showOverlay={false}
                       overlayMode="none"
-                      selectedId={scene.selectedId}
+                      selectedId=""
                       onSelect={() => {}}
                       onInteract={() => {}}
                     />

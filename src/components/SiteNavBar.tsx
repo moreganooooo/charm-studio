@@ -34,16 +34,13 @@ export function SiteNavBar() {
 
   return (
     <header
+      className="site-nav"
       style={{
-        height: 60,
         position: "sticky",
         top: 0,
         zIndex: 40,
         display: "grid",
-        gridTemplateColumns: "1fr auto 1fr",
         alignItems: "center",
-        gap: 16,
-        padding: "0 clamp(16px, 4vw, 48px)",
         background: isHome && appMode === "dark" ? "rgba(18, 12, 26, 0.72)" : "var(--cs-nav-bg)",
         backdropFilter: "blur(12px)",
         borderBottom: `1px solid ${isHome && appMode === "dark" ? "rgba(185, 162, 255, 0.14)" : CHARM_TOKENS.border}`,
@@ -114,16 +111,13 @@ export function SiteNavBar() {
       {/* Right: Glowing WASM Ready Pill + Theme Toggle + Studio CTA on subpages */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
         <span
-          className="cs-mono"
+          className="site-nav-status cs-mono"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            padding: "6px 14px",
             borderRadius: 999,
-            fontSize: 11.5,
             fontWeight: 700,
-            whiteSpace: "nowrap",
             background: wasmReady
               ? "linear-gradient(135deg, #6dffc2 0%, #52ebcc 100%)"
               : CHARM_TOKENS.bgSurface,
