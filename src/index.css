@@ -67,7 +67,9 @@
 [data-theme="light"] {
   --cs-bg-ground: #f7f3fc;
   --cs-stage-veil: #f7f3fc80;
-  --cs-wordmark-ink: linear-gradient(105deg, #7641a1, #645297 24%, #176782 43%, #146b61 59%, #974372 81%, #734298);
+  --cs-wordmark-ink: linear-gradient(105deg, #8056a9, #6e609f 24%, #306e84 43%, #2d7166 59%, #94567d 81%, #8059a3);
+  --cs-wordmark-display-ink: linear-gradient(105deg, #9569bf, #8179c4 24%, #41889f 43%, #318b80 59%, #b06c95 81%, #976dba);
+  --cs-primary-fill: linear-gradient(110deg, #e7b4cf, #e6c6e3 72%, #d8cdeb);
   --cs-brand-backdrop:
     radial-gradient(ellipse at 88% 20%, #d7efe9b3, transparent 55%),
     linear-gradient(135deg, #f2eafa, #f9e9f0 48%, #f7f4fa 84%);

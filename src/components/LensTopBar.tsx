@@ -178,7 +178,7 @@ export function LensTopBar({
                 padding: "6px 15px",
                 fontSize: 12.5,
                 fontWeight: active ? 700 : 600,
-                background: active ? "var(--cs-pink)" : "transparent",
+                background: active ? "var(--cs-primary-fill, var(--cs-pink))" : "transparent",
                 color: active ? "#150f1d" : CHARM_TOKENS.textMuted,
                 whiteSpace: "nowrap",
                 transition: "background 150ms ease, color 150ms ease",

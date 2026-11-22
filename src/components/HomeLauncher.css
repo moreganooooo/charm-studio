@@ -8,7 +8,34 @@
 }
 
 [data-theme="light"] .launcher {
+  --cs-viewport-shadow: 0 8px 21px -8px #9b79984d;
+  --launcher-star-rose: #cc82a6;
+  --launcher-star-mint: #67a99e;
+  --launcher-star-lilac: #ad94d2;
+  --launcher-spectrum: linear-gradient(108deg, #c887ae, #b6a0ce 55%, #80b9ae);
+  --launcher-lens-fill: linear-gradient(105deg, #edc4da, #e4d5e9 46%, #c0e2d6);
+  --launcher-lens-glow: 0 1px 7px #9ebbae42;
   --launcher-shadow: 0 12px 32px -20px rgba(52, 30, 75, 0.24);
+}
+
+[data-theme="light"] .launcher-wordmark {
+  --cs-wordmark-ink: var(--cs-wordmark-display-ink);
+}
+
+[data-theme="light"] .launcher-open {
+  color: #382338;
+  border-color: #c79ab9;
+  background: radial-gradient(circle at calc(100% - 26px) 50%, #f4e9e1, transparent 20px),
+    var(--cs-primary-fill);
+  box-shadow: inset 0 1px 0 #ffffff8c, 0 6px 17px -8px #a86d9766;
+}
+
+[data-theme="light"] .launcher-glint {
+  filter: drop-shadow(0 0 1px white) drop-shadow(0 0 4px color-mix(in srgb, currentColor 26%, transparent));
+}
+
+[data-theme="light"] .launcher-lenses {
+  box-shadow: 0 5px 16px -5px #80677e52;
 }
 
 .launcher-intro {
@@ -221,7 +248,7 @@
   top: 63%;
   width: 0.23em;
   height: 0.23em;
-  color: var(--cs-pink);
+  color: var(--launcher-star-rose, var(--cs-pink));
   stroke-width: 1;
 }
 
@@ -230,7 +257,7 @@
   top: 55%;
   width: 0.13em;
   height: 0.13em;
-  color: var(--cs-mint);
+  color: var(--launcher-star-mint, var(--cs-mint));
   fill: none;
   --glint-delay: -4s;
 }
@@ -238,21 +265,21 @@
 .launcher-glint-lilac {
   top: 5%;
   right: 0;
-  color: var(--cs-lilac);
+  color: var(--launcher-star-lilac, var(--cs-lilac));
   --glint-delay: -6s;
 }
 
 .launcher-glint-rose {
   bottom: 10%;
   left: 9%;
-  color: var(--cs-pink-soft);
+  color: var(--launcher-star-rose, var(--cs-pink-soft));
   --glint-delay: -3s;
 }
 
 .launcher-glint-aqua {
   bottom: 14%;
   left: 13%;
-  color: var(--cs-mint);
+  color: var(--launcher-star-mint, var(--cs-mint));
   --glint-delay: -1s;
 }
 
@@ -260,14 +287,14 @@
   --glint-delay: -2s;
   left: -1%;
   top: 10%;
-  color: var(--cs-mint);
+  color: var(--launcher-star-mint, var(--cs-mint));
 }
 
 .launcher-glint-pink {
   --glint-delay: -5s;
   right: 1%;
   bottom: 28%;
-  color: var(--cs-pink);
+  color: var(--launcher-star-rose, var(--cs-pink));
 }
 
 .launcher-terminal {
@@ -350,7 +377,7 @@
   top: 52%;
   width: 5px;
   height: 5px;
-  background: var(--cs-mint);
+  background: var(--launcher-star-mint, var(--cs-mint));
   clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
   pointer-events: none;
 }
@@ -359,7 +386,7 @@
   left: auto;
   right: 6%;
   top: 21%;
-  background: var(--cs-pink);
+  background: var(--launcher-star-rose, var(--cs-pink));
 }
 
 .launcher-scene:is(:hover, :focus-visible) {

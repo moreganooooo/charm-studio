@@ -58,7 +58,7 @@ export const studioStyles: Record<string, React.CSSProperties> = {
     border: `1px solid ${CHARM_TOKENS.border}`,
   },
   primaryCta: {
-    background: "var(--cs-pink)",
+    background: "var(--cs-primary-fill, var(--cs-pink))",
     color: "#150f1d",
     border: "1px solid transparent",
     borderRadius: 8,
