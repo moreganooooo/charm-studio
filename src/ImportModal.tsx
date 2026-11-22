@@ -81,7 +81,12 @@ export function ImportModal({
   const [sourceLabel, setSourceLabel] = useState("pasted.go");
   const [summary, setSummary] = useState<ExtractedGoSummary | null>(null);
   const [patchedGo, setPatchedGo] = useState<string | null>(null);
-  const [patchedInfo, setPatchedInfo] = useState<{ patched: string[]; locked: string[]; disabled: boolean } | null>(null);
+  const [patchedInfo, setPatchedInfo] = useState<{
+    patched: string[];
+    locked: string[];
+    lockedProps?: Record<string, string[]>;
+    disabled: boolean;
+  } | null>(null);
   const [copiedPatch, setCopiedPatch] = useState(false);
 
   // User's GitHub repos
@@ -561,11 +566,15 @@ export function ImportModal({
                   {b}
                 </code>
               ))}
-              {(summary.lockedSymbols ?? []).map((sym) => (
-                <code key={sym} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(245, 158, 11, 0.12)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
-                  locked: {sym}
-                </code>
-              ))}
+              {(summary.lockedSymbols ?? []).map((sym) => {
+                const props = summary.lockedProps?.[sym];
+                const label = props && props.length > 0 && !props.includes("*") ? `${sym} (${props.join(", ")})` : sym;
+                return (
+                  <code key={sym} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 999, background: "rgba(245, 158, 11, 0.12)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+                    locked: {label}
+                  </code>
+                );
+              })}
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -585,6 +594,7 @@ export function ImportModal({
                       setPatchedInfo({
                         patched: res.patchedSymbols ?? [],
                         locked: res.lockedSymbols ?? [],
+                        lockedProps: res.lockedProps,
                         disabled: Boolean(res.syncDisabled),
                       });
                     }}

@@ -1,5 +1,5 @@
 import { dispatchCharmWidgetKey, isCustomHydratedWidget, renderCharmWidgetContent } from "./charmWidgets";
-import type { ColorProfile, IRDoc, IRNode, Rect, TelemetryNode } from "./types";
+import type { ColorProfile, ContentType, IRDoc, IRNode, IROverlay, IRStyle, Rect, TelemetryNode, TokenPair } from "./types";
 
 declare global {
   interface Window {
@@ -9,6 +9,7 @@ declare global {
     hitTestStudio?: (col: number, row: number) => string | null;
     parseGoSource?: (goSrc: string) => string;
     syncGoSource?: (existingGo: string, irJson: string) => string;
+    computeGoDiff?: (beforeGo: string, afterGo: string) => string;
   }
 }
 
@@ -31,11 +32,49 @@ export interface HitTestResult {
   bounds: Rect;
 }
 
+export interface GoParseResponse {
+  styles?: Record<string, IRStyle>;
+  tokens?: Record<string, TokenPair>;
+  view?: IRDoc["view"];
+  root?: IRNode;
+  overlays?: IROverlay[];
+  detectedBubbles?: ContentType[];
+  styleNames?: string[];
+  colorCount?: number;
+  syncDisabled?: boolean;
+  lockedSymbols?: string[];
+  lockedProps?: Record<string, string[]>;
+  error?: string;
+}
+
 export interface GoSyncResponse {
   updatedGo: string;
   patchedSymbols?: string[];
   lockedSymbols?: string[];
+  lockedProps?: Record<string, string[]>;
   syncDisabled?: boolean;
+  error?: string;
+}
+
+export interface GoDiffDeltaDTO {
+  kind: "added" | "removed" | "modified";
+  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type";
+  symbol: string;
+  detail: string;
+}
+
+export interface GoDiffLineDTO {
+  type: "ctx" | "add" | "del";
+  oldLine?: number;
+  newLine?: number;
+  text: string;
+}
+
+export interface GoDiffResponse {
+  deltas?: GoDiffDeltaDTO[];
+  lines?: GoDiffLineDTO[];
+  added?: number;
+  removed?: number;
   error?: string;
 }
 
@@ -158,10 +197,10 @@ export function hitTestCell(col: number, row: number): HitTestResult | null {
   }
 }
 
-export function parseGoWithDst(goSrc: string): Record<string, unknown> | null {
+export function parseGoWithDst(goSrc: string): GoParseResponse | null {
   if (!window.parseGoSource) return null;
   try {
-    return JSON.parse(window.parseGoSource(goSrc)) as Record<string, unknown>;
+    return JSON.parse(window.parseGoSource(goSrc)) as GoParseResponse;
   } catch {
     return null;
   }
@@ -175,5 +214,14 @@ export function syncGoWithDst(existingGo: string, doc: IRDoc): GoSyncResponse {
     return JSON.parse(window.syncGoSource(existingGo, JSON.stringify(doc))) as GoSyncResponse;
   } catch (err) {
     return { updatedGo: existingGo, error: (err as Error).message };
+  }
+}
+
+export function computeGoDiffWithDst(beforeGo: string, afterGo: string): GoDiffResponse | null {
+  if (!window.computeGoDiff) return null;
+  try {
+    return JSON.parse(window.computeGoDiff(beforeGo, afterGo)) as GoDiffResponse;
+  } catch {
+    return null;
   }
 }

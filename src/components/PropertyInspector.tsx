@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Moon, Sun } from "lucide-react";
+import { ChevronDown, ChevronUp, Lock, Moon, Sun, Unlock } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
 import { HelpDot, Tooltip } from "../Tooltip";
-import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor } from "../types";
+import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor, type ViewCursorMode } from "../types";
 import { WidgetDataEditor } from "../WidgetDataEditor";
 import {
   btnStyle,
@@ -36,6 +36,7 @@ export function PropertyInspector({ scrollRef }: Props) {
     updateNode,
     updateView,
     updateSelectedStyle,
+    unlockStyleProp,
     updateQuad,
     toggleBorderEdge,
     setOverlayAnchor,
@@ -59,6 +60,10 @@ export function PropertyInspector({ scrollRef }: Props) {
   const tokenKeys = Object.keys(ir.tokens);
   const styleKeys = Object.keys(ir.styles);
   const isProUI = workspaceMode === "pro" || showAdvancedStyle;
+
+  const styleLocks = selectedNode?.style ? ir.lockedProps?.[selectedNode.style] ?? [] : [];
+  const isAllStyleLocked = styleLocks.includes("*");
+  const isPropLocked = (prop: string) => isAllStyleLocked || styleLocks.includes(prop);
 
   const hasWidgetDataUI =
     selectedNode?.contentType === "bubble:list" ||
@@ -169,6 +174,53 @@ export function PropertyInspector({ scrollRef }: Props) {
               />
               DisableBracketedPasteMode
             </label>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: (ir.view?.cursorMode ?? "auto") === "manual" ? "1.4fr 0.8fr 0.8fr" : "1fr", gap: 10, marginTop: 10 }}>
+            <label style={labelCol}>
+              <span style={{ display: "inline-flex", alignItems: "center" }}>
+                Cursor Mode
+                <HelpDot
+                  title="tea.View.Cursor"
+                  content="Bubble Tea v2 emits v.Cursor (*tea.Cursor): auto binds to the first textinput.Model.Cursor(), manual emits tea.NewCursor(x, y), and none emits nil."
+                />
+              </span>
+              <select
+                value={ir.view?.cursorMode ?? "auto"}
+                onChange={(e) => updateView({ cursorMode: e.target.value as ViewCursorMode })}
+                style={inputStyle}
+              >
+                <option value="auto">Auto (Focused TextInput)</option>
+                <option value="manual">Manual (tea.NewCursor)</option>
+                <option value="none">None (nil / Hidden)</option>
+              </select>
+            </label>
+            {(ir.view?.cursorMode ?? "auto") === "manual" && (
+              <>
+                <label style={labelCol}>
+                  <span>Cursor X</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={200}
+                    value={ir.view?.cursorX ?? 0}
+                    onChange={(e) => updateView({ cursorX: Math.max(0, +e.target.value) })}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={labelCol}>
+                  <span>Cursor Y</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={80}
+                    value={ir.view?.cursorY ?? 0}
+                    onChange={(e) => updateView({ cursorY: Math.max(0, +e.target.value) })}
+                    style={inputStyle}
+                  />
+                </label>
+              </>
+            )}
           </div>
         </Section>
       )}
@@ -476,6 +528,28 @@ export function PropertyInspector({ scrollRef }: Props) {
           <Section
             title="Look & Style"
             badge={selectedNode.style}
+            extraBadge={
+              styleLocks.length > 0 ? (
+                <span
+                  title="Dynamic Go expression(s) detected in imported source"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "1px 7px",
+                    borderRadius: 999,
+                    background: "rgba(245, 158, 11, 0.14)",
+                    color: "#fbbf24",
+                    border: "1px solid rgba(245, 158, 11, 0.4)",
+                  }}
+                >
+                  <Lock size={10} />
+                  <span>Dynamic Go</span>
+                </span>
+              ) : undefined
+            }
             subtitle="Apply a 1-click preset or customize borders, colors & spacing."
             action={
               isProUI ? (
@@ -487,20 +561,71 @@ export function PropertyInspector({ scrollRef }: Props) {
               ) : undefined
             }
           >
+            {styleLocks.length > 0 && selectedNode.style && (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "rgba(245, 158, 11, 0.1)",
+                  border: "1px solid rgba(245, 158, 11, 0.38)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, color: "#fbbf24" }}>
+                    <Lock size={12} />
+                    <span>
+                      {isAllStyleLocked
+                        ? "Dynamic Go style — all fields locked"
+                        : `Dynamic Go properties locked: ${styleLocks.join(", ")}`}
+                    </span>
+                  </span>
+                  {isProUI && (
+                    <button
+                      onClick={() => unlockStyleProp(selectedNode.style!)}
+                      style={{
+                        ...miniBtn,
+                        padding: "3px 8px",
+                        fontSize: 11,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        color: "#fbbf24",
+                        borderColor: "rgba(245, 158, 11, 0.45)",
+                      }}
+                      title="Remove Dynamic Go lock so Studio controls can overwrite this style"
+                    >
+                      <Unlock size={11} />
+                      <span>Unlock in Studio</span>
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--cs-text-muted)", lineHeight: 1.4 }}>
+                  Computed Go expressions (e.g. helper functions or <code>@tui:block-disable</code>) are preserved verbatim during round-trip AST sync.
+                </div>
+              </div>
+            )}
+
             <div style={{ marginBottom: 12 }}>
               <div style={microTag}>1-CLICK STYLE PRESETS</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
                 {STYLE_PRESETS.map((preset) => (
                   <button
                     key={preset.id}
+                    disabled={isAllStyleLocked}
                     onClick={() => updateSelectedStyle(preset.patch)}
-                    title={preset.description}
+                    title={isAllStyleLocked ? "Locked by Dynamic Go" : preset.description}
                     style={{
                       ...miniBtn,
                       padding: "6px 4px",
                       textAlign: "center",
                       fontWeight: 600,
                       fontSize: 11,
+                      opacity: isAllStyleLocked ? 0.5 : 1,
+                      cursor: isAllStyleLocked ? "not-allowed" : "pointer",
                     }}
                   >
                     {preset.label}
@@ -540,10 +665,11 @@ export function PropertyInspector({ scrollRef }: Props) {
                 </div>
               )}
 
-              <label style={labelCol}>
-                Border Shape
+              <label style={{ ...labelCol, opacity: isPropLocked("border") ? 0.6 : 1 }}>
+                <FieldLockLabel text="Border Shape" locked={isPropLocked("border")} />
                 <select
                   value={selectedStyle.border}
+                  disabled={isPropLocked("border")}
                   onChange={(e) => updateSelectedStyle({ border: e.target.value as IRStyle["border"] })}
                   style={inputStyle}
                 >
@@ -556,13 +682,16 @@ export function PropertyInspector({ scrollRef }: Props) {
               </label>
 
               {isProUI && selectedStyle.border !== "none" && (
-                <div>
-                  <div style={microTag}>VISIBLE BORDER EDGES</div>
+                <div style={{ opacity: isPropLocked("border") ? 0.6 : 1 }}>
+                  <div style={{ ...microTag, display: "flex", alignItems: "center", gap: 4 }}>
+                    <span>VISIBLE BORDER EDGES</span>
+                    {isPropLocked("border") && <Lock size={10} color="#fbbf24" />}
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
                     {QUAD_LABELS.map((lbl, i) => {
                       const active = (selectedStyle.borderEdges ?? [true, true, true, true])[i];
                       return (
-                        <button key={lbl} onClick={() => toggleBorderEdge(i)} style={btnStyle(active)}>
+                        <button key={lbl} disabled={isPropLocked("border")} onClick={() => toggleBorderEdge(i)} style={btnStyle(active)}>
                           {lbl}
                         </button>
                       );
@@ -572,9 +701,9 @@ export function PropertyInspector({ scrollRef }: Props) {
               )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                <label style={labelCol}>
-                  <span>Border</span>
-                  <select value={selectedStyle.borderColor || ""} onChange={(e) => updateSelectedStyle({ borderColor: e.target.value })} style={inputStyle}>
+                <label style={{ ...labelCol, opacity: isPropLocked("borderColor") ? 0.6 : 1 }}>
+                  <FieldLockLabel text="Border" locked={isPropLocked("borderColor")} />
+                  <select value={selectedStyle.borderColor || ""} disabled={isPropLocked("borderColor")} onChange={(e) => updateSelectedStyle({ borderColor: e.target.value })} style={inputStyle}>
                     <option value="">Default</option>
                     {tokenKeys.map((k) => (
                       <option key={k} value={`$${k}`}>
@@ -583,9 +712,9 @@ export function PropertyInspector({ scrollRef }: Props) {
                     ))}
                   </select>
                 </label>
-                <label style={labelCol}>
-                  <span>Text</span>
-                  <select value={selectedStyle.fg || ""} onChange={(e) => updateSelectedStyle({ fg: e.target.value })} style={inputStyle}>
+                <label style={{ ...labelCol, opacity: isPropLocked("fg") ? 0.6 : 1 }}>
+                  <FieldLockLabel text="Text" locked={isPropLocked("fg")} />
+                  <select value={selectedStyle.fg || ""} disabled={isPropLocked("fg")} onChange={(e) => updateSelectedStyle({ fg: e.target.value })} style={inputStyle}>
                     <option value="">Default</option>
                     {tokenKeys.map((k) => (
                       <option key={k} value={`$${k}`}>
@@ -594,9 +723,9 @@ export function PropertyInspector({ scrollRef }: Props) {
                     ))}
                   </select>
                 </label>
-                <label style={labelCol}>
-                  <span>Fill (Bg)</span>
-                  <select value={selectedStyle.bg || ""} onChange={(e) => updateSelectedStyle({ bg: e.target.value })} style={inputStyle}>
+                <label style={{ ...labelCol, opacity: isPropLocked("bg") ? 0.6 : 1 }}>
+                  <FieldLockLabel text="Fill (Bg)" locked={isPropLocked("bg")} />
+                  <select value={selectedStyle.bg || ""} disabled={isPropLocked("bg")} onChange={(e) => updateSelectedStyle({ bg: e.target.value })} style={inputStyle}>
                     <option value="">None</option>
                     {tokenKeys.map((k) => (
                       <option key={k} value={`$${k}`}>
@@ -608,17 +737,17 @@ export function PropertyInspector({ scrollRef }: Props) {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <label style={labelCol}>
-                  Align H
-                  <select value={selectedStyle.alignH ?? "left"} onChange={(e) => updateSelectedStyle({ alignH: e.target.value as IRStyle["alignH"] })} style={inputStyle}>
+                <label style={{ ...labelCol, opacity: isPropLocked("alignH") ? 0.6 : 1 }}>
+                  <FieldLockLabel text="Align H" locked={isPropLocked("alignH")} />
+                  <select value={selectedStyle.alignH ?? "left"} disabled={isPropLocked("alignH")} onChange={(e) => updateSelectedStyle({ alignH: e.target.value as IRStyle["alignH"] })} style={inputStyle}>
                     <option value="left">Left</option>
                     <option value="center">Center</option>
                     <option value="right">Right</option>
                   </select>
                 </label>
-                <label style={labelCol}>
-                  Align V
-                  <select value={selectedStyle.alignV ?? "top"} onChange={(e) => updateSelectedStyle({ alignV: e.target.value as IRStyle["alignV"] })} style={inputStyle}>
+                <label style={{ ...labelCol, opacity: isPropLocked("alignV") ? 0.6 : 1 }}>
+                  <FieldLockLabel text="Align V" locked={isPropLocked("alignV")} />
+                  <select value={selectedStyle.alignV ?? "top"} disabled={isPropLocked("alignV")} onChange={(e) => updateSelectedStyle({ alignV: e.target.value as IRStyle["alignV"] })} style={inputStyle}>
                     <option value="top">Top</option>
                     <option value="center">Center</option>
                     <option value="bottom">Bottom</option>
@@ -627,38 +756,40 @@ export function PropertyInspector({ scrollRef }: Props) {
               </div>
 
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap", paddingTop: 4 }}>
-                <label style={checkLbl}><input type="checkbox" checked={selectedStyle.bold} onChange={(e) => updateSelectedStyle({ bold: e.target.checked })} style={chkAcc} /> Bold</label>
-                <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.italic} onChange={(e) => updateSelectedStyle({ italic: e.target.checked })} style={chkAcc} /> Italic</label>
-                <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.faint} onChange={(e) => updateSelectedStyle({ faint: e.target.checked })} style={chkAcc} /> Faint</label>
-                <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.underline} onChange={(e) => updateSelectedStyle({ underline: e.target.checked })} style={chkAcc} /> Underline</label>
+                <label style={{ ...checkLbl, opacity: isPropLocked("bold") ? 0.6 : 1 }}><input type="checkbox" disabled={isPropLocked("bold")} checked={selectedStyle.bold} onChange={(e) => updateSelectedStyle({ bold: e.target.checked })} style={chkAcc} /> Bold{isPropLocked("bold") && <Lock size={10} color="#fbbf24" />}</label>
+                <label style={{ ...checkLbl, opacity: isPropLocked("italic") ? 0.6 : 1 }}><input type="checkbox" disabled={isPropLocked("italic")} checked={!!selectedStyle.italic} onChange={(e) => updateSelectedStyle({ italic: e.target.checked })} style={chkAcc} /> Italic{isPropLocked("italic") && <Lock size={10} color="#fbbf24" />}</label>
+                <label style={{ ...checkLbl, opacity: isPropLocked("faint") ? 0.6 : 1 }}><input type="checkbox" disabled={isPropLocked("faint")} checked={!!selectedStyle.faint} onChange={(e) => updateSelectedStyle({ faint: e.target.checked })} style={chkAcc} /> Faint{isPropLocked("faint") && <Lock size={10} color="#fbbf24" />}</label>
+                <label style={{ ...checkLbl, opacity: isPropLocked("underline") ? 0.6 : 1 }}><input type="checkbox" disabled={isPropLocked("underline")} checked={!!selectedStyle.underline} onChange={(e) => updateSelectedStyle({ underline: e.target.checked })} style={chkAcc} /> Underline{isPropLocked("underline") && <Lock size={10} color="#fbbf24" />}</label>
                 <label style={checkLbl}><input type="checkbox" checked={!!selectedStyle.truncate} onChange={(e) => updateSelectedStyle({ truncate: e.target.checked })} style={chkAcc} /> Truncate (…)</label>
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14, opacity: isPropLocked("padding") ? 0.6 : 1 }}>
               <div style={{ ...microTag, display: "flex", alignItems: "center", gap: 6 }}>
                 {isProUI && <span style={dot("#4ade80")} />} INNER PADDING
+                {isPropLocked("padding") && <Lock size={10} color="#fbbf24" />}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
                 {QUAD_LABELS.map((lbl, i) => (
                   <label key={lbl} style={labelCol}>
                     <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>{lbl}</span>
-                    <input type="number" min={0} max={10} value={selectedStyle.padding[i]} onChange={(e) => updateQuad("padding", i, +e.target.value)} style={inputStyle} />
+                    <input type="number" min={0} max={10} disabled={isPropLocked("padding")} value={selectedStyle.padding[i]} onChange={(e) => updateQuad("padding", i, +e.target.value)} style={inputStyle} />
                   </label>
                 ))}
               </div>
             </div>
 
             {isProUI && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12, opacity: isPropLocked("margin") ? 0.6 : 1 }}>
                 <div style={{ ...microTag, display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={dot("#fb923c")} /> OUTER MARGIN
+                  {isPropLocked("margin") && <Lock size={10} color="#fbbf24" />}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
                   {QUAD_LABELS.map((lbl, i) => (
                     <label key={lbl} style={labelCol}>
                       <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>{lbl}</span>
-                      <input type="number" min={0} max={10} value={selectedStyle.margin[i]} onChange={(e) => updateQuad("margin", i, +e.target.value)} style={inputStyle} />
+                      <input type="number" min={0} max={10} disabled={isPropLocked("margin")} value={selectedStyle.margin[i]} onChange={(e) => updateQuad("margin", i, +e.target.value)} style={inputStyle} />
                     </label>
                   ))}
                 </div>
@@ -790,15 +921,26 @@ export function PropertyInspector({ scrollRef }: Props) {
   );
 }
 
+function FieldLockLabel({ text, locked }: { text: string; locked: boolean }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <span>{text}</span>
+      {locked && <Lock size={10} color="#fbbf24" />}
+    </span>
+  );
+}
+
 function Section({
   title,
   badge,
+  extraBadge,
   subtitle,
   action,
   children,
 }: {
   title: string;
   badge?: string;
+  extraBadge?: ReactNode;
   subtitle?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -806,7 +948,7 @@ function Section({
   return (
     <div style={{ border: "1px solid var(--cs-border)", borderRadius: 10, padding: 16, background: "var(--cs-card-alt)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: subtitle ? 6 : 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
           <h3 style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "var(--cs-text-heading)", letterSpacing: -0.1 }}>
             {title}
           </h3>
@@ -815,6 +957,7 @@ function Section({
               {badge}
             </code>
           )}
+          {extraBadge}
         </div>
         {action}
       </div>

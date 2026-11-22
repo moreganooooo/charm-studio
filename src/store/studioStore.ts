@@ -191,6 +191,7 @@ export interface StudioStoreValue {
   updateNode: (nodeId: string, updater: (n: IRNode) => IRNode) => void;
   updateView: (patch: Partial<IRViewConfig>) => void;
   updateSelectedStyle: (patch: Partial<IRStyle>) => void;
+  unlockStyleProp: (styleName: string, prop?: string) => void;
   updateQuad: (field: "padding" | "margin", idx: number, val: number) => void;
   toggleBorderEdge: (idx: number) => void;
   addToken: (name: string) => boolean;
@@ -599,13 +600,46 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (patch: Partial<IRStyle>) => {
       if (!selectedNode?.style) return;
       const styleKey = selectedNode.style;
-      commitIr((prev) => ({
-        ...prev,
-        styles: { ...prev.styles, [styleKey]: { ...prev.styles[styleKey], ...patch } },
-      }));
+      commitIr((prev) => {
+        const locks = prev.lockedProps?.[styleKey] ?? [];
+        if (locks.includes("*")) return prev;
+        const filteredPatch: Partial<IRStyle> = {};
+        for (const [k, v] of Object.entries(patch) as [keyof IRStyle, IRStyle[keyof IRStyle]][]) {
+          const lockKey = k === "borderEdges" ? "border" : k;
+          if (!locks.includes(lockKey as string)) {
+            (filteredPatch as Record<string, unknown>)[k] = v;
+          }
+        }
+        if (Object.keys(filteredPatch).length === 0) return prev;
+        return {
+          ...prev,
+          styles: { ...prev.styles, [styleKey]: { ...prev.styles[styleKey], ...filteredPatch } },
+        };
+      });
       markStep("styledOrInteracted");
     },
     [selectedNode, commitIr, markStep]
+  );
+
+  const unlockStyleProp = useCallback(
+    (styleName: string, prop?: string) => {
+      commitIr((prev) => {
+        if (!prev.lockedProps?.[styleName]) return prev;
+        const nextLocks = { ...prev.lockedProps };
+        if (!prop || prop === "*") {
+          delete nextLocks[styleName];
+        } else {
+          const remaining = nextLocks[styleName].filter((p) => p !== prop && p !== "*");
+          if (remaining.length > 0) nextLocks[styleName] = remaining;
+          else delete nextLocks[styleName];
+        }
+        return {
+          ...prev,
+          lockedProps: Object.keys(nextLocks).length > 0 ? nextLocks : undefined,
+        };
+      });
+    },
+    [commitIr]
   );
 
   const updateQuad = useCallback(
@@ -763,6 +797,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     updateNode,
     updateView,
     updateSelectedStyle,
+    unlockStyleProp,
     updateQuad,
     toggleBorderEdge,
     addToken,

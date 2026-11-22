@@ -8,12 +8,17 @@ export type WorkspaceMode = "studio" | "pro";
 export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
 export type MouseMode = "none" | "cell" | "all";
 
+export type ViewCursorMode = "auto" | "none" | "manual";
+
 export interface IRViewConfig {
   altScreen?: boolean;
   mouseMode?: MouseMode;
   windowTitle?: string;
   reportFocus?: boolean;
   disableBracketedPasteMode?: boolean;
+  cursorMode?: ViewCursorMode;
+  cursorX?: number;
+  cursorY?: number;
 }
 
 export interface IRStyle {
@@ -107,6 +112,7 @@ export interface IRDoc {
   root: IRNode;
   overlays: IROverlay[];
   view?: IRViewConfig;
+  lockedProps?: Record<string, string[]>;
 }
 
 export interface Rect {

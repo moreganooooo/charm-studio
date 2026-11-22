@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+go mod tidy
+go mod vendor
+
 cp wasm_stubs/clipboard_js.go vendor/github.com/atotto/clipboard/clipboard_js.go
 cp wasm_stubs/tty_js.go vendor/charm.land/bubbletea/v2/tty_js.go
 

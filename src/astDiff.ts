@@ -1,8 +1,9 @@
 import type { IRDoc, IRNode, IRStyle } from "./types";
+import { computeGoDiffWithDst } from "./wasmEngine";
 
 export interface AstDelta {
   kind: "added" | "removed" | "modified";
-  category: "Node" | "Style" | "Token" | "Overlay" | "View";
+  category: "Node" | "Style" | "Token" | "Overlay" | "View" | "Func" | "Type";
   symbol: string;
   detail: string;
 }
@@ -162,6 +163,13 @@ export function computeAstDeltas(prevDoc: IRDoc, currDoc: IRDoc): AstDelta[] {
   if (pv.disableBracketedPasteMode !== cv.disableBracketedPasteMode) {
     viewDiffs.push(`DisableBracketedPasteMode=${cv.disableBracketedPasteMode}`);
   }
+  if (
+    (pv.cursorMode ?? "auto") !== (cv.cursorMode ?? "auto") ||
+    (pv.cursorX ?? 0) !== (cv.cursorX ?? 0) ||
+    (pv.cursorY ?? 0) !== (cv.cursorY ?? 0)
+  ) {
+    viewDiffs.push(`Cursor=${cv.cursorMode ?? "auto"}(${cv.cursorX ?? 0},${cv.cursorY ?? 0})`);
+  }
   if (viewDiffs.length > 0) {
     deltas.push({
       kind: "modified",
@@ -229,4 +237,38 @@ export function computeUnifiedDiff(beforeText: string, afterText: string): DiffL
   }
 
   return lines;
+}
+
+export interface GoAstDiffResult {
+  deltas: AstDelta[];
+  lines: DiffLine[];
+  engine: "dave/dst" | "ir-fallback";
+}
+
+export function computeGoAstDiff(
+  beforeText: string,
+  afterText: string,
+  prevDoc: IRDoc,
+  currDoc: IRDoc,
+  isGoFile = true
+): GoAstDiffResult {
+  if (isGoFile) {
+    const wasmDiff = computeGoDiffWithDst(beforeText, afterText);
+    if (wasmDiff && !wasmDiff.error && wasmDiff.lines) {
+      const astDeltas: AstDelta[] =
+        wasmDiff.deltas && wasmDiff.deltas.length > 0
+          ? wasmDiff.deltas
+          : computeAstDeltas(prevDoc, currDoc);
+      return {
+        deltas: astDeltas,
+        lines: wasmDiff.lines,
+        engine: "dave/dst",
+      };
+    }
+  }
+  return {
+    deltas: computeAstDeltas(prevDoc, currDoc),
+    lines: computeUnifiedDiff(beforeText, afterText),
+    engine: "ir-fallback",
+  };
 }

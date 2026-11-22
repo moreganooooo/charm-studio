@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Code2, Copy, Download, GitCompare } from "lucide-react";
-import { computeAstDeltas, computeUnifiedDiff } from "../astDiff";
+import { computeAstDeltas, computeGoAstDiff } from "../astDiff";
 import {
   generateEntryMainGo,
   generateFixturesPreviewGo,
@@ -36,7 +36,7 @@ export type CodeFileTab =
   | "json";
 
 const CODE_FILE_INFO: Record<CodeFileTab, string> = {
-  theme_gen: "ui/theme_gen.go — Lip Gloss v2 Styles struct & LightDark adaptive color tokens.",
+  theme_gen: "ui/theme_gen.go — Lip Gloss v2 Theme struct, NewTheme(isDark) & LightDark adaptive color tokens.",
   layout_gen: "ui/layout_gen.go — Responsive RenderApp() layout tree & NewLayer overlay compositor.",
   model: "model.go — Bubble Tea v2 model struct, Bubbles/Huh initialization & Init() commands.",
   update: "update.go — WindowSizeMsg resizing, BackgroundColorMsg theming, Tab focus & widget routing.",
@@ -128,13 +128,29 @@ export function CodePreviewDrawer() {
     return applyPaletteTokens(tpl.doc, palette);
   }, [diffBase, past, templateId, palette]);
 
-  const astDeltas = useMemo(() => computeAstDeltas(baselineDoc, ir), [baselineDoc, ir]);
+  const isGoTab =
+    activeTab === "theme_gen" ||
+    activeTab === "layout_gen" ||
+    activeTab === "model" ||
+    activeTab === "update" ||
+    activeTab === "view" ||
+    activeTab === "fixtures_preview" ||
+    activeTab === "main";
 
-  const diffLines = useMemo(() => {
-    if (drawerMode !== "diff") return [];
+  const goDiffResult = useMemo(() => {
+    if (drawerMode !== "diff") {
+      return {
+        deltas: computeAstDeltas(baselineDoc, ir),
+        lines: [],
+        engine: "ir-fallback" as const,
+      };
+    }
     const beforeOutput = renderFileForDoc(baselineDoc, activeTab, goModuleName, palette.label);
-    return computeUnifiedDiff(beforeOutput, generatedOutput);
-  }, [drawerMode, baselineDoc, activeTab, goModuleName, palette.label, generatedOutput]);
+    return computeGoAstDiff(beforeOutput, generatedOutput, baselineDoc, ir, isGoTab);
+  }, [drawerMode, baselineDoc, ir, activeTab, goModuleName, palette.label, generatedOutput, isGoTab]);
+
+  const astDeltas = goDiffResult.deltas;
+  const diffLines = goDiffResult.lines;
 
   const changedLineStats = useMemo(() => {
     let added = 0;
