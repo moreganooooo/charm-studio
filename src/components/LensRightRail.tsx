@@ -56,6 +56,9 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
     selectedId,
     selectedNode,
     selectedStyle,
+    hoveredProperty,
+    setHoveredProperty,
+    setActiveProperty,
     updateNode,
     updateSelectedStyle,
     updateToken,
@@ -76,11 +79,13 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
       axis === "v"
         ? [clamped, cur[1], clamped, cur[3]]
         : [cur[0], clamped, cur[2], clamped];
+    setActiveProperty(axis === "v" ? "padding-v" : "padding-h");
     updateSelectedStyle({ padding: next });
   };
 
   const applyWidgetType = (nextType: ContentType) => {
     if (!selectedNode || selectedNode.kind !== "Box") return;
+    setActiveProperty("widget");
     updateNode(selectedNode.id, (n) => {
       const seeded = defaultWidgetData(nextType);
       return {
@@ -96,6 +101,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
 
   const applySwatch = (sw: { token: string; hex: string }) => {
     if (!selectedStyle) return;
+    setActiveProperty("colors");
     if (sw.token.startsWith("$")) {
       const key = sw.token.slice(1);
       if (ir.tokens[key]) {
@@ -177,7 +183,11 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
             {selectedStyle ? (
               <>
                 {/* Breathing Room (Padding) */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  onMouseEnter={() => setHoveredProperty("padding")}
+                  onMouseLeave={() => setHoveredProperty(null)}
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
                     Breathing room
                   </div>
@@ -187,17 +197,23 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                     value={padV}
                     onDec={() => setSymmetricPadding("v", padV - 1)}
                     onInc={() => setSymmetricPadding("v", padV + 1)}
+                    onHover={(h) => setHoveredProperty(h ? "padding-v" : "padding")}
                   />
                   <StepperRow
                     label="Left & Right"
                     value={padH}
                     onDec={() => setSymmetricPadding("h", padH - 1)}
                     onInc={() => setSymmetricPadding("h", padH + 1)}
+                    onHover={(h) => setHoveredProperty(h ? "padding-h" : "padding")}
                   />
                 </div>
 
                 {/* Border Shape */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div
+                  onMouseEnter={() => setHoveredProperty("border")}
+                  onMouseLeave={() => setHoveredProperty(null)}
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
                     Border
                   </div>
@@ -207,7 +223,10 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                       return (
                         <button
                           key={b.id}
-                          onClick={() => updateSelectedStyle({ border: b.id })}
+                          onClick={() => {
+                            setActiveProperty("border");
+                            updateSelectedStyle({ border: b.id });
+                          }}
                           style={{
                             padding: "8px 6px",
                             borderRadius: 10,
@@ -233,7 +252,11 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                 </div>
 
                 {/* Accent Swatches */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div
+                  onMouseEnter={() => setHoveredProperty("colors")}
+                  onMouseLeave={() => setHoveredProperty(null)}
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
                     Accent
                   </div>
@@ -458,7 +481,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                       padding: 10,
                     }}
                   >
-                    {/* Border + Pink Padding Band */}
+                    {/* Border + Interactive 4-Side Padding Band */}
                     <div
                       style={{
                         borderRadius: currentBorder === "rounded" ? 10 : 4,
@@ -467,29 +490,61 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                             ? `1px dotted ${CHARM_TOKENS.border}`
                             : `${currentBorder === "thick" ? 2 : 1}px solid ${CHARM_TOKENS.pink}`,
                         background: CHARM_TOKENS.pinkBg,
-                        padding: 10,
+                        padding: 8,
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
-                        gap: 8,
+                        gap: 6,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {/* Top Padding Zone */}
+                      <div
+                        onMouseEnter={() => setHoveredProperty("padding-v")}
+                        onMouseLeave={() => setHoveredProperty(null)}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          padding: "3px 6px",
+                          borderRadius: 6,
+                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                          transition: "background 120ms ease",
+                        }}
+                      >
                         <button onClick={() => setSymmetricPadding("v", padV - 1)} style={miniStep} aria-label="Decrease top/bottom padding">
                           -
                         </button>
-                        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textHeading, minWidth: 46, textAlign: "center" }}>
-                          v: {padV}
+                        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textHeading, minWidth: 52, textAlign: "center" }}>
+                          top: {padV}
                         </span>
                         <button onClick={() => setSymmetricPadding("v", padV + 1)} style={miniStep} aria-label="Increase top/bottom padding">
                           +
                         </button>
                       </div>
 
+                      {/* Left + Content + Right Padding Row */}
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 6 }}>
-                        <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease left/right padding">
-                          -
-                        </button>
+                        <div
+                          onMouseEnter={() => setHoveredProperty("padding-h")}
+                          onMouseLeave={() => setHoveredProperty(null)}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: 3,
+                            padding: "4px 3px",
+                            borderRadius: 6,
+                            background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                            transition: "background 120ms ease",
+                          }}
+                        >
+                          <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase left/right padding">+</button>
+                          <span className="cs-mono" style={{ fontSize: 10, color: CHARM_TOKENS.textHeading }}>L:{padH}</span>
+                          <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease left/right padding">-</button>
+                        </div>
+
                         <div
                           style={{
                             flex: 1,
@@ -504,19 +559,62 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                         >
                           <div style={{ fontWeight: 700 }}>{getFriendlyNodeName(selectedNode)}</div>
                           <div className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.lilac, marginTop: 2 }}>
-                            h: {padH} · {currentBorder}
+                            Padding({padV}, {padH})
                           </div>
                         </div>
-                        <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase left/right padding">
-                          +
-                        </button>
+
+                        <div
+                          onMouseEnter={() => setHoveredProperty("padding-h")}
+                          onMouseLeave={() => setHoveredProperty(null)}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: 3,
+                            padding: "4px 3px",
+                            borderRadius: 6,
+                            background: hoveredProperty === "padding-h" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                            transition: "background 120ms ease",
+                          }}
+                        >
+                          <button onClick={() => setSymmetricPadding("h", padH + 1)} style={miniStep} aria-label="Increase right padding">+</button>
+                          <span className="cs-mono" style={{ fontSize: 10, color: CHARM_TOKENS.textHeading }}>R:{padH}</span>
+                          <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease right padding">-</button>
+                        </div>
+                      </div>
+
+                      {/* Bottom Padding Zone */}
+                      <div
+                        onMouseEnter={() => setHoveredProperty("padding-v")}
+                        onMouseLeave={() => setHoveredProperty(null)}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          padding: "3px 6px",
+                          borderRadius: 6,
+                          background: hoveredProperty === "padding-v" ? "rgba(255, 94, 174, 0.22)" : "transparent",
+                          transition: "background 120ms ease",
+                        }}
+                      >
+                        <button onClick={() => setSymmetricPadding("v", padV - 1)} style={miniStep} aria-label="Decrease bottom padding">-</button>
+                        <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textHeading, minWidth: 52, textAlign: "center" }}>
+                          btm: {padV}
+                        </span>
+                        <button onClick={() => setSymmetricPadding("v", padV + 1)} style={miniStep} aria-label="Increase bottom padding">+</button>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Paired Vocabulary Controls */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div
+                  onMouseEnter={() => setHoveredProperty("padding")}
+                  onMouseLeave={() => setHoveredProperty(null)}
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>Breathing room</span>
                     <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.lilac }}>lipgloss.Padding</span>
@@ -526,23 +624,32 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                     value={padV}
                     onDec={() => setSymmetricPadding("v", padV - 1)}
                     onInc={() => setSymmetricPadding("v", padV + 1)}
+                    onHover={(h) => setHoveredProperty(h ? "padding-v" : "padding")}
                   />
                   <StepperRow
                     label="Left & Right"
                     value={padH}
                     onDec={() => setSymmetricPadding("h", padH - 1)}
                     onInc={() => setSymmetricPadding("h", padH + 1)}
+                    onHover={(h) => setHoveredProperty(h ? "padding-h" : "padding")}
                   />
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div
+                  onMouseEnter={() => setHoveredProperty("border")}
+                  onMouseLeave={() => setHoveredProperty(null)}
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>Border</span>
                     <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.lilac }}>lipgloss.Border</span>
                   </div>
                   <select
                     value={currentBorder}
-                    onChange={(e) => updateSelectedStyle({ border: e.target.value as IRStyle["border"] })}
+                    onChange={(e) => {
+                      setActiveProperty("border");
+                      updateSelectedStyle({ border: e.target.value as IRStyle["border"] });
+                    }}
                     style={{
                       background: "var(--cs-input)",
                       color: CHARM_TOKENS.text,
@@ -639,13 +746,21 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <div
+              onMouseEnter={() => setHoveredProperty("padding-v")}
+              onMouseLeave={() => setHoveredProperty(null)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+            >
               <span className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.textMuted }}>V</span>
               <button onClick={() => setSymmetricPadding("v", padV - 1)} style={miniStep} aria-label="Decrease vertical padding">-</button>
               <span className="cs-mono" style={{ fontSize: 11.5, minWidth: 16, textAlign: "center" }}>{padV}</span>
               <button onClick={() => setSymmetricPadding("v", padV + 1)} style={miniStep} aria-label="Increase vertical padding">+</button>
             </div>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <div
+              onMouseEnter={() => setHoveredProperty("padding-h")}
+              onMouseLeave={() => setHoveredProperty(null)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+            >
               <span className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.textMuted }}>H</span>
               <button onClick={() => setSymmetricPadding("h", padH - 1)} style={miniStep} aria-label="Decrease horizontal padding">-</button>
               <span className="cs-mono" style={{ fontSize: 11.5, minWidth: 16, textAlign: "center" }}>{padH}</span>
@@ -663,14 +778,18 @@ function StepperRow({
   value,
   onDec,
   onInc,
+  onHover,
 }: {
   label: string;
   value: number;
   onDec: () => void;
   onInc: () => void;
+  onHover?: (hovered: boolean) => void;
 }) {
   return (
     <div
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
       style={{
         display: "flex",
         alignItems: "center",

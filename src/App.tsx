@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import {
   AlertTriangle,
   ArrowRight,
+  Check,
   CheckCircle2,
   Code2,
   GitBranch,
@@ -11,13 +12,13 @@ import {
 } from "lucide-react";
 import { AuthModal, type LocalUser } from "./AuthModal";
 import { CharmGlossaryModal } from "./CharmGlossaryModal";
-import { generateLayoutGenGo, generateThemeGenGo } from "./codegen";
 import { CommandPaletteModal } from "./components/CommandPaletteModal";
 import { LensRightRail } from "./components/LensRightRail";
 import { LensTopBar } from "./components/LensTopBar";
 import { ScenePickerModal } from "./components/ScenePickerModal";
 import { btnStyle, CHARM_TOKENS, studioStyles } from "./components/studioStyles";
 import { DesktopCompanionModal } from "./DesktopCompanionModal";
+import { applyInlineGoExpression, isEditableGoExpressionLine, resolveLinkedCodeSlice } from "./goInlineSync";
 import { GuideFaqModal } from "./GuideFaqModal";
 import { ImportModal } from "./ImportModal";
 import { LayersPanel } from "./LayersPanel";
@@ -37,71 +38,10 @@ import { MATRIX_PRESETS, StudioProvider, useStudioStore } from "./store/studioSt
 import { supabase } from "./supabaseClient";
 import { TerminalViewport } from "./TerminalViewport";
 import { TooltipProvider } from "./Tooltip";
-import type { ColorProfile, IRDoc, IRNode } from "./types";
+import type { ColorProfile, MatrixFitStatus } from "./types";
 import { WidgetPickerModal } from "./WidgetPickerModal";
 
 const COACH_KEY = "charmstudio:coachDismissed:v1";
-
-function extractLinkedGoSnippet(
-  doc: IRDoc,
-  selectedNode: IRNode | null
-): { fileLabel: string; lines: string[]; emptyReason?: string } {
-  if (!selectedNode) {
-    return {
-      fileLabel: "ui/theme_gen.go",
-      lines: [],
-      emptyReason: "Select any pane in the terminal or outline to inspect its Go code.",
-    };
-  }
-
-  if (selectedNode.style) {
-    const themeGo = generateThemeGenGo(doc);
-    const allLines = themeGo.split("\n");
-    const marker = `// @tui:style=${selectedNode.style}`;
-    const startIdx = allLines.findIndex((line) => line.includes(marker));
-    if (startIdx >= 0) {
-      const snippet: string[] = [];
-      for (let i = startIdx; i < allLines.length; i++) {
-        snippet.push(allLines[i]);
-        if (i > startIdx && allLines[i].trimEnd().endsWith(",")) {
-          break;
-        }
-        if (snippet.length >= 18) break;
-      }
-      return { fileLabel: "ui/theme_gen.go", lines: snippet };
-    }
-  }
-
-  const layoutGo = generateLayoutGenGo(doc);
-  const layoutLines = layoutGo.split("\n");
-  const idMarker = `// @tui:id=${selectedNode.id}`;
-  const idIdx = layoutLines.findIndex((line) => line.includes(idMarker));
-  if (idIdx >= 0) {
-    const start = Math.max(0, idIdx);
-    const end = Math.min(layoutLines.length, idIdx + 8);
-    return { fileLabel: "ui/layout_gen.go", lines: layoutLines.slice(start, end) };
-  }
-
-  return {
-    fileLabel: "ui/layout_gen.go",
-    lines: layoutLines.slice(0, 10),
-  };
-}
-
-function isHighlightedGoLine(line: string, styleName?: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  if (styleName && line.includes(`// @tui:style=${styleName}`)) return true;
-  if (
-    trimmed.includes("Padding(") ||
-    trimmed.includes("Border(") ||
-    trimmed.includes("BorderForeground(") ||
-    trimmed.includes("Margin(")
-  ) {
-    return true;
-  }
-  return false;
-}
 
 export default function App() {
   return (
@@ -175,6 +115,12 @@ function StudioShell() {
     setOverlayAnchor,
     addOverlay,
     removeOverlay,
+    goModuleName,
+    activeProperty,
+    setActiveProperty,
+    lastKeyPulse,
+    matrixFitStatus,
+    updateSelectedStyle,
     updateNode,
     loadTemplate,
     previewMode,
@@ -194,6 +140,8 @@ function StudioShell() {
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [scenesOpen, setScenesOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [hybridEditLine, setHybridEditLine] = useState<{ lineNo: number; value: string } | null>(null);
+  const [hybridPulseLive, setHybridPulseLive] = useState(false);
 
   const [coachDismissed, setCoachDismissed] = useState<boolean>(() => {
     try {
@@ -241,9 +189,22 @@ function StudioShell() {
     return null;
   }, [user, localUser]);
 
-  const linkedGoSnippet = useMemo(
-    () => (activeLens === "hybrid" ? extractLinkedGoSnippet(ir, selectedNode) : null),
-    [activeLens, ir, selectedNode]
+  useEffect(() => {
+    if (!lastKeyPulse || activeLens !== "hybrid") return;
+    const t0 = setTimeout(() => setHybridPulseLive(true), 0);
+    const t1 = setTimeout(() => setHybridPulseLive(false), 1500);
+    return () => {
+      clearTimeout(t0);
+      clearTimeout(t1);
+    };
+  }, [lastKeyPulse, activeLens]);
+
+  const linkedGoSlice = useMemo(
+    () =>
+      activeLens === "hybrid"
+        ? resolveLinkedCodeSlice(ir, selectedNode, activeProperty, goModuleName, lastKeyPulse, hybridPulseLive)
+        : null,
+    [activeLens, ir, selectedNode, activeProperty, goModuleName, lastKeyPulse, hybridPulseLive]
   );
 
   // Global keyboard shortcuts
@@ -691,7 +652,22 @@ function StudioShell() {
                       Native PTY
                     </button>
                   </div>
+
+                  <MatrixFitPill
+                    status={matrixFitStatus}
+                    onSelectOverflow={(nodeId) => setSelectedId(nodeId)}
+                  />
                 </div>
+              </div>
+            )}
+
+            {/* Multi-Size Fit Pill in Hybrid Lens */}
+            {activeLens === "hybrid" && (
+              <div style={{ width: "min(760px, 100%)", display: "flex", justifyContent: "flex-end" }}>
+                <MatrixFitPill
+                  status={matrixFitStatus}
+                  onSelectOverflow={(nodeId) => setSelectedId(nodeId)}
+                />
               </div>
             )}
 
@@ -855,8 +831,8 @@ function StudioShell() {
               </div>
             )}
 
-            {/* LENS 2 (Hybrid): Linked Go Code Card directly beneath the terminal */}
-            {activeLens === "hybrid" && linkedGoSnippet && (
+            {/* LENS 2 (Hybrid): Real Code-Span Linked Go Card directly beneath the terminal */}
+            {activeLens === "hybrid" && linkedGoSlice && (
               <section
                 aria-label="Linked Go code preview"
                 style={{
@@ -876,16 +852,24 @@ function StudioShell() {
                     borderBottom: `1px solid ${CHARM_TOKENS.border}`,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                     <Code2 size={14} style={{ color: CHARM_TOKENS.lilac, flexShrink: 0 }} />
                     <span className="cs-mono" style={{ fontSize: 12, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
-                      {linkedGoSnippet.fileLabel}
+                      {linkedGoSlice.file === "theme_gen.go" || linkedGoSlice.file === "layout_gen.go"
+                        ? `ui/${linkedGoSlice.file}`
+                        : linkedGoSlice.file}
+                    </span>
+                    <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textMuted }}>
+                      L{linkedGoSlice.startLine}–L{linkedGoSlice.endLine}
                     </span>
                     {selectedNode?.style && (
                       <span className="cs-mono" style={{ fontSize: 11.5, color: CHARM_TOKENS.lilac }}>
                         · {selectedNode.style}
                       </span>
                     )}
+                    <span style={{ fontSize: 11, color: CHARM_TOKENS.textDim }}>
+                      · Click a property line to edit Go
+                    </span>
                   </div>
 
                   <button
@@ -901,40 +885,93 @@ function StudioShell() {
                   </button>
                 </div>
 
-                {linkedGoSnippet.emptyReason ? (
-                  <div style={{ padding: 14, fontSize: 12.5, color: CHARM_TOKENS.textMuted }}>
-                    {linkedGoSnippet.emptyReason}
-                  </div>
-                ) : (
-                  <div
-                    className="cs-mono"
-                    style={{
-                      padding: "10px 0",
-                      fontSize: 12,
-                      lineHeight: 1.55,
-                      color: CHARM_TOKENS.text,
-                      overflowX: "auto",
-                    }}
-                  >
-                    {linkedGoSnippet.lines.map((line, idx) => {
-                      const highlighted = isHighlightedGoLine(line, selectedNode?.style);
-                      return (
-                        <div
-                          key={idx}
+                <div
+                  className="cs-mono"
+                  style={{
+                    padding: "10px 0",
+                    fontSize: 12,
+                    lineHeight: 1.55,
+                    color: CHARM_TOKENS.text,
+                    overflowX: "auto",
+                  }}
+                >
+                  {linkedGoSlice.lines.map((item) => {
+                    const editable = isEditableGoExpressionLine(item.text);
+                    const isEditing = hybridEditLine?.lineNo === item.lineNo;
+                    return (
+                      <div
+                        key={item.lineNo}
+                        onClick={() => {
+                          if (editable && !isEditing) {
+                            setHybridEditLine({ lineNo: item.lineNo, value: item.text.trim() });
+                          }
+                        }}
+                        title={editable ? "Click to edit Go expression directly" : undefined}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "1px 14px 1px 10px",
+                          whiteSpace: "pre",
+                          background: item.isHighlighted ? "rgba(255, 94, 174, 0.16)" : "transparent",
+                          borderLeft: item.isHighlighted ? `3px solid ${CHARM_TOKENS.pink}` : "3px solid transparent",
+                          color: item.isHighlighted ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
+                          cursor: editable ? "pointer" : "default",
+                        }}
+                      >
+                        <span
                           style={{
-                            padding: "1px 14px",
-                            whiteSpace: "pre",
-                            background: highlighted ? "rgba(255, 94, 174, 0.14)" : "transparent",
-                            borderLeft: highlighted ? `3px solid ${CHARM_TOKENS.pink}` : "3px solid transparent",
-                            color: highlighted ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
+                            width: 30,
+                            flexShrink: 0,
+                            color: CHARM_TOKENS.textDim,
+                            userSelect: "none",
+                            textAlign: "right",
+                            paddingRight: 10,
+                            fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          {line || " "}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                          {item.lineNo}
+                        </span>
+                        {isEditing ? (
+                          <input
+                            autoFocus
+                            value={hybridEditLine.value}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setHybridEditLine({ lineNo: item.lineNo, value: e.target.value })}
+                            onBlur={() => setHybridEditLine(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                applyInlineGoExpression(hybridEditLine.value, {
+                                  doc: ir,
+                                  targetNode: selectedNode,
+                                  updateSelectedStyle,
+                                  updateNode,
+                                  setActiveProperty,
+                                });
+                                setHybridEditLine(null);
+                              } else if (e.key === "Escape") {
+                                setHybridEditLine(null);
+                              }
+                            }}
+                            style={{
+                              flex: 1,
+                              background: "#150f1d",
+                              color: "#f4eaff",
+                              border: `1px solid ${CHARM_TOKENS.pink}`,
+                              borderRadius: 4,
+                              padding: "1px 6px",
+                              fontFamily: "var(--cs-font-mono)",
+                              fontSize: 12,
+                              outline: "none",
+                            }}
+                          />
+                        ) : (
+                          <span>{item.text || " "}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </section>
             )}
           </main>
@@ -1157,3 +1194,68 @@ const compactSelect: React.CSSProperties = {
   fontSize: 11.5,
   fontWeight: 600,
 };
+
+function MatrixFitPill({
+  status,
+  onSelectOverflow,
+}: {
+  status: MatrixFitStatus;
+  onSelectOverflow: (nodeId: string) => void;
+}) {
+  if (status.allFit || status.failingPresets.length === 0) {
+    return (
+      <span
+        className="cs-mono"
+        title="Checked live across 58×18, 80×24, and 116×30 terminal sizes"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "4px 10px",
+          borderRadius: 999,
+          background: CHARM_TOKENS.mintBg,
+          border: `1px solid ${CHARM_TOKENS.mintBorder}`,
+          color: CHARM_TOKENS.mint,
+          fontSize: 11,
+          fontWeight: 600,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Check size={12} />
+        <span>All 3 sizes fit (58×18 · 80×24 · 116×30)</span>
+      </span>
+    );
+  }
+
+  const first = status.failingPresets[0];
+  const shortLabel = first.title.split(" ")[0] || first.title;
+  const targetNode = first.nodeIds[0];
+
+  return (
+    <button
+      onClick={() => {
+        if (targetNode) onSelectOverflow(targetNode);
+      }}
+      title={`Click to select overflowing pane #${targetNode} (${first.nodeIds.map((id) => `#${id}`).join(", ")})`}
+      className="cs-mono"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: "rgba(255, 211, 122, 0.14)",
+        border: "1px solid rgba(255, 211, 122, 0.45)",
+        color: CHARM_TOKENS.gold,
+        fontSize: 11,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <AlertTriangle size={12} />
+      <span>
+        Overflow on {shortLabel} ({first.cols}×{first.rows})
+      </span>
+    </button>
+  );
+}

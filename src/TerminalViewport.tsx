@@ -3,10 +3,102 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Terminal as TerminalIcon, Trash2 } from "lucide-react";
+import { useStudioStore } from "./store/studioStore";
 import { Tooltip } from "./Tooltip";
 import type { PtyStatus } from "./previewTransport";
-import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type Rect, type TelemetryNode } from "./types";
+import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type IRNode, type Rect, type TelemetryNode } from "./types";
 import { dispatchKey, ensureEngineReady, hitTestCell, renderFrame, wailsTransport } from "./wasmEngine";
+
+interface SplitEdge {
+  key: string;
+  axis: "x" | "y";
+  firstId: string;
+  secondId: string;
+  seamX: number;
+  seamY: number;
+  span: number;
+  firstSize: number;
+  secondSize: number;
+}
+
+function getNodeBounds(node: IRNode, telMap: Map<string, TelemetryNode>): Rect | null {
+  const direct = telMap.get(node.id);
+  if (direct && direct.border.w > 0 && direct.border.h > 0) {
+    return direct.margin.w > 0 && direct.margin.h > 0 ? direct.margin : direct.border;
+  }
+  const childRects = (node.children ?? [])
+    .map((c) => getNodeBounds(c, telMap))
+    .filter((r): r is Rect => r !== null);
+  if (childRects.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of childRects) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w);
+    maxY = Math.max(maxY, r.y + r.h);
+  }
+  return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
+}
+
+function collectSplitEdges(root: IRNode, telemetry: TelemetryNode[]): SplitEdge[] {
+  const telMap = new Map<string, TelemetryNode>();
+  for (const t of telemetry) telMap.set(t.id, t);
+
+  const edges: SplitEdge[] = [];
+  const walk = (node: IRNode) => {
+    if ((node.kind === "JoinHorizontal" || node.kind === "JoinVertical") && node.children?.length) {
+      const visibleChildren = node.children
+        .map((ch) => ({ node: ch, rect: getNodeBounds(ch, telMap) }))
+        .filter((item): item is { node: IRNode; rect: Rect } => item.rect !== null);
+
+      for (let i = 0; i < visibleChildren.length - 1; i++) {
+        const a = visibleChildren[i];
+        const b = visibleChildren[i + 1];
+        if (node.kind === "JoinHorizontal") {
+          const seamX = Math.round((a.rect.x + a.rect.w + b.rect.x) / 2);
+          const minY = Math.min(a.rect.y, b.rect.y);
+          const maxY = Math.max(a.rect.y + a.rect.h, b.rect.y + b.rect.h);
+          if (maxY > minY) {
+            edges.push({
+              key: `${node.id}:${a.node.id}:${b.node.id}`,
+              axis: "x",
+              firstId: a.node.id,
+              secondId: b.node.id,
+              seamX,
+              seamY: minY,
+              span: maxY - minY,
+              firstSize: a.rect.w,
+              secondSize: b.rect.w,
+            });
+          }
+        } else {
+          const seamY = Math.round((a.rect.y + a.rect.h + b.rect.y) / 2);
+          const minX = Math.min(a.rect.x, b.rect.x);
+          const maxX = Math.max(a.rect.x + a.rect.w, b.rect.x + b.rect.w);
+          if (maxX > minX) {
+            edges.push({
+              key: `${node.id}:${a.node.id}:${b.node.id}`,
+              axis: "y",
+              firstId: a.node.id,
+              secondId: b.node.id,
+              seamX: minX,
+              seamY,
+              span: maxX - minX,
+              firstSize: a.rect.h,
+              secondSize: b.rect.h,
+            });
+          }
+        }
+      }
+      for (const ch of node.children) walk(ch);
+    }
+  };
+  walk(root);
+  return edges;
+}
 
 export interface TermPalette {
   id: string;
@@ -97,10 +189,20 @@ export function TerminalViewport({
     ptyConfigRef.current = { cols, rows, fontSize, fontFamily, palette };
   }, [cols, rows, fontSize, fontFamily, palette]);
 
+  const {
+    activeLens,
+    hoveredProperty,
+    setActiveProperty,
+    triggerKeyPulse,
+    updateNode,
+  } = useStudioStore();
+
   const [ready, setReady] = useState(false);
   const [focused, setFocused] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetryNode[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
+  const [dragEdgeInfo, setDragEdgeInfo] = useState<{ key: string; x: number; y: number; label: string } | null>(null);
   const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.38 });
   const [inlineEdit, setInlineEdit] = useState<{ id: string; text: string } | null>(null);
 
@@ -308,6 +410,7 @@ export function TerminalViewport({
     const handled = dispatchKey(selectedId, e.key, e.shiftKey);
     if (handled) {
       e.preventDefault();
+      triggerKeyPulse(selectedId, e.key);
       onInteract();
       return;
     }
@@ -319,9 +422,76 @@ export function TerminalViewport({
         const nextIdx = e.shiftKey
           ? (curIdx + order.length - 1) % order.length
           : (curIdx + 1) % order.length;
-        onSelect(order[nextIdx].id);
+        const nextId = order[nextIdx].id;
+        triggerKeyPulse(nextId, e.shiftKey ? "shift+tab" : "tab");
+        onSelect(nextId);
       }
     }
+  };
+
+  const startSplitEdgeDrag = (e: React.PointerEvent<HTMLDivElement>, edge: SplitEdge) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startFirst = edge.firstSize;
+    const totalSpan = Math.max(12, edge.firstSize + edge.secondSize);
+    const minCell = edge.axis === "x" ? 6 : 3;
+    const cw = cellSize.w;
+    const ch = cellSize.h;
+    let lastCommitted = startFirst;
+
+    const initialLabel =
+      edge.axis === "x"
+        ? `${startFirst} cols | ${edge.secondSize} cols`
+        : `${startFirst} rows | ${edge.secondSize} rows`;
+    const basePxX = 6 + edge.seamX * cw;
+    const basePxY = 6 + edge.seamY * ch;
+    setDragEdgeInfo({
+      key: edge.key,
+      x: basePxX,
+      y: basePxY,
+      label: initialLabel,
+    });
+    setActiveProperty("size");
+
+    const onMove = (ev: PointerEvent) => {
+      const delta =
+        edge.axis === "x"
+          ? Math.round((ev.clientX - startX) / Math.max(1, cw))
+          : Math.round((ev.clientY - startY) / Math.max(1, ch));
+      const nextFirst = Math.max(minCell, Math.min(totalSpan - minCell, startFirst + delta));
+      const nextSecond = Math.max(minCell, totalSpan - nextFirst);
+      const label =
+        edge.axis === "x"
+          ? `${nextFirst} cols | ${nextSecond} cols`
+          : `${nextFirst} rows | ${nextSecond} rows`;
+
+      setDragEdgeInfo({
+        key: edge.key,
+        x: edge.axis === "x" ? 6 + (edge.seamX + (nextFirst - startFirst)) * cw : basePxX,
+        y: edge.axis === "y" ? 6 + (edge.seamY + (nextFirst - startFirst)) * ch : basePxY,
+        label,
+      });
+
+      if (nextFirst !== lastCommitted) {
+        lastCommitted = nextFirst;
+        updateNode(edge.firstId, (n) =>
+          edge.axis === "x"
+            ? { ...n, width: { ...(n.width ?? { mode: "fixed" }), mode: "fixed", value: nextFirst } }
+            : { ...n, height: { ...(n.height ?? { mode: "fixed" }), mode: "fixed", value: nextFirst } }
+        );
+        setActiveProperty("size");
+      }
+    };
+
+    const onUp = () => {
+      setDragEdgeInfo(null);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const startCornerResize = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -362,6 +532,15 @@ export function TerminalViewport({
   const selectedStyleObj = selectedNode?.style ? doc.styles[selectedNode.style] : undefined;
   const effectiveOverlayMode: "none" | "padding-band" | "full-box-model" =
     overlayMode ?? (showOverlay ? "full-box-model" : "none");
+  const isPaddingHovered =
+    hoveredProperty === "padding" ||
+    hoveredProperty === "padding-v" ||
+    hoveredProperty === "padding-h";
+  const showHollowPaddingBand =
+    activeLens === "hybrid" ||
+    effectiveOverlayMode === "padding-band" ||
+    isPaddingHovered;
+  const splitEdges = mode === "wasm" && ready && Boolean(onResize) ? collectSplitEdges(doc.root, telemetry) : [];
   const canMutateSelected = selectedNode && selectedId !== doc.root.id && !doc.overlays.some((o) => o.node.id === selectedId);
 
   const canvasPixelW = Math.ceil(cols * cellSize.w);
@@ -540,38 +719,190 @@ export function TerminalViewport({
               }}
               style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
             >
-              {effectiveOverlayMode === "none" && hoveredTel && hoveredTel.id !== selectedId && (
+              {effectiveOverlayMode === "none" && !showHollowPaddingBand && hoveredTel && hoveredTel.id !== selectedId && (
                 <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 94, 174, 0.45)" strokeDasharray="3 3" rx={3} />
               )}
-              {effectiveOverlayMode === "none" && selectedTel && (
+              {effectiveOverlayMode === "none" && !showHollowPaddingBand && selectedTel && (
                 <rect {...boxRect(selectedTel.border)} fill="transparent" stroke="#ff5eae" strokeWidth={1.5} rx={3} />
               )}
               {effectiveOverlayMode === "padding-band" && hoveredTel && hoveredTel.id !== selectedId && (
                 <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(185, 162, 255, 0.45)" strokeDasharray="3 3" />
               )}
-              {effectiveOverlayMode === "padding-band" && selectedTel && (() => {
-                const outer = boxRect(selectedTel.padding);
-                const inner = boxRect(selectedTel.content);
-                const d = `M ${outer.x} ${outer.y} H ${outer.x + outer.width} V ${outer.y + outer.height} H ${outer.x} Z M ${inner.x} ${inner.y} V ${inner.y + inner.height} H ${inner.x + inner.width} V ${inner.y} Z`;
-                return (
-                  <>
-                    <path d={d} fillRule="evenodd" fill="rgba(255, 94, 174, 0.25)" />
-                    <rect {...outer} fill="transparent" stroke="#ff5eae" strokeWidth={1.5} />
-                    <rect {...inner} fill="transparent" stroke="rgba(185, 162, 255, 0.7)" strokeDasharray="3 2" />
-                  </>
-                );
-              })()}
-              {effectiveOverlayMode === "full-box-model" && hoveredTel && hoveredTel.id !== selectedId && (
+              {effectiveOverlayMode === "full-box-model" && !isPaddingHovered && hoveredTel && hoveredTel.id !== selectedId && (
                 <rect {...boxRect(hoveredTel.margin)} fill="rgba(196, 181, 253, 0.09)" stroke="#c4b5fd" strokeDasharray="4 3" />
               )}
-              {effectiveOverlayMode === "full-box-model" && selectedTel && (
+              {effectiveOverlayMode === "full-box-model" && !isPaddingHovered && selectedTel && (
                 <>
                   <rect {...boxRect(selectedTel.margin)}  fill="rgba(251, 146, 60, 0.16)" stroke="#fb923c" strokeWidth={1.5} />
                   <rect {...boxRect(selectedTel.padding)} fill="rgba(74, 222, 128, 0.14)" stroke="#4ade80" strokeDasharray="3 2" />
                   <rect {...boxRect(selectedTel.content)} fill="rgba(96, 165, 250, 0.18)" stroke="#60a5fa" />
                 </>
               )}
+              {showHollowPaddingBand && selectedTel && (() => {
+                const p = selectedTel.padding;
+                const c = selectedTel.content;
+                const strips: { key: string; rect: Rect; opacity: number }[] = [
+                  {
+                    key: "top",
+                    rect: { x: p.x, y: p.y, w: p.w, h: Math.max(0, c.y - p.y) },
+                    opacity: hoveredProperty === "padding-v" ? 0.42 : 0.25,
+                  },
+                  {
+                    key: "bottom",
+                    rect: { x: p.x, y: c.y + c.h, w: p.w, h: Math.max(0, p.y + p.h - (c.y + c.h)) },
+                    opacity: hoveredProperty === "padding-v" ? 0.42 : 0.25,
+                  },
+                  {
+                    key: "left",
+                    rect: { x: p.x, y: c.y, w: Math.max(0, c.x - p.x), h: c.h },
+                    opacity: hoveredProperty === "padding-h" ? 0.42 : 0.25,
+                  },
+                  {
+                    key: "right",
+                    rect: { x: c.x + c.w, y: c.y, w: Math.max(0, p.x + p.w - (c.x + c.w)), h: c.h },
+                    opacity: hoveredProperty === "padding-h" ? 0.42 : 0.25,
+                  },
+                ];
+                return (
+                  <>
+                    {strips
+                      .filter((s) => s.rect.w > 0 && s.rect.h > 0)
+                      .map((s) => (
+                        <rect
+                          key={s.key}
+                          {...boxRect(s.rect)}
+                          fill={`rgba(255, 94, 174, ${s.opacity})`}
+                          stroke="#ff5eae"
+                          strokeWidth={1}
+                        />
+                      ))}
+                    <rect {...boxRect(p)} fill="transparent" stroke="#ff5eae" strokeWidth={1.25} />
+                    <rect {...boxRect(c)} fill="transparent" stroke="rgba(185, 162, 255, 0.7)" strokeDasharray="3 2" />
+                  </>
+                );
+              })()}
             </svg>
+
+            {/* Floating Padding(v, h) Pill Badge on Top-Right Corner of Selected Border */}
+            {showHollowPaddingBand && selectedTel && selectedStyleObj && (
+              <div
+                className="cs-mono"
+                style={{
+                  position: "absolute",
+                  left: Math.max(6, Math.min(canvasPixelW - 110, 6 + (selectedTel.border.x + selectedTel.border.w) * cellSize.w - 92)),
+                  top: Math.max(4, 6 + selectedTel.border.y * cellSize.h - 10),
+                  zIndex: 18,
+                  pointerEvents: "none",
+                  padding: "1px 7px",
+                  borderRadius: 999,
+                  background: "#150f1d",
+                  border: "1px solid #ff5eae",
+                  color: "#ff5eae",
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.45)",
+                }}
+              >
+                Padding({selectedStyleObj.padding[0]}, {selectedStyleObj.padding[1]})
+              </div>
+            )}
+
+            {/* Draggable Split-Edge Handles Between Panes */}
+            {splitEdges.map((edge) => {
+              const hot = hoveredEdgeKey === edge.key || dragEdgeInfo?.key === edge.key;
+              if (edge.axis === "x") {
+                return (
+                  <div
+                    key={edge.key}
+                    onPointerDown={(e) => startSplitEdgeDrag(e, edge)}
+                    onMouseEnter={() => setHoveredEdgeKey(edge.key)}
+                    onMouseLeave={() => setHoveredEdgeKey((k) => (k === edge.key ? null : k))}
+                    title="Drag seam to resize pane width in terminal cells"
+                    style={{
+                      position: "absolute",
+                      left: 6 + edge.seamX * cellSize.w - 3,
+                      top: 6 + edge.seamY * cellSize.h,
+                      width: 6,
+                      height: Math.max(8, edge.span * cellSize.h),
+                      cursor: "col-resize",
+                      zIndex: 19,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: hot ? 2 : 0,
+                        height: "100%",
+                        background: "#ff5eae",
+                        borderRadius: 2,
+                        boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.7)" : "none",
+                        transition: "width 100ms ease",
+                      }}
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={edge.key}
+                  onPointerDown={(e) => startSplitEdgeDrag(e, edge)}
+                  onMouseEnter={() => setHoveredEdgeKey(edge.key)}
+                  onMouseLeave={() => setHoveredEdgeKey((k) => (k === edge.key ? null : k))}
+                  title="Drag seam to resize pane height in terminal rows"
+                  style={{
+                    position: "absolute",
+                    left: 6 + edge.seamX * cellSize.w,
+                    top: 6 + edge.seamY * cellSize.h - 3,
+                    width: Math.max(8, edge.span * cellSize.w),
+                    height: 6,
+                    cursor: "row-resize",
+                    zIndex: 19,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: hot ? 2 : 0,
+                      width: "100%",
+                      background: "#ff5eae",
+                      borderRadius: 2,
+                      boxShadow: hot ? "0 0 8px rgba(255, 94, 174, 0.7)" : "none",
+                      transition: "height 100ms ease",
+                    }}
+                  />
+                </div>
+              );
+            })}
+
+            {/* Live Cell-Dimension Pill While Dragging a Seam */}
+            {dragEdgeInfo && (
+              <div
+                className="cs-mono"
+                style={{
+                  position: "absolute",
+                  left: Math.max(10, Math.min(canvasPixelW - 140, dragEdgeInfo.x + 8)),
+                  top: Math.max(10, dragEdgeInfo.y + 8),
+                  zIndex: 25,
+                  pointerEvents: "none",
+                  padding: "3px 9px",
+                  borderRadius: 999,
+                  background: "#150f1d",
+                  border: "1px solid #ff5eae",
+                  color: "#f4eaff",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 8px 20px rgba(0, 0, 0, 0.55)",
+                }}
+              >
+                {dragEdgeInfo.label}
+              </div>
+            )}
           </>
         )}
 

@@ -26,15 +26,18 @@ import {
   type IRNode,
   type IRStyle,
   type IRViewConfig,
+  type KeyPulse,
+  type MatrixFitStatus,
   type OverlayAnchor,
   type StudioLens,
+  type SyncPropertyKind,
   type TelemetryNode,
   type WorkspaceMode,
 } from "../types";
 import type { WidgetPreset } from "../widgetPresets";
 import type { McpServerStatus, PtyStatus, WorktreeSession } from "../previewTransport";
 import { isWailsRuntimeAvailable } from "../previewTransport";
-import { setActiveTransport, wailsTransport } from "../wasmEngine";
+import { ensureEngineReady, renderFrame, setActiveTransport, wailsTransport } from "../wasmEngine";
 
 export const PALETTES: ThemePreset[] = [
   {
@@ -152,7 +155,7 @@ export interface StudioStoreValue {
   undo: () => void;
   redo: () => void;
 
-  // Selection & Telemetry
+  // Selection, Sync Telemetry & Fit Status
   selectedId: string;
   setSelectedId: (id: string) => void;
   selectedNode: IRNode | null;
@@ -160,6 +163,13 @@ export interface StudioStoreValue {
   selectedStyle: IRStyle | null;
   singleTel: TelemetryNode[];
   setSingleTel: (tel: TelemetryNode[]) => void;
+  hoveredProperty: SyncPropertyKind | null;
+  setHoveredProperty: (p: SyncPropertyKind | null) => void;
+  activeProperty: SyncPropertyKind;
+  setActiveProperty: (p: SyncPropertyKind) => void;
+  lastKeyPulse: KeyPulse | null;
+  triggerKeyPulse: (nodeId: string, key: string) => void;
+  matrixFitStatus: MatrixFitStatus;
 
   // Viewport Settings
   viewMode: "single" | "matrix";
@@ -314,6 +324,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const [selectedId, setSelectedId] = useState<string>(TEMPLATES[0].defaultSelectedId);
   const [singleTel, setSingleTel] = useState<TelemetryNode[]>([]);
+  const [hoveredProperty, setHoveredProperty] = useState<SyncPropertyKind | null>(null);
+  const [activeProperty, setActiveProperty] = useState<SyncPropertyKind>("padding");
+  const [lastKeyPulse, setLastKeyPulse] = useState<KeyPulse | null>(null);
+  const [matrixFitStatus, setMatrixFitStatus] = useState<MatrixFitStatus>({
+    allFit: true,
+    failingPresets: [],
+  });
   const [sharedCopied, setSharedCopied] = useState(false);
 
   const [onboarding, setOnboarding] = useState<OnboardingProgress>(() => {
@@ -393,6 +410,53 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveDraft({ ir, paletteId, templateId });
   }, [ir, paletteId, templateId]);
+
+  const paletteDarkBg = useMemo(
+    () => (allPalettes.find((p) => p.id === paletteId) ?? allPalettes[0]).darkBG,
+    [allPalettes, paletteId]
+  );
+
+  // Off-screen 3-size matrix fit check (debounced 150ms after engine ready)
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    ensureEngineReady().then(() => {
+      if (cancelled) return;
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        const failingPresets: MatrixFitStatus["failingPresets"] = [];
+        for (const preset of MATRIX_PRESETS) {
+          const frame = renderFrame(ir, preset.cols, preset.rows, paletteDarkBg, colorProfile);
+          if (frame.error) continue;
+          const badIds = (frame.telemetry ?? [])
+            .filter((t) => t.overflowX || t.overflowY)
+            .map((t) => t.id);
+          if (badIds.length > 0) {
+            failingPresets.push({
+              title: preset.title,
+              cols: preset.cols,
+              rows: preset.rows,
+              nodeIds: badIds,
+            });
+          }
+        }
+        // Re-render active single viewport dimensions so WASM hitTest compositor stays synced
+        renderFrame(ir, cols, rows, paletteDarkBg, colorProfile);
+        if (!cancelled) {
+          setMatrixFitStatus({
+            allFit: failingPresets.length === 0,
+            failingPresets,
+          });
+        }
+      }, 150);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [ir, paletteDarkBg, colorProfile, cols, rows]);
 
   const setDesktopBridgeUrl = useCallback((url: string) => {
     const clean = url.trim() || "http://127.0.0.1:43120";
@@ -610,6 +674,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     markStep("styledOrInteracted");
   }, [markStep]);
 
+  const triggerKeyPulse = useCallback((nodeId: string, key: string) => {
+    setLastKeyPulse({ nodeId, key, ts: Date.now() });
+    setActiveProperty("keybinding");
+  }, []);
+
   const selectPalette = useCallback(
     (nextId: string) => {
       setPaletteId(nextId);
@@ -806,6 +875,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const updateSelectedStyle = useCallback(
     (patch: Partial<IRStyle>) => {
       if (!selectedNode?.style) return;
+      if (patch.padding !== undefined || patch.margin !== undefined) {
+        setActiveProperty("padding");
+      } else if (patch.border !== undefined || patch.borderEdges !== undefined) {
+        setActiveProperty("border");
+      } else if (patch.fg !== undefined || patch.bg !== undefined || patch.borderColor !== undefined) {
+        setActiveProperty("colors");
+      }
       const styleKey = selectedNode.style;
       commitIr((prev) => {
         const locks = prev.lockedProps?.[styleKey] ?? [];
@@ -852,6 +928,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const updateQuad = useCallback(
     (field: "padding" | "margin", idx: number, val: number) => {
       if (!selectedStyle) return;
+      setActiveProperty("padding");
       const next: [number, number, number, number] = [...selectedStyle[field]];
       next[idx] = Math.max(0, val || 0);
       updateSelectedStyle({ [field]: next });
@@ -862,6 +939,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const toggleBorderEdge = useCallback(
     (idx: number) => {
       if (!selectedStyle) return;
+      setActiveProperty("border");
       const cur = selectedStyle.borderEdges ?? [true, true, true, true];
       const next: [boolean, boolean, boolean, boolean] = [...cur];
       next[idx] = !next[idx];
@@ -885,6 +963,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
   const updateToken = useCallback(
     (name: string, mode: "light" | "dark", hex: string) => {
+      setActiveProperty("colors");
       commitIr((p) => {
         const pair = p.tokens[name];
         if (!pair) return p;
@@ -961,6 +1040,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     selectedStyle,
     singleTel,
     setSingleTel,
+    hoveredProperty,
+    setHoveredProperty,
+    activeProperty,
+    setActiveProperty,
+    lastKeyPulse,
+    triggerKeyPulse,
+    matrixFitStatus,
     viewMode,
     setViewMode,
     matrixDense,

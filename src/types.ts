@@ -6,6 +6,33 @@ export interface TokenPair {
 export type ColorProfile = "truecolor" | "ansi256" | "ansi16" | "ascii";
 export type WorkspaceMode = "studio" | "pro";
 export type StudioLens = "visual" | "hybrid" | "code";
+export type SyncPropertyKind =
+  | "padding"
+  | "padding-v"
+  | "padding-h"
+  | "border"
+  | "colors"
+  | "size"
+  | "widget"
+  | "keybinding";
+
+export interface KeyPulse {
+  nodeId: string;
+  key: string;
+  ts: number;
+}
+
+export interface MatrixFitFailure {
+  title: string;
+  cols: number;
+  rows: number;
+  nodeIds: string[];
+}
+
+export interface MatrixFitStatus {
+  allFit: boolean;
+  failingPresets: MatrixFitFailure[];
+}
 export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
 export type MouseMode = "none" | "cell" | "all";
 
