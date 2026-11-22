@@ -1,0 +1,145 @@
+.launcher {
+  --launcher-rim: color-mix(in srgb, var(--cs-lilac) 22%, transparent);
+  --launcher-hairline: color-mix(in srgb, var(--cs-lilac) 15%, transparent);
+  --launcher-shadow: 0 16px 40px -18px rgba(12, 5, 22, 0.48);
+}
+
+[data-theme="light"] .launcher {
+  --launcher-shadow: 0 12px 32px -20px rgba(52, 30, 75, 0.24);
+}
+
+.launcher-stage {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px clamp(4px, 1.2vw, 20px);
+}
+
+.launcher-stage::before,
+.launcher-stage::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.launcher-stage::before {
+  inset: -14% -8%;
+  background: radial-gradient(ellipse at 42% 46%, rgba(177, 74, 148, 0.22), transparent 60%),
+    radial-gradient(ellipse at 72% 48%, rgba(154, 125, 208, 0.16), transparent 66%);
+}
+
+.launcher-stage::after {
+  inset: -8px -4px;
+  background-image: linear-gradient(to right, var(--launcher-hairline) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--launcher-hairline) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.58;
+  mask-image: radial-gradient(ellipse at 50% 44%, black 38%, transparent 81%);
+}
+
+.launcher-terminal {
+  position: relative;
+  display: grid;
+  --cs-border-strong: var(--launcher-rim);
+  filter: drop-shadow(0 14px 26px rgba(19, 8, 28, 0.22));
+}
+
+.launcher-lenses {
+  position: absolute;
+  top: 56%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: linear-gradient(var(--cs-panel), var(--cs-panel)) padding-box,
+    linear-gradient(115deg, var(--cs-pink), var(--cs-lilac), var(--cs-mint)) border-box;
+  box-shadow: 0 8px 22px rgba(15, 6, 21, 0.32);
+  z-index: 2;
+}
+
+.launcher-snippet {
+  position: relative;
+  justify-self: end;
+  width: min(290px, 87%);
+  padding: 13px 18px;
+  border: 1px solid var(--launcher-rim);
+  border-radius: 13px;
+  background: var(--cs-hero-card);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--launcher-shadow);
+}
+
+.launcher-scene {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 14px;
+  padding: 16px 12px 20px;
+  border: 1px solid var(--launcher-hairline);
+  border-radius: 16px;
+  background: linear-gradient(155deg, var(--cs-bg-surface), var(--cs-bg-ground) 86%);
+  box-shadow: var(--launcher-shadow);
+  color: var(--cs-text);
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.launcher-scene:is(:hover, :focus-visible) {
+  border-color: var(--cs-pink-border);
+  transform: translateY(-2px);
+}
+
+.launcher-scene-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.launcher-miniature {
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  --cs-border-strong: var(--launcher-rim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-scene:is(:hover, :focus-visible) {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .launcher .site-nav {
+    height: auto;
+    grid-template-columns: 1fr auto;
+    gap: 0 8px;
+    padding-block: 8px;
+  }
+
+  .launcher .site-nav nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 400px) {
+  .launcher .site-nav-status {
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 360px) {
+  .launcher .site-nav-status {
+    max-width: 100px;
+    white-space: normal;
+    text-align: center;
+  }
+}
