@@ -11,6 +11,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { useRouter } from "../router";
+import "./SecondaryPages.css";
 import { SiteNavBar } from "./SiteNavBar";
 import { CHARM_TOKENS, studioStyles } from "./studioStyles";
 
@@ -168,17 +169,16 @@ export function DesktopPage() {
 
         {/* Transport Comparison */}
         <section
+          className="transport-comparison"
           aria-label="PreviewTransport comparison"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))",
             gap: 18,
           }}
         >
-          <div
+          <div className="transport-card transport-browser"
             style={{
-              background: CHARM_TOKENS.bgSurface,
-              border: `1px solid ${CHARM_TOKENS.border}`,
               borderRadius: 16,
               padding: 20,
               display: "flex",
@@ -186,12 +186,12 @@ export function DesktopPage() {
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="transport-heading">
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
                 <Terminal size={17} style={{ color: CHARM_TOKENS.mint }} />
                 <span>Browser Sandbox (WasmTransport)</span>
               </span>
-              <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.mint }}>Default</span>
+              <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.mintText }}>Default</span>
             </div>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: CHARM_TOKENS.textMuted }}>
               Runs compiled Go (<code className="cs-mono">studio.wasm</code>) directly inside your browser with zero install.
@@ -204,10 +204,8 @@ export function DesktopPage() {
             </ul>
           </div>
 
-          <div
+          <div className="transport-card transport-native"
             style={{
-              background: CHARM_TOKENS.bgSurface,
-              border: `1px solid ${CHARM_TOKENS.borderStrong}`,
               borderRadius: 16,
               padding: 20,
               display: "flex",
@@ -215,7 +213,7 @@ export function DesktopPage() {
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="transport-heading">
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
                 <Laptop size={17} style={{ color: CHARM_TOKENS.pink }} />
                 <span>Desktop Companion (WailsTransport)</span>
@@ -239,7 +237,7 @@ export function DesktopPage() {
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: CHARM_TOKENS.textHeading }}>
             Local Companion Quickstart Commands
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 14 }}>
             {CLI_SNIPPETS.map((item) => (
               <div
                 key={item.id}
@@ -266,7 +264,7 @@ export function DesktopPage() {
                     border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                   }}
                 >
-                  <code className="cs-mono" style={{ fontSize: 11.5, color: CHARM_TOKENS.mint, overflowX: "auto" }}>
+                  <code className="cs-mono" style={{ fontSize: 11.5, color: CHARM_TOKENS.mintText, overflowX: "auto" }}>
                     {item.code}
                   </code>
                   <button
@@ -351,7 +349,7 @@ export function DesktopPage() {
               <span>{step.title}</span>
             </div>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: CHARM_TOKENS.textBody }}>{step.summary}</p>
-            <pre className="cs-mono" style={{ margin: 0, padding: "8px 10px", borderRadius: 8, background: "var(--cs-input)", border: `1px solid ${CHARM_TOKENS.borderSubtle}`, fontSize: 12, color: CHARM_TOKENS.mint, overflowX: "auto" }}>
+            <pre className="cs-mono" style={{ margin: 0, padding: "8px 10px", borderRadius: 8, background: "var(--cs-input)", border: `1px solid ${CHARM_TOKENS.borderSubtle}`, fontSize: 12, color: CHARM_TOKENS.mintText, overflowX: "auto" }}>
               {step.command}
             </pre>
             <div style={{ fontSize: 12.5, color: CHARM_TOKENS.textMuted, lineHeight: 1.5 }}>{step.detail}</div>
@@ -363,7 +361,7 @@ export function DesktopPage() {
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: CHARM_TOKENS.textHeading }}>
             MCP Client Setup (Claude Code · Cursor · Codex)
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 14 }}>
             {AGENT_CONFIGS.map((cfg) => (
               <div
                 key={cfg.id}

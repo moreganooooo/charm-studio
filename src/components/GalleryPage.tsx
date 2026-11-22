@@ -17,6 +17,7 @@ import { buildHref, useRouter } from "../router";
 import { applyPaletteTokens, useStudioStore } from "../store/studioStore";
 import { TEMPLATES, type StudioTemplate } from "../templates";
 import { TerminalViewport } from "../TerminalViewport";
+import "./SecondaryPages.css";
 import { SiteNavBar } from "./SiteNavBar";
 import { CHARM_TOKENS, pillStyle, studioStyles } from "./studioStyles";
 
@@ -176,10 +177,9 @@ export function GalleryPage() {
   }, [publicCloudProjects, localProjects]);
 
   return (
-    <div
+    <div className="gallery-page"
       style={{
         minHeight: "100vh",
-        background: CHARM_TOKENS.bgGround,
         color: CHARM_TOKENS.text,
         fontFamily: CHARM_TOKENS.fontUi,
         display: "flex",
@@ -202,7 +202,7 @@ export function GalleryPage() {
         {/* Header */}
         <section style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 18, flexWrap: "wrap" }}>
           <div>
-            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mint, letterSpacing: "0.06em" }}>
+            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mintText, letterSpacing: "0.06em" }}>
               SCENES &amp; THEME GALLERY
             </div>
             <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.7rem, 2.8vw, 2.35rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
@@ -219,6 +219,7 @@ export function GalleryPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter scenes or packages"
               placeholder="Filter scenes or packages…"
               style={{
                 width: "100%",
@@ -270,6 +271,7 @@ export function GalleryPage() {
                 return (
                   <button
                     key={mode}
+                    aria-pressed={active}
                     onClick={() => setPolarityFilter(mode)}
                     style={{
                       border: "none",
@@ -299,6 +301,7 @@ export function GalleryPage() {
               return (
                 <button
                   key={pal.id}
+                  aria-pressed={active}
                   onClick={() => selectPalette(pal.id)}
                   style={{
                     display: "inline-flex",
@@ -328,7 +331,7 @@ export function GalleryPage() {
         {/* Category Filters */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {CATEGORIES.map((cat) => (
-            <button key={cat} onClick={() => setCategory(cat)} style={pillStyle(category === cat)}>
+            <button key={cat} aria-pressed={category === cat} onClick={() => setCategory(cat)} style={pillStyle(category === cat)}>
               {cat}
             </button>
           ))}
@@ -338,7 +341,7 @@ export function GalleryPage() {
         <section
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(360px, 100%), 1fr))",
             gap: 20,
           }}
         >
@@ -349,9 +352,8 @@ export function GalleryPage() {
             return (
               <article
                 key={tpl.id}
+                className="gallery-scene"
                 style={{
-                  background: CHARM_TOKENS.bgSurface,
-                  border: `1px solid ${CHARM_TOKENS.border}`,
                   borderRadius: 16,
                   padding: 16,
                   display: "flex",
@@ -388,7 +390,7 @@ export function GalleryPage() {
                 </div>
 
                 {/* Live Go WASM Mini Terminal Preview */}
-                <div style={{ display: "flex", justifyContent: "center", overflowX: "auto", padding: "4px 0" }}>
+                <div className="gallery-preview">
                   <TerminalViewport
                     title={tpl.id}
                     doc={previewDoc}
@@ -417,7 +419,7 @@ export function GalleryPage() {
                         padding: "2px 7px",
                         borderRadius: 5,
                         background: "var(--cs-input)",
-                        color: CHARM_TOKENS.mint,
+                        color: CHARM_TOKENS.mintText,
                         border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                       }}
                     >
@@ -493,7 +495,7 @@ export function GalleryPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))",
                 gap: 14,
               }}
             >
@@ -524,7 +526,7 @@ export function GalleryPage() {
                         padding: "2px 7px",
                         borderRadius: 6,
                         background: proj.source === "cloud" ? CHARM_TOKENS.mintBg : "var(--cs-input)",
-                        color: proj.source === "cloud" ? CHARM_TOKENS.mint : CHARM_TOKENS.textMuted,
+                        color: proj.source === "cloud" ? CHARM_TOKENS.mintText : CHARM_TOKENS.textMuted,
                       }}
                     >
                       {proj.source === "cloud" ? <Cloud size={11} /> : <Folder size={11} />}

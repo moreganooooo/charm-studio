@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, BookOpen, Check, Copy, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, BookOpen, Check, ChevronDown, Copy, Search } from "lucide-react";
 import { useRouter } from "../router";
+import "./SecondaryPages.css";
 import { SiteNavBar } from "./SiteNavBar";
 import { CHARM_TOKENS, studioStyles } from "./studioStyles";
 
@@ -152,6 +153,9 @@ const ECOSYSTEM_REF = [
 
 export function DocsPage() {
   const { navigate } = useRouter();
+  const [contentsOpen, setContentsOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
+  const article = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const [snippetMode, setSnippetMode] = useState<"v2" | "v1">("v2");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -189,6 +193,33 @@ export function DocsPage() {
     );
   }, [query]);
 
+  useEffect(() => {
+    const sections = Array.from(article.current?.querySelectorAll("section[id]") ?? []);
+    let frame = 0;
+    const update = () => {
+      const readingLine = (document.querySelector(".site-nav")?.getBoundingClientRect().bottom ?? 0) + 32;
+      let current = sections[0];
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top > readingLine) break;
+        current = section;
+      }
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1) {
+        current = sections[sections.length - 1];
+      }
+      setActiveSection(current?.id ?? "");
+      frame = 0;
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    schedule();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [filteredSections, contentsOpen]);
+
   return (
     <div
       style={{
@@ -202,23 +233,9 @@ export function DocsPage() {
     >
       <SiteNavBar />
 
-      <div
-        style={{
-          flex: 1,
-          width: "min(1220px, 100%)",
-          margin: "0 auto",
-          padding: "32px 24px 64px",
-          display: "grid",
-          gridTemplateColumns: "230px minmax(0, 1fr)",
-          gap: 32,
-          alignItems: "start",
-        }}
-      >
-        {/* Sticky Left TOC */}
-        <aside
+      <div className="docs-layout">
+        <aside className="docs-contents"
           style={{
-            position: "sticky",
-            top: 80,
             background: CHARM_TOKENS.bgSurface,
             border: `1px solid ${CHARM_TOKENS.border}`,
             borderRadius: 14,
@@ -228,63 +245,57 @@ export function DocsPage() {
             gap: 10,
           }}
         >
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
-            <BookOpen size={14} style={{ color: CHARM_TOKENS.pink }} />
-            <span>Documentation</span>
-          </div>
-
-          <div style={{ position: "relative" }}>
-            <Search size={13} style={{ position: "absolute", left: 9, top: 9, color: CHARM_TOKENS.textDim }} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search docs…"
-              style={{
-                width: "100%",
-                padding: "6px 8px 6px 28px",
-                borderRadius: 7,
-                background: "var(--cs-input)",
-                border: `1px solid ${CHARM_TOKENS.border}`,
-                color: CHARM_TOKENS.text,
-                fontSize: 12,
-              }}
-            />
-          </div>
-
-          <nav aria-label="Docs sections" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {DOC_SECTIONS.map((s) => (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                style={{
-                  textDecoration: "none",
-                  fontSize: 12.5,
-                  color: CHARM_TOKENS.textMuted,
-                  padding: "6px 8px",
-                  borderRadius: 7,
-                }}
-              >
-                {s.title}
-              </a>
-            ))}
-            <a href="#v1-vs-v2" style={{ textDecoration: "none", fontSize: 12.5, color: CHARM_TOKENS.textMuted, padding: "6px 8px", borderRadius: 7 }}>
-              v1 vs. v2 Migration
-            </a>
-            <a href="#ecosystem" style={{ textDecoration: "none", fontSize: 12.5, color: CHARM_TOKENS.textMuted, padding: "6px 8px", borderRadius: 7 }}>
-              Charm Ecosystem
-            </a>
-          </nav>
-
-          <button onClick={() => navigate("/studio")} style={{ ...studioStyles.primaryCta, justifyContent: "center", marginTop: 4 }}>
-            <span>Open Studio</span>
-            <ArrowRight size={13} />
+          <button type="button" className="docs-contents-toggle" aria-expanded={contentsOpen}
+            aria-controls="docs-contents-panel" onClick={() => setContentsOpen(!contentsOpen)}>
+            <BookOpen size={14} /> On this page <ChevronDown size={14} />
           </button>
+          <div id="docs-contents-panel" className="docs-contents-panel" data-open={contentsOpen}>
+            <div className="docs-contents-title">
+              <BookOpen size={14} style={{ color: CHARM_TOKENS.pink }} />
+              <span>Documentation</span>
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <Search size={13} style={{ position: "absolute", left: 9, top: 9, color: CHARM_TOKENS.textDim }} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search docs"
+                placeholder="Search docs…"
+                style={{
+                  width: "100%",
+                  padding: "6px 8px 6px 28px",
+                  borderRadius: 7,
+                  background: "var(--cs-input)",
+                  border: `1px solid ${CHARM_TOKENS.border}`,
+                  color: CHARM_TOKENS.text,
+                  fontSize: 12,
+                }}
+              />
+            </div>
+
+            <nav aria-label="Docs sections" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[...filteredSections, { id: "v1-vs-v2", title: "v1 vs. v2 Migration" },
+                { id: "ecosystem", title: "Charm Ecosystem" }].map((section) => (
+                <a key={section.id} href={`#${section.id}`}
+                  aria-current={activeSection === section.id ? "location" : undefined}
+                  onClick={() => setContentsOpen(false)}>
+                  {section.title}
+                </a>
+              ))}
+            </nav>
+
+            <button onClick={() => navigate("/studio")} style={{ ...studioStyles.primaryCta, justifyContent: "center", marginTop: 4 }}>
+              <span>Open Studio</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
         </aside>
 
         {/* Main Content Column */}
-        <main style={{ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 }}>
-          <div>
-            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mint, letterSpacing: "0.06em" }}>
+        <main ref={article} style={{ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 }}>
+          <div className="docs-intro">
+            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mintText, letterSpacing: "0.06em" }}>
               <span className="cs-wordmark-ink">CHARM STUDIO</span> REFERENCE
             </div>
             <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.7rem, 2.8vw, 2.35rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
@@ -406,7 +417,7 @@ export function DocsPage() {
                     fontSize: 12,
                     fontWeight: 700,
                     background: snippetMode === "v2" ? CHARM_TOKENS.mintBg : "transparent",
-                    color: snippetMode === "v2" ? CHARM_TOKENS.mint : CHARM_TOKENS.textMuted,
+                    color: snippetMode === "v2" ? CHARM_TOKENS.mintText : CHARM_TOKENS.textMuted,
                   }}
                 >
                   v2 (Charm Studio)
@@ -445,7 +456,7 @@ export function DocsPage() {
                   borderBottom: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                 }}
               >
-                <span className="cs-mono" style={{ fontSize: 11.5, color: snippetMode === "v2" ? CHARM_TOKENS.mint : CHARM_TOKENS.pinkSoft }}>
+                <span className="cs-mono" style={{ fontSize: 11.5, color: snippetMode === "v2" ? CHARM_TOKENS.mintText : CHARM_TOKENS.pinkSoft }}>
                   {snippetMode === "v2" ? "charm.land/*/v2 · View() tea.View · LightDark" : "github.com/charmbracelet/* · View() string · KeyMsg"}
                 </span>
                 <button
@@ -478,7 +489,7 @@ export function DocsPage() {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: CHARM_TOKENS.textHeading }}>
               Charmbracelet Libraries in Studio
             </h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 12 }}>
               {filteredEcosystem.map((item) => (
                 <div
                   key={item.name}
