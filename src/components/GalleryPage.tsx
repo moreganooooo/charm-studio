@@ -177,38 +177,20 @@ export function GalleryPage() {
   }, [publicCloudProjects, localProjects]);
 
   return (
-    <div className="gallery-page"
-      style={{
-        minHeight: "100vh",
-        color: CHARM_TOKENS.text,
-        fontFamily: CHARM_TOKENS.fontUi,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="secondary-page">
       <SiteNavBar />
 
-      <main
-        style={{
-          flex: 1,
-          width: "min(1260px, 100%)",
-          margin: "0 auto",
-          padding: "32px 24px 64px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 32,
-        }}
-      >
+      <main className="secondary-content">
         {/* Header */}
-        <section style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 18, flexWrap: "wrap" }}>
+        <section className="secondary-header">
           <div>
-            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mintText, letterSpacing: "0.06em" }}>
+            <div className="cs-mono secondary-kicker">
               SCENES &amp; THEME GALLERY
             </div>
-            <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.7rem, 2.8vw, 2.35rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
+            <h1>
               Live Go WASM Scenes &amp; Adaptive Palettes
             </h1>
-            <p style={{ margin: 0, fontSize: 14.5, color: CHARM_TOKENS.textMuted, maxWidth: 640, lineHeight: 1.55 }}>
+            <p>
               Preview every template rendered by compiled <code className="cs-mono">lipgloss/v2</code> &amp;{" "}
               <code className="cs-mono">bubbles/v2</code>, swap adaptive Light/Dark palettes live, or remix any layout straight into Studio.
             </p>
@@ -352,10 +334,8 @@ export function GalleryPage() {
             return (
               <article
                 key={tpl.id}
-                className="gallery-scene"
+                className="secondary-card"
                 style={{
-                  borderRadius: 16,
-                  padding: 16,
                   display: "flex",
                   flexDirection: "column",
                   gap: 12,
@@ -390,7 +370,7 @@ export function GalleryPage() {
                 </div>
 
                 {/* Live Go WASM Mini Terminal Preview */}
-                <div className="gallery-preview">
+                <div className="secondary-preview gallery-preview">
                   <TerminalViewport
                     title={tpl.id}
                     doc={previewDoc}

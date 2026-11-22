@@ -124,39 +124,20 @@ export function DesktopPage() {
   const step = WORKTREE_STEPS.find((s) => s.id === activeStep) ?? WORKTREE_STEPS[0];
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: CHARM_TOKENS.bgGround,
-        color: CHARM_TOKENS.text,
-        fontFamily: CHARM_TOKENS.fontUi,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="secondary-page">
       <SiteNavBar />
 
-      <main
-        style={{
-          flex: 1,
-          width: "min(1200px, 100%)",
-          margin: "0 auto",
-          padding: "36px 24px 64px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 36,
-        }}
-      >
+      <main className="secondary-content">
         {/* Hero */}
-        <section style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+        <section className="secondary-header">
           <div>
-            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.lilac, letterSpacing: "0.06em" }}>
+            <div className="cs-mono secondary-kicker">
               WAILS V3 DESKTOP COMPANION · NATIVE PTY &amp; MCP
             </div>
-            <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.75rem, 3vw, 2.5rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
+            <h1>
               Connect your real Go binary &amp; coding agents
             </h1>
-            <p style={{ margin: 0, fontSize: 14.5, color: CHARM_TOKENS.textMuted, maxWidth: 660, lineHeight: 1.6 }}>
+            <p>
               Start in the browser with zero setup via <code className="cs-mono">WasmTransport</code>, then pair with the Go 1.26+ Wails v3 companion (<code className="cs-mono">WailsTransport</code>) when you want native incremental builds, real PTY streaming, and MCP context for Claude Code, Cursor, or Codex.
             </p>
           </div>
@@ -174,13 +155,11 @@ export function DesktopPage() {
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))",
-            gap: 18,
+            gap: 20,
           }}
         >
-          <div className="transport-card transport-browser"
+          <div className="secondary-card"
             style={{
-              borderRadius: 16,
-              padding: 20,
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -204,10 +183,8 @@ export function DesktopPage() {
             </ul>
           </div>
 
-          <div className="transport-card transport-native"
+          <div className="secondary-card"
             style={{
-              borderRadius: 16,
-              padding: 20,
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -241,11 +218,8 @@ export function DesktopPage() {
             {CLI_SNIPPETS.map((item) => (
               <div
                 key={item.id}
+                className="secondary-card"
                 style={{
-                  background: CHARM_TOKENS.bgSurface,
-                  border: `1px solid ${CHARM_TOKENS.border}`,
-                  borderRadius: 12,
-                  padding: 14,
                   display: "flex",
                   flexDirection: "column",
                   gap: 10,
@@ -283,11 +257,8 @@ export function DesktopPage() {
 
         {/* Interactive 3-Step Agent + Worktree Workflow */}
         <section
+          className="secondary-card"
           style={{
-            background: CHARM_TOKENS.bgSurface,
-            border: `1px solid ${CHARM_TOKENS.border}`,
-            borderRadius: 16,
-            padding: 20,
             display: "flex",
             flexDirection: "column",
             gap: 16,
@@ -333,26 +304,28 @@ export function DesktopPage() {
             })}
           </div>
 
-          <div
-            style={{
-              padding: 16,
-              borderRadius: 12,
-              background: CHARM_TOKENS.bgCode,
-              border: `1px solid ${CHARM_TOKENS.border}`,
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
-              {step.id === 1 ? <GitBranch size={15} style={{ color: CHARM_TOKENS.pink }} /> : step.id === 2 ? <Server size={15} style={{ color: CHARM_TOKENS.mint }} /> : <GitMerge size={15} style={{ color: CHARM_TOKENS.lilac }} />}
-              <span>{step.title}</span>
+          <div className="secondary-preview">
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: CHARM_TOKENS.bgCode,
+                border: `1px solid ${CHARM_TOKENS.border}`,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
+                {step.id === 1 ? <GitBranch size={15} style={{ color: CHARM_TOKENS.pink }} /> : step.id === 2 ? <Server size={15} style={{ color: CHARM_TOKENS.mint }} /> : <GitMerge size={15} style={{ color: CHARM_TOKENS.lilac }} />}
+                <span>{step.title}</span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: CHARM_TOKENS.textBody }}>{step.summary}</p>
+              <pre className="cs-mono" style={{ margin: 0, padding: "8px 10px", borderRadius: 8, background: "var(--cs-input)", border: `1px solid ${CHARM_TOKENS.borderSubtle}`, fontSize: 12, color: CHARM_TOKENS.mintText, overflowX: "auto" }}>
+                {step.command}
+              </pre>
+              <div style={{ fontSize: 12.5, color: CHARM_TOKENS.textMuted, lineHeight: 1.5 }}>{step.detail}</div>
             </div>
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: CHARM_TOKENS.textBody }}>{step.summary}</p>
-            <pre className="cs-mono" style={{ margin: 0, padding: "8px 10px", borderRadius: 8, background: "var(--cs-input)", border: `1px solid ${CHARM_TOKENS.borderSubtle}`, fontSize: 12, color: CHARM_TOKENS.mintText, overflowX: "auto" }}>
-              {step.command}
-            </pre>
-            <div style={{ fontSize: 12.5, color: CHARM_TOKENS.textMuted, lineHeight: 1.5 }}>{step.detail}</div>
           </div>
         </section>
 
@@ -365,10 +338,8 @@ export function DesktopPage() {
             {AGENT_CONFIGS.map((cfg) => (
               <div
                 key={cfg.id}
+                className="secondary-card secondary-card-flush"
                 style={{
-                  background: CHARM_TOKENS.bgSurface,
-                  border: `1px solid ${CHARM_TOKENS.border}`,
-                  borderRadius: 12,
                   overflow: "hidden",
                   display: "flex",
                   flexDirection: "column",

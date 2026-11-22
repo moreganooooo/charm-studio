@@ -155,7 +155,7 @@ export function DocsPage() {
   const { navigate } = useRouter();
   const [contentsOpen, setContentsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("");
-  const article = useRef<HTMLElement>(null);
+  const article = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [snippetMode, setSnippetMode] = useState<"v2" | "v1">("v2");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -221,19 +221,24 @@ export function DocsPage() {
   }, [filteredSections, contentsOpen]);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: CHARM_TOKENS.bgGround,
-        color: CHARM_TOKENS.text,
-        fontFamily: CHARM_TOKENS.fontUi,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="secondary-page">
       <SiteNavBar />
 
-      <div className="docs-layout">
+      <main className="secondary-content docs-layout">
+        <header className="secondary-header">
+          <div>
+            <div className="cs-mono secondary-kicker">
+              <span className="cs-wordmark-ink">CHARM STUDIO</span> REFERENCE
+            </div>
+            <h1>
+              Charm v2 Codegen, Sync &amp; Layout Guide
+            </h1>
+            <p>
+              Everything you need to export idiomatic <code className="cs-mono">charm.land/*/v2</code> Go applications and keep hand-written Go files synced with <code className="cs-mono">dave/dst</code>.
+            </p>
+          </div>
+        </header>
+
         <aside className="docs-contents"
           style={{
             background: CHARM_TOKENS.bgSurface,
@@ -293,28 +298,13 @@ export function DocsPage() {
         </aside>
 
         {/* Main Content Column */}
-        <main ref={article} style={{ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 }}>
-          <div className="docs-intro">
-            <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mintText, letterSpacing: "0.06em" }}>
-              <span className="cs-wordmark-ink">CHARM STUDIO</span> REFERENCE
-            </div>
-            <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.7rem, 2.8vw, 2.35rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
-              Charm v2 Codegen, Sync &amp; Layout Guide
-            </h1>
-            <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, color: CHARM_TOKENS.textMuted }}>
-              Everything you need to export idiomatic <code className="cs-mono">charm.land/*/v2</code> Go applications and keep hand-written Go files synced with <code className="cs-mono">dave/dst</code>.
-            </p>
-          </div>
-
+        <div ref={article} style={{ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 }}>
           {filteredSections.map((sec) => (
             <section
               key={sec.id}
               id={sec.id}
+              className="secondary-card"
               style={{
-                background: CHARM_TOKENS.bgSurface,
-                border: `1px solid ${CHARM_TOKENS.border}`,
-                borderRadius: 16,
-                padding: 20,
                 display: "flex",
                 flexDirection: "column",
                 gap: 12,
@@ -378,11 +368,8 @@ export function DocsPage() {
           {/* Interactive v1 vs v2 Comparison Switcher */}
           <section
             id="v1-vs-v2"
+            className="secondary-card"
             style={{
-              background: CHARM_TOKENS.bgSurface,
-              border: `1px solid ${CHARM_TOKENS.borderStrong}`,
-              borderRadius: 16,
-              padding: 20,
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -439,48 +426,47 @@ export function DocsPage() {
               </div>
             </div>
 
-            <div
-              style={{
-                borderRadius: 10,
-                background: CHARM_TOKENS.bgCode,
-                border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
-                overflow: "hidden",
-              }}
-            >
+            <div className="secondary-preview">
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "7px 12px",
-                  borderBottom: `1px solid ${CHARM_TOKENS.borderSubtle}`,
+                  borderRadius: 10,
+                  background: CHARM_TOKENS.bgCode,
+                  border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
+                  overflow: "hidden",
                 }}
               >
-                <span className="cs-mono" style={{ fontSize: 11.5, color: snippetMode === "v2" ? CHARM_TOKENS.mintText : CHARM_TOKENS.pinkSoft }}>
-                  {snippetMode === "v2" ? "charm.land/*/v2 · View() tea.View · LightDark" : "github.com/charmbracelet/* · View() string · KeyMsg"}
-                </span>
-                <button
-                  onClick={() => void copyText("v1v2", snippetMode === "v2" ? V2_SNIPPET : V1_SNIPPET)}
-                  style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "7px 12px",
+                    borderBottom: `1px solid ${CHARM_TOKENS.borderSubtle}`,
+                  }}
                 >
-                  {copiedId === "v1v2" ? <Check size={12} style={{ color: CHARM_TOKENS.mint }} /> : <Copy size={12} />}
-                  <span>{copiedId === "v1v2" ? "Copied" : "Copy"}</span>
-                </button>
+                  <span className="cs-mono" style={{ fontSize: 11.5, color: snippetMode === "v2" ? CHARM_TOKENS.mintText : CHARM_TOKENS.pinkSoft }}>
+                    {snippetMode === "v2" ? "charm.land/*/v2 · View() tea.View · LightDark" : "github.com/charmbracelet/* · View() string · KeyMsg"}
+                  </span>
+                  <button
+                    onClick={() => void copyText("v1v2", snippetMode === "v2" ? V2_SNIPPET : V1_SNIPPET)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                  >
+                    {copiedId === "v1v2" ? <Check size={12} style={{ color: CHARM_TOKENS.mint }} /> : <Copy size={12} />}
+                    <span>{copiedId === "v1v2" ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+                <pre className="cs-mono" style={{ margin: 0, padding: 14, fontSize: 12, lineHeight: 1.55, color: CHARM_TOKENS.text, overflowX: "auto" }}>
+                  {snippetMode === "v2" ? V2_SNIPPET : V1_SNIPPET}
+                </pre>
               </div>
-              <pre className="cs-mono" style={{ margin: 0, padding: 14, fontSize: 12, lineHeight: 1.55, color: CHARM_TOKENS.text, overflowX: "auto" }}>
-                {snippetMode === "v2" ? V2_SNIPPET : V1_SNIPPET}
-              </pre>
             </div>
           </section>
 
           {/* Charm Ecosystem Quick Reference */}
           <section
             id="ecosystem"
+            className="secondary-card"
             style={{
-              background: CHARM_TOKENS.bgSurface,
-              border: `1px solid ${CHARM_TOKENS.border}`,
-              borderRadius: 16,
-              padding: 20,
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -510,8 +496,8 @@ export function DocsPage() {
               ))}
             </div>
           </section>
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
