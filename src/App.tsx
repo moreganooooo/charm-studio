@@ -13,6 +13,10 @@ import {
 import { AuthModal, type LocalUser } from "./AuthModal";
 import { CharmGlossaryModal } from "./CharmGlossaryModal";
 import { CommandPaletteModal } from "./components/CommandPaletteModal";
+import { DesktopPage } from "./components/DesktopPage";
+import { DocsPage } from "./components/DocsPage";
+import { GalleryPage } from "./components/GalleryPage";
+import { HomeLauncher } from "./components/HomeLauncher";
 import { LensRightRail } from "./components/LensRightRail";
 import { LensTopBar } from "./components/LensTopBar";
 import { ScenePickerModal } from "./components/ScenePickerModal";
@@ -33,6 +37,7 @@ import {
   upsertCloudProject,
   type StudioProject,
 } from "./projectsStore";
+import { RouterProvider, useRouter } from "./router";
 import { SettingsModal } from "./SettingsModal";
 import { MATRIX_PRESETS, StudioProvider, useStudioStore } from "./store/studioStore";
 import { supabase } from "./supabaseClient";
@@ -46,9 +51,20 @@ const COACH_KEY = "charmstudio:coachDismissed:v1";
 export default function App() {
   return (
     <StudioProvider>
-      <StudioShell />
+      <RouterProvider>
+        <RoutedApp />
+      </RouterProvider>
     </StudioProvider>
   );
+}
+
+function RoutedApp() {
+  const { route } = useRouter();
+  if (route === "/") return <HomeLauncher />;
+  if (route === "/gallery") return <GalleryPage />;
+  if (route === "/desktop") return <DesktopPage />;
+  if (route === "/docs") return <DocsPage />;
+  return <StudioShell />;
 }
 
 function StudioShell() {

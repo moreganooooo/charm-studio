@@ -123,6 +123,8 @@ interface Props {
   showOverlay: boolean;
   overlayMode?: "none" | "padding-band" | "full-box-model";
   showQuickBar?: boolean;
+  chrome?: "full" | "minimal";
+  headerRightSlot?: React.ReactNode;
   selectedId: string;
   onSelect: (id: string) => void;
   onInteract: () => void;
@@ -163,6 +165,8 @@ export function TerminalViewport({
   showOverlay,
   overlayMode,
   showQuickBar = false,
+  chrome = "full",
+  headerRightSlot,
   selectedId,
   onSelect,
   onInteract,
@@ -707,23 +711,55 @@ export function TerminalViewport({
           display: "flex",
           flexDirection: "column",
           borderBottom: "1px solid var(--cs-border)",
-          background: "var(--cs-card-alt)",
+          background: chrome === "minimal" ? "rgba(22, 15, 32, 0.9)" : "var(--cs-card-alt)",
           boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", fontSize: 12, gap: 8 }}>
-          <span style={{ fontWeight: 600, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span>{title}</span>
-            <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
-            {focused && (
-              <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
-                <span style={{ color: "var(--cs-pink)", marginLeft: 4, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <Keyboard size={12} />
-                  <span>Keys → #{selectedId}</span>
+        {chrome === "minimal" ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 12px",
+              fontSize: 11,
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255, 94, 174, 0.65)" }} />
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255, 211, 122, 0.65)" }} />
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(109, 255, 194, 0.65)" }} />
+              {title && (
+                <span className="cs-mono" style={{ marginLeft: 6, color: "var(--cs-text-dim)", fontSize: 10.5 }}>
+                  {title}
                 </span>
-              </Tooltip>
+              )}
+            </div>
+            {headerRightSlot ? (
+              <div onClick={(e) => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {headerRightSlot}
+              </div>
+            ) : (
+              <span className="cs-mono" style={{ color: "var(--cs-text-dim)", fontSize: 10 }}>
+                •••
+              </span>
             )}
-          </span>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", fontSize: 12, gap: 8 }}>
+            <span style={{ fontWeight: 600, color: "var(--cs-text-strong)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span>{title}</span>
+              <span style={{ color: "var(--cs-text-dim)", fontWeight: 400 }}>{cols}×{rows}</span>
+              {focused && (
+                <Tooltip title="Live Terminal Focus" content="Keystrokes go straight to the active pane. Press Tab to jump between panes.">
+                  <span style={{ color: "var(--cs-pink)", marginLeft: 4, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <Keyboard size={12} />
+                    <span>Keys → #{selectedId}</span>
+                  </span>
+                </Tooltip>
+              )}
+            </span>
 
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             {mode === "wasm" && ready && (
@@ -803,6 +839,7 @@ export function TerminalViewport({
             )}
           </div>
         </div>
+        )}
 
         {/* Docked Selected Node Quick-Action Bar (keeps 100% of terminal cells unobstructed) */}
         {mode === "wasm" && showQuickBar && ready && selectedNode?.kind === "Box" && (

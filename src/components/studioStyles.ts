@@ -9,6 +9,7 @@ export const CHARM_TOKENS = {
   borderSubtle: "var(--cs-border-subtle)",
   text: "var(--cs-text)",
   textHeading: "var(--cs-text-heading)",
+  textBody: "var(--cs-text-body)",
   textMuted: "var(--cs-text-muted)",
   textDim: "var(--cs-text-dim)",
   pink: "var(--cs-pink)",

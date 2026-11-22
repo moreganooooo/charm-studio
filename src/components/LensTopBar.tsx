@@ -5,7 +5,9 @@ import {
   Check,
   ChevronDown,
   Command,
+  Compass,
   Download,
+  FileText,
   Folder,
   GitBranch,
   HelpCircle,
@@ -19,6 +21,7 @@ import {
   Undo2,
   User as UserIcon,
 } from "lucide-react";
+import { RouteLink, useRouter } from "../router";
 import { useStudioStore } from "../store/studioStore";
 import type { StudioLens } from "../types";
 import { CHARM_TOKENS, studioStyles } from "./studioStyles";
@@ -74,6 +77,7 @@ export function LensTopBar({
     setRightTab,
   } = useStudioStore();
 
+  const { navigate } = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -98,11 +102,14 @@ export function LensTopBar({
     <header style={studioStyles.topBar}>
       {/* LEFT ZONE: Brand + Scenes + Undo/Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        <div
+        <RouteLink
+          to="/"
+          title="Go to Charm Studio Home"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
+            textDecoration: "none",
             whiteSpace: "nowrap",
             flexShrink: 0,
           }}
@@ -120,7 +127,7 @@ export function LensTopBar({
           >
             Charm Studio
           </span>
-        </div>
+        </RouteLink>
 
         <button onClick={onOpenScenes} style={studioStyles.secondaryBtn} title="Browse starter layouts and scenes">
           <Layers size={13} style={{ color: CHARM_TOKENS.lilac }} />
@@ -296,6 +303,22 @@ export function LensTopBar({
                 }}
               />
               <div style={{ height: 1, background: CHARM_TOKENS.border, margin: "4px 6px" }} />
+              <MenuItem
+                icon={<Compass size={13} style={{ color: CHARM_TOKENS.pinkSoft }} />}
+                label="Explore Gallery (/gallery)"
+                onClick={() => {
+                  setMoreOpen(false);
+                  navigate("/gallery");
+                }}
+              />
+              <MenuItem
+                icon={<FileText size={13} style={{ color: CHARM_TOKENS.mint }} />}
+                label="Charm v2 Docs (/docs)"
+                onClick={() => {
+                  setMoreOpen(false);
+                  navigate("/docs");
+                }}
+              />
               <MenuItem
                 icon={<BookOpen size={13} style={{ color: CHARM_TOKENS.mint }} />}
                 label="Charm Glossary"

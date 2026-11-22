@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Charm Studio — Redirecting…</title>
+    <script>
+      (function () {
+        var loc = window.location;
+        var pathname = loc.pathname || "/";
+        var isGhPages =
+          pathname === "/charm-studio" ||
+          pathname.indexOf("/charm-studio/") === 0;
+        var base = isGhPages ? "/charm-studio/" : "/";
+        var subroute = pathname;
+        if (isGhPages) {
+          subroute = pathname.slice("/charm-studio".length) || "/";
+        }
+        if (subroute.charAt(0) !== "/") {
+          subroute = "/" + subroute;
+        }
+        if (subroute.length > 1 && subroute.charAt(subroute.length - 1) === "/") {
+          subroute = subroute.slice(0, -1);
+        }
+
+        var params = new URLSearchParams(loc.search || "");
+        params.set("route", subroute);
+        var nextSearch = "?" + params.toString();
+        var nextUrl = base + nextSearch + (loc.hash || "");
+        loc.replace(nextUrl);
+      })();
+    </script>
+  </head>
+  <body style="background:#150f1d;color:#f4eaff;font-family:system-ui,sans-serif;padding:24px;">
+    Redirecting to Charm Studio…
+  </body>
+</html>

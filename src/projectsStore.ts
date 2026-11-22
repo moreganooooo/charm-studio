@@ -121,3 +121,20 @@ export async function fetchPublicCloudProject(id: string): Promise<StudioProject
   if (error || !data) return null;
   return rowToProject(data as CloudRow);
 }
+
+export async function listPublicCloudProjects(limit = 16): Promise<StudioProject[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("is_public", true)
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return (data as CloudRow[]).map(rowToProject);
+  } catch {
+    return [];
+  }
+}
+
