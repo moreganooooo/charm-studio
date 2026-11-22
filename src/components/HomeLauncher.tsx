@@ -192,20 +192,11 @@ export function HomeLauncher() {
           }}
         >
           {/* LEFT COLUMN: Stacked Display Title + Subtitle + CTAs + Glowing Input */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 480 }}>
-            <h1 className="launcher-wordmark"
-              style={{
-                margin: 0,
-                fontSize: "clamp(3.65rem, 7vw, 5.65rem)",
-                fontWeight: 800,
-                lineHeight: 0.98,
-                letterSpacing: "-0.038em",
-                color: CHARM_TOKENS.textHeading,
-              }}
-            >
-              Charm
-              <br />
-              Studio
+          <div className="launcher-intro">
+            <h1 className="launcher-wordmark">
+              <span className="launcher-wordmark-ink">Charm<br />Studio</span>
+              <Sparkle className="launcher-glint launcher-wordmark-star" aria-hidden="true" />
+              <Sparkle className="launcher-glint launcher-wordmark-satellite" aria-hidden="true" />
             </h1>
 
             <p
@@ -321,6 +312,10 @@ export function HomeLauncher() {
           <div className="launcher-stage" ref={stageRef}>
             <Sparkle className="launcher-glint launcher-glint-mint" size={13} aria-hidden="true" />
             <Sparkle className="launcher-glint launcher-glint-pink" size={9} aria-hidden="true" />
+
+            <Sparkle className="launcher-glint launcher-glint-lilac" size={7} aria-hidden="true" />
+            <Sparkle className="launcher-glint launcher-glint-rose" size={11} aria-hidden="true" />
+            <Sparkle className="launcher-glint launcher-glint-aqua" size={6} aria-hidden="true" />
 
             {/* Real Go WASM Terminal Frame */}
             <div className="launcher-terminal">
