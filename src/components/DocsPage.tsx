@@ -285,7 +285,7 @@ export function DocsPage() {
         <main style={{ display: "flex", flexDirection: "column", gap: 28, minWidth: 0 }}>
           <div>
             <div className="cs-mono" style={{ fontSize: 11, fontWeight: 700, color: CHARM_TOKENS.mint, letterSpacing: "0.06em" }}>
-              CHARM STUDIO REFERENCE
+              <span className="cs-wordmark-ink">CHARM STUDIO</span> REFERENCE
             </div>
             <h1 style={{ margin: "6px 0 8px", fontSize: "clamp(1.7rem, 2.8vw, 2.35rem)", fontWeight: 800, letterSpacing: "-0.025em", color: CHARM_TOKENS.textHeading }}>
               Charm v2 Codegen, Sync &amp; Layout Guide

@@ -4,18 +4,10 @@
   --launcher-shadow: 0 5px 11px -6px #0a060e, 0 23px 42px -19px rgba(8, 4, 14, 0.78);
   --launcher-spectrum: linear-gradient(108deg, var(--cs-pink), var(--cs-lilac) 55%, var(--cs-mint));
   --terminal-titlebar: linear-gradient(105deg, var(--cs-bg-surface), color-mix(in srgb, var(--cs-mint) 13%, var(--cs-card-alt)) 56%, var(--cs-bg-surface));
-  --launcher-ink: linear-gradient(105deg, #c38aff, #aba5f2 24%, #70d4e7 43%, #6ae8cb 59%, #edb8db 81%, #bf98ff);
-  background:
-    radial-gradient(ellipse at 18% 36%, #7a36583b, transparent 52%),
-    radial-gradient(ellipse at 91% 18%, #27676145, transparent 51%),
-    linear-gradient(135deg, #21152e, #291729 48%, #161722 82%, #181320);
+  background: var(--cs-brand-backdrop);
 }
 
 [data-theme="light"] .launcher {
-  --launcher-ink: linear-gradient(105deg, #7641a1, #645297 24%, #176782 43%, #146b61 59%, #974372 81%, #734298);
-  background:
-    radial-gradient(ellipse at 88% 20%, #d7efe9b3, transparent 55%),
-    linear-gradient(135deg, #f2eafa, #f9e9f0 48%, #f7f4fa 84%);
   --launcher-shadow: 0 12px 32px -20px rgba(52, 30, 75, 0.24);
 }
 
@@ -41,25 +33,8 @@
   color: var(--cs-text-heading);
 }
 
-.launcher-wordmark-ink {
+.launcher-wordmark .cs-wordmark-ink {
   display: block;
-}
-
-@supports (background-clip: text) {
-  .launcher-wordmark-ink {
-    background-image: var(--launcher-ink);
-    background-size: 145% 100%;
-    background-position: 40% 50%;
-    background-clip: text;
-    color: transparent;
-  }
-}
-
-@media (forced-colors: active) {
-  .launcher-wordmark-ink {
-    background: none;
-    color: CanvasText;
-  }
 }
 
 .launcher-cta {
@@ -416,16 +391,7 @@
   to { opacity: 0.95; transform: scale(1.04); }
 }
 
-@keyframes launcher-ink-drift {
-  from { background-position: 0% 50%; }
-  to { background-position: 100% 50%; }
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .launcher-wordmark-ink {
-    animation: launcher-ink-drift 14s ease-in-out infinite alternate;
-  }
-
   .launcher-glint,
   .launcher-scene::after {
     animation: launcher-twinkle 4.8s ease-in-out var(--glint-delay, 0s) infinite alternate;

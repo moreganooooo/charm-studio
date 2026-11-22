@@ -194,7 +194,7 @@ export function HomeLauncher() {
           {/* LEFT COLUMN: Stacked Display Title + Subtitle + CTAs + Glowing Input */}
           <div className="launcher-intro">
             <h1 className="launcher-wordmark">
-              <span className="launcher-wordmark-ink">Charm<br />Studio</span>
+              <span className="cs-wordmark-ink">Charm<br />Studio</span>
               <Sparkle className="launcher-glint launcher-wordmark-star" aria-hidden="true" />
               <Sparkle className="launcher-glint launcher-wordmark-satellite" aria-hidden="true" />
             </h1>
