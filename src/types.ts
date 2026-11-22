@@ -5,6 +5,7 @@ export interface TokenPair {
 
 export type ColorProfile = "truecolor" | "ansi256" | "ansi16" | "ascii";
 export type WorkspaceMode = "studio" | "pro";
+export type StudioLens = "visual" | "hybrid" | "code";
 export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
 export type MouseMode = "none" | "cell" | "all";
 
@@ -251,4 +252,74 @@ export function updateNodeInDoc(doc: IRDoc, id: string, updater: (n: IRNode) => 
   next.root = walk(next.root);
   next.overlays = next.overlays.map((ov) => ({ ...ov, node: walk(ov.node) }));
   return next;
+}
+
+export function getFriendlyNodeName(node: IRNode | null | undefined): string {
+  if (!node) return "Pane";
+  if (node.kind === "JoinHorizontal") return node.id === "body" ? "Workspace Row" : "Row";
+  if (node.kind === "JoinVertical") return node.id === "shell" ? "App Frame" : "Stack";
+
+  const idLower = node.id.toLowerCase();
+  if (idLower.includes("sidebar") || idLower.includes("nav")) return "Navigation";
+  if (idLower === "mainpane" || idLower === "main") return "Services";
+  if (idLower.includes("status") || idLower.includes("footer")) return "Status bar";
+  if (idLower.includes("search")) return "Search input";
+  if (idLower.includes("logs") || idLower.includes("stream")) return "Live logs";
+  if (idLower.includes("modal")) return "Help modal";
+
+  switch (node.contentType) {
+    case "bubble:list":
+      return node.widgetData?.listTitle || "Navigation list";
+    case "bubble:table":
+      return "Services table";
+    case "bubble:viewport":
+      return "Scrollable view";
+    case "bubble:textinput":
+      return "Text input";
+    case "huh:form":
+      return "Interactive form";
+    case "glamour:markdown":
+      return "Markdown doc";
+    case "gum:choose":
+      return "Choice prompt";
+    case "gum:confirm":
+      return "Confirm prompt";
+    case "wish:ssh":
+      return "SSH server card";
+    default: {
+      const spaced = node.id
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/[_-]+/g, " ")
+        .trim();
+      return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : "Text block";
+    }
+  }
+}
+
+export function getCharmGoTypeLabel(node: IRNode | null | undefined): string {
+  if (!node) return "lipgloss.Style";
+  if (node.kind === "JoinHorizontal") return "JoinHorizontal";
+  if (node.kind === "JoinVertical") return "JoinVertical";
+  switch (node.contentType) {
+    case "bubble:list":
+      return "list.Model";
+    case "bubble:table":
+      return "table.Model";
+    case "bubble:viewport":
+      return "viewport.Model";
+    case "bubble:textinput":
+      return "textinput.Model";
+    case "huh:form":
+      return "huh.Form";
+    case "glamour:markdown":
+      return "glamour.TermRenderer";
+    case "gum:choose":
+      return "gum choose";
+    case "gum:confirm":
+      return "gum confirm";
+    case "wish:ssh":
+      return "wish.Server";
+    default:
+      return "lipgloss.Style";
+  }
 }

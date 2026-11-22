@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { ArrowUp, Columns2, Copy, Eye, EyeOff, GripVertical, Layers, LayoutGrid, Plus, Rows2, Square, Trash2, Ungroup, X } from "lucide-react";
 import { PanelLeftIcon } from "./icons";
+import { useStudioStore } from "./store/studioStore";
 import { HelpDot, Tooltip } from "./Tooltip";
-import type { IRDoc, IRNode, OverlayAnchor, WorkspaceMode } from "./types";
+import { getCharmGoTypeLabel, getFriendlyNodeName, type IRDoc, type IRNode, type OverlayAnchor, type WorkspaceMode } from "./types";
 
 interface Props {
   doc: IRDoc;
@@ -57,17 +58,20 @@ export function LayersPanel({
   onRemoveOverlay,
   onCycleOverlayAnchor,
 }: Props) {
+  const { activeLens } = useStudioStore();
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; pos: "before" | "inside" | "after" } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
 
+  const isVisual = activeLens === "visual";
+
   if (!open) {
     return (
-      <aside style={{ borderRight: "1px solid var(--cs-border)", background: "var(--cs-panel)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 12 }}>
-        <button onClick={onToggleOpen} title="Expand Layout Tree" style={iconBtn}><PanelLeftIcon collapsed={true} /></button>
+      <aside style={{ width: 40, flexShrink: 0, borderRight: "1px solid var(--cs-border)", background: "var(--cs-bg-ground)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 12 }}>
+        <button onClick={onToggleOpen} title="Expand Outline" style={iconBtn}><PanelLeftIcon collapsed={true} /></button>
         <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", marginTop: 18, fontSize: 11, color: "var(--cs-text-dim)", letterSpacing: 1.6, textTransform: "uppercase" }}>
-          Layout Tree
+          {isVisual ? "Outline" : "Layout Tree"}
         </span>
       </aside>
     );
@@ -98,12 +102,8 @@ export function LayersPanel({
     const active = selectedId === node.id;
     const isBox = node.kind === "Box";
     const isNodeRoot = node.id === doc.root.id;
-    const badge =
-      node.kind === "JoinHorizontal" ? (workspaceMode === "studio" ? "Row" : "H-Row") :
-      node.kind === "JoinVertical" ? (workspaceMode === "studio" ? "Stack" : "V-Stack") :
-      node.contentType?.startsWith("bubble:") ? node.contentType.replace("bubble:", "") :
-      node.contentType === "glamour:markdown" ? "glamour" :
-      node.contentType ?? "text";
+    const badge = getCharmGoTypeLabel(node);
+    const displayLabel = isVisual ? getFriendlyNodeName(node) : node.id;
     const bp = node.width?.collapseBelow ?? 0;
 
     const isDropBefore = dropTarget?.id === node.id && dropTarget.pos === "before";
@@ -155,8 +155,11 @@ export function LayersPanel({
             display: "flex",
             alignItems: "center",
             gap: 6,
-            padding: `7px 10px 7px ${10 + depth * 14}px`,
-            borderLeft: active ? "2px solid var(--cs-pink)" : "2px solid transparent",
+            margin: isVisual ? "2px 8px" : 0,
+            borderRadius: isVisual ? 8 : 0,
+            padding: isVisual ? `7px 10px 7px ${10 + depth * 12}px` : `7px 10px 7px ${10 + depth * 14}px`,
+            borderLeft: isVisual ? undefined : active ? "2px solid var(--cs-pink)" : "2px solid transparent",
+            border: isVisual ? (active ? "1px solid var(--cs-pink-border)" : "1px solid transparent") : undefined,
             background: isDropInside
               ? "var(--cs-mint-bg)"
               : active
@@ -166,7 +169,7 @@ export function LayersPanel({
             opacity: dragId === node.id ? 0.45 : 1,
           }}
         >
-          {!isNodeRoot && (
+          {!isNodeRoot && !isVisual && (
             <span
               title="Drag to reorder or drop inside a Row/Stack"
               style={{ cursor: "grab", color: "var(--cs-text-dim)", userSelect: "none", display: "inline-flex", alignItems: "center" }}
@@ -175,7 +178,7 @@ export function LayersPanel({
             </span>
           )}
 
-          <span style={{ color: isBox ? "var(--cs-mint)" : "var(--cs-lavender)", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+          <span style={{ color: isBox ? (isVisual ? "var(--cs-pink-soft)" : "var(--cs-mint)") : "var(--cs-lilac)", display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
             {isBox ? <Square size={12} /> : <LayoutGrid size={12} />}
           </span>
 
@@ -224,11 +227,11 @@ export function LayersPanel({
                 fontWeight: active ? 600 : 400,
               }}
             >
-              {node.id}
+              {displayLabel}
             </button>
           )}
 
-          {bp > 0 && workspaceMode === "pro" && (
+          {!isVisual && bp > 0 && workspaceMode === "pro" && (
             <Tooltip
               title="Responsive Breakpoint"
               content={`Auto-hides this pane whenever the terminal width drops below ${bp} columns.`}
@@ -239,9 +242,22 @@ export function LayersPanel({
             </Tooltip>
           )}
 
-          <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "var(--cs-input)", color: "var(--cs-text-dim)", border: "1px solid var(--cs-border)" }}>
-            {badge}
-          </span>
+          {!isVisual && (
+            <span
+              className="cs-mono"
+              style={{
+                fontSize: 10,
+                padding: "1px 6px",
+                borderRadius: 4,
+                background: "var(--cs-input)",
+                color: "var(--cs-lilac)",
+                border: "1px solid var(--cs-border)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {badge}
+            </span>
+          )}
         </div>
 
         {isDropAfter && (
@@ -254,43 +270,44 @@ export function LayersPanel({
   };
 
   return (
-    <aside style={{ borderRight: "1px solid var(--cs-border)", background: "var(--cs-panel)", display: "flex", flexDirection: "column", position: "sticky", top: 0, maxHeight: "100vh" }}>
-      <div style={{ display: "flex", alignItems: "center", height: 49, borderBottom: "1px solid var(--cs-border)" }}>
+    <aside style={{ width: 260, flexShrink: 0, borderRight: "1px solid var(--cs-border)", background: "var(--cs-bg-ground)", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 12px 10px 14px", borderBottom: isVisual ? "none" : "1px solid var(--cs-border)" }}>
         <div
           style={{
-            flex: 1,
-            height: "100%",
-            padding: "0 14px",
             fontWeight: 700,
-            fontSize: 13.5,
-            background: "var(--cs-card)",
-            color: "var(--cs-pink)",
-            borderBottom: "2px solid var(--cs-pink)",
+            fontSize: isVisual ? 11 : 13,
+            letterSpacing: isVisual ? "0.08em" : 0,
+            textTransform: isVisual ? "uppercase" : "none",
+            color: isVisual ? "var(--cs-text-muted)" : "var(--cs-text-heading)",
             display: "flex",
             alignItems: "center",
           }}
         >
-          Layout Tree
-          <HelpDot
-            title="Layout Tree (Drag & Drop)"
-            content="Drag handles to reorder or move panes inside Row/Stack containers. Double-click any name to rename it for Go codegen."
-            placement="bottom"
-          />
+          {isVisual ? "Outline" : "Layout Tree"}
+          {!isVisual && (
+            <HelpDot
+              title="Layout Tree (Drag & Drop)"
+              content="Drag handles to reorder or move panes inside Row/Stack containers. Double-click any name to rename it for Go codegen."
+              placement="bottom"
+            />
+          )}
         </div>
-        <Tooltip content="Collapse Layout Tree panel" placement="bottom">
-          <button onClick={onToggleOpen} style={{ ...iconBtn, marginRight: 10, marginLeft: 8, display: "inline-flex", alignItems: "center" }}>
+        <Tooltip content={isVisual ? "Collapse Outline" : "Collapse Layout Tree panel"} placement="bottom">
+          <button onClick={onToggleOpen} style={{ ...iconBtn, display: "inline-flex", alignItems: "center" }}>
             <PanelLeftIcon collapsed={false} />
           </button>
         </Tooltip>
       </div>
 
-      <div style={{ padding: "8px 14px 10px", fontSize: 11.5, color: "var(--cs-text-dim)", lineHeight: 1.4, borderBottom: "1px solid var(--cs-border)", display: "flex", alignItems: "center", gap: 4 }}>
-        <span>Drag</span>
-        <GripVertical size={12} style={{ color: "var(--cs-text-muted)", flexShrink: 0 }} />
-        <span>to reorder • Double-click to rename</span>
-      </div>
+      {!isVisual && (
+        <>
+          <div style={{ padding: "8px 14px 10px", fontSize: 11.5, color: "var(--cs-text-dim)", lineHeight: 1.4, borderBottom: "1px solid var(--cs-border)", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>Drag</span>
+            <GripVertical size={12} style={{ color: "var(--cs-text-muted)", flexShrink: 0 }} />
+            <span>to reorder • Double-click to rename</span>
+          </div>
 
-      <div style={{ padding: "10px 12px 12px", borderBottom: "1px solid var(--cs-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ padding: "10px 12px 12px", borderBottom: "1px solid var(--cs-border)", display: "flex", flexDirection: "column", gap: 6 }}>
         <Tooltip
           title="Visual Component Picker"
           content="Browse pre-styled Lip Gloss, Bubbles, Huh, Glamour, Gum, and Wish widgets and drop them straight into your layout."
@@ -357,113 +374,142 @@ export function LayersPanel({
           </Tooltip>
         </div>
 
-        {isContainerSelected && !isRoot && (
-          <button
-            onClick={onUnwrapContainer}
-            style={{ ...actBtn, width: "100%", fontSize: 11, color: "var(--cs-lavender-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5 }}
-          >
-            <Ungroup size={12} />
-            <span>Unwrap Container (Promote Children)</span>
-          </button>
-        )}
-      </div>
+            {isContainerSelected && !isRoot && (
+              <button
+                onClick={onUnwrapContainer}
+                style={{ ...actBtn, width: "100%", fontSize: 11, color: "var(--cs-lavender-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+              >
+                <Ungroup size={12} />
+                <span>Unwrap Container (Promote Children)</span>
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       <div style={{ flex: 1, overflowY: "auto", paddingTop: 6, paddingBottom: 14 }}>
         {renderNode(doc.root, 0)}
 
-        <div style={{ marginTop: 18, borderTop: "1px solid var(--cs-border)", paddingTop: 14 }}>
-          <div style={{ padding: "0 12px 6px", fontSize: 12.5, fontWeight: 700, color: "var(--cs-text-heading)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-            <span style={{ display: "inline-flex", alignItems: "center" }}>
-              Floating Overlays
-              <HelpDot
-                title="Floating Layers (Lip Gloss v2)"
-                content="Popups, toasts, and command bars anchored above your main TUI using lipgloss.NewLayer."
-              />
-            </span>
-            <button
-              onClick={onAddOverlay}
-              title="Add a floating popup, toast, or bar overlay"
-              style={{
-                background: "var(--cs-btn-bg)",
-                border: "1px solid var(--cs-btn-border)",
-                borderRadius: 5,
-                padding: "2px 7px",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--cs-lavender-text)",
-                cursor: "pointer",
-              }}
-            >
-              + Layer
-            </button>
-          </div>
-
-          {doc.overlays.length === 0 ? (
-            <div style={{ padding: "4px 14px", fontSize: 11.5, color: "var(--cs-text-dim)" }}>
-              No overlays yet — click + Layer for modals or toasts.
+        {!isVisual && (
+          <div style={{ marginTop: 18, borderTop: "1px solid var(--cs-border)", paddingTop: 14 }}>
+            <div style={{ padding: "0 12px 6px", fontSize: 12.5, fontWeight: 700, color: "var(--cs-text-heading)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+              <span style={{ display: "inline-flex", alignItems: "center" }}>
+                Floating Overlays
+                <HelpDot
+                  title="Floating Layers (Lip Gloss v2)"
+                  content="Popups, toasts, and command bars anchored above your main TUI using lipgloss.NewLayer."
+                />
+              </span>
+              <button
+                onClick={onAddOverlay}
+                title="Add a floating popup, toast, or bar overlay"
+                style={{
+                  background: "var(--cs-btn-bg)",
+                  border: "1px solid var(--cs-btn-border)",
+                  borderRadius: 5,
+                  padding: "2px 7px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--cs-lavender-text)",
+                  cursor: "pointer",
+                }}
+              >
+                + Layer
+              </button>
             </div>
-          ) : (
-            doc.overlays.map((ov) => {
-              const active = selectedId === ov.node.id;
-              const curAnchor = ov.anchor ?? "center";
-              const nextAnchor = ANCHOR_ORDER[(ANCHOR_ORDER.indexOf(curAnchor) + 1) % ANCHOR_ORDER.length];
-              return (
-                <div
-                  key={ov.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    padding: "5px 10px 5px 12px",
-                    background: active ? "var(--cs-pink-bg)" : "transparent",
-                    borderLeft: active ? "2px solid var(--cs-pink)" : "2px solid transparent",
-                  }}
-                >
-                  <button
-                    onClick={() => onSelect(ov.node.id)}
-                    style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", background: "none", border: "none", color: active ? "var(--cs-text-strong)" : "var(--cs-text-muted)", cursor: "pointer", fontSize: 12, padding: 2, display: "inline-flex", alignItems: "center", gap: 5 }}
-                  >
-                    <Layers size={11} style={{ color: "var(--cs-pink)", flexShrink: 0 }} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ov.node.id}</span>
-                  </button>
-                  <button
-                    onClick={() => onCycleOverlayAnchor(ov.id, nextAnchor)}
-                    title="Click to cycle floating anchor position (Center / Top-Right / Bottom Bar / Bottom-Right)"
+
+            {doc.overlays.length === 0 ? (
+              <div style={{ padding: "4px 14px", fontSize: 11.5, color: "var(--cs-text-dim)" }}>
+                No overlays yet — click + Layer for modals or toasts.
+              </div>
+            ) : (
+              doc.overlays.map((ov) => {
+                const active = selectedId === ov.node.id;
+                const curAnchor = ov.anchor ?? "center";
+                const nextAnchor = ANCHOR_ORDER[(ANCHOR_ORDER.indexOf(curAnchor) + 1) % ANCHOR_ORDER.length];
+                return (
+                  <div
+                    key={ov.id}
                     style={{
-                      background: "var(--cs-input)",
-                      border: "1px solid var(--cs-border)",
-                      borderRadius: 4,
-                      color: "var(--cs-text-dim)",
-                      fontSize: 10,
-                      padding: "1px 5px",
-                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "5px 10px 5px 12px",
+                      background: active ? "var(--cs-pink-bg)" : "transparent",
+                      borderLeft: active ? "2px solid var(--cs-pink)" : "2px solid transparent",
                     }}
                   >
-                    {ANCHOR_LABELS[curAnchor]}
-                  </button>
-                  <Tooltip content={ov.visible ? "Hide overlay preview" : "Show overlay preview"}>
                     <button
-                      onClick={() => onToggleOverlay(ov.id)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: ov.visible ? "var(--cs-text-strong)" : "var(--cs-text-dim)", opacity: ov.visible ? 1 : 0.55, padding: "0 3px", display: "inline-flex", alignItems: "center" }}
+                      onClick={() => onSelect(ov.node.id)}
+                      style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", background: "none", border: "none", color: active ? "var(--cs-text-strong)" : "var(--cs-text-muted)", cursor: "pointer", fontSize: 12, padding: 2, display: "inline-flex", alignItems: "center", gap: 5 }}
                     >
-                      {ov.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                      <Layers size={11} style={{ color: "var(--cs-pink)", flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ov.node.id}</span>
                     </button>
-                  </Tooltip>
-                  {doc.overlays.length > 1 && (
                     <button
-                      onClick={() => onRemoveOverlay(ov.id)}
-                      title="Delete overlay"
-                      style={{ background: "none", border: "none", color: "#e11d48", cursor: "pointer", padding: "0 3px", display: "inline-flex", alignItems: "center" }}
+                      onClick={() => onCycleOverlayAnchor(ov.id, nextAnchor)}
+                      title="Click to cycle floating anchor position (Center / Top-Right / Bottom Bar / Bottom-Right)"
+                      style={{
+                        background: "var(--cs-input)",
+                        border: "1px solid var(--cs-border)",
+                        borderRadius: 4,
+                        color: "var(--cs-text-dim)",
+                        fontSize: 10,
+                        padding: "1px 5px",
+                        cursor: "pointer",
+                      }}
                     >
-                      <X size={13} />
+                      {ANCHOR_LABELS[curAnchor]}
                     </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+                    <Tooltip content={ov.visible ? "Hide overlay preview" : "Show overlay preview"}>
+                      <button
+                        onClick={() => onToggleOverlay(ov.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: ov.visible ? "var(--cs-text-strong)" : "var(--cs-text-dim)", opacity: ov.visible ? 1 : 0.55, padding: "0 3px", display: "inline-flex", alignItems: "center" }}
+                      >
+                        {ov.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>
+                    </Tooltip>
+                    {doc.overlays.length > 1 && (
+                      <button
+                        onClick={() => onRemoveOverlay(ov.id)}
+                        title="Delete overlay"
+                        style={{ background: "none", border: "none", color: "#e11d48", cursor: "pointer", padding: "0 3px", display: "inline-flex", alignItems: "center" }}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
+
+      {isVisual && (
+        <div style={{ padding: 12, borderTop: "1px solid var(--cs-border)" }}>
+          <button
+            onClick={onOpenWidgetPicker}
+            style={{
+              width: "100%",
+              padding: "9px 12px",
+              borderRadius: 10,
+              background: "var(--cs-pink-bg)",
+              color: "var(--cs-pink-soft)",
+              border: "1px solid var(--cs-pink-border)",
+              fontSize: 12.5,
+              fontWeight: 700,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Plus size={14} />
+            <span>Add block</span>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

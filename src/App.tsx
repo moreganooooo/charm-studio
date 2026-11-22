@@ -3,28 +3,24 @@ import type { User } from "@supabase/supabase-js";
 import {
   AlertTriangle,
   ArrowRight,
-  BookOpen,
   CheckCircle2,
+  Code2,
   GitBranch,
-  HelpCircle,
-  Moon,
-  Settings,
-  Sun,
-  User as UserIcon,
+  Sparkles,
   X,
 } from "lucide-react";
 import { AuthModal, type LocalUser } from "./AuthModal";
 import { CharmGlossaryModal } from "./CharmGlossaryModal";
-import { CanvasToolbar } from "./components/CanvasToolbar";
-import { CodePreviewDrawer } from "./components/CodePreviewDrawer";
-import { PropertyInspector } from "./components/PropertyInspector";
-import { btnStyle, dot, inlineCode, miniBtn } from "./components/studioStyles";
+import { generateLayoutGenGo, generateThemeGenGo } from "./codegen";
+import { CommandPaletteModal } from "./components/CommandPaletteModal";
+import { LensRightRail } from "./components/LensRightRail";
+import { LensTopBar } from "./components/LensTopBar";
+import { ScenePickerModal } from "./components/ScenePickerModal";
+import { btnStyle, CHARM_TOKENS, studioStyles } from "./components/studioStyles";
 import { DesktopCompanionModal } from "./DesktopCompanionModal";
 import { GuideFaqModal } from "./GuideFaqModal";
-import { PanelRightIcon } from "./icons";
 import { ImportModal } from "./ImportModal";
 import { LayersPanel } from "./LayersPanel";
-import { OnboardingChecklist } from "./OnboardingChecklist";
 import { ProjectsModal } from "./ProjectsModal";
 import {
   deleteCloudProject,
@@ -40,8 +36,72 @@ import { SettingsModal } from "./SettingsModal";
 import { MATRIX_PRESETS, StudioProvider, useStudioStore } from "./store/studioStore";
 import { supabase } from "./supabaseClient";
 import { TerminalViewport } from "./TerminalViewport";
-import { Tooltip, TooltipProvider } from "./Tooltip";
+import { TooltipProvider } from "./Tooltip";
+import type { ColorProfile, IRDoc, IRNode } from "./types";
 import { WidgetPickerModal } from "./WidgetPickerModal";
+
+const COACH_KEY = "charmstudio:coachDismissed:v1";
+
+function extractLinkedGoSnippet(
+  doc: IRDoc,
+  selectedNode: IRNode | null
+): { fileLabel: string; lines: string[]; emptyReason?: string } {
+  if (!selectedNode) {
+    return {
+      fileLabel: "ui/theme_gen.go",
+      lines: [],
+      emptyReason: "Select any pane in the terminal or outline to inspect its Go code.",
+    };
+  }
+
+  if (selectedNode.style) {
+    const themeGo = generateThemeGenGo(doc);
+    const allLines = themeGo.split("\n");
+    const marker = `// @tui:style=${selectedNode.style}`;
+    const startIdx = allLines.findIndex((line) => line.includes(marker));
+    if (startIdx >= 0) {
+      const snippet: string[] = [];
+      for (let i = startIdx; i < allLines.length; i++) {
+        snippet.push(allLines[i]);
+        if (i > startIdx && allLines[i].trimEnd().endsWith(",")) {
+          break;
+        }
+        if (snippet.length >= 18) break;
+      }
+      return { fileLabel: "ui/theme_gen.go", lines: snippet };
+    }
+  }
+
+  const layoutGo = generateLayoutGenGo(doc);
+  const layoutLines = layoutGo.split("\n");
+  const idMarker = `// @tui:id=${selectedNode.id}`;
+  const idIdx = layoutLines.findIndex((line) => line.includes(idMarker));
+  if (idIdx >= 0) {
+    const start = Math.max(0, idIdx);
+    const end = Math.min(layoutLines.length, idIdx + 8);
+    return { fileLabel: "ui/layout_gen.go", lines: layoutLines.slice(start, end) };
+  }
+
+  return {
+    fileLabel: "ui/layout_gen.go",
+    lines: layoutLines.slice(0, 10),
+  };
+}
+
+function isHighlightedGoLine(line: string, styleName?: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (styleName && line.includes(`// @tui:style=${styleName}`)) return true;
+  if (
+    trimmed.includes("Padding(") ||
+    trimmed.includes("Border(") ||
+    trimmed.includes("BorderForeground(") ||
+    trimmed.includes("Margin(")
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export default function App() {
   return (
@@ -53,6 +113,8 @@ export default function App() {
 
 function StudioShell() {
   const {
+    activeLens,
+    setActiveLens,
     workspaceMode,
     templateId,
     setTemplateId,
@@ -67,12 +129,8 @@ function StudioShell() {
     bumpTick,
     layersOpen,
     setLayersOpen,
-    inspectorOpen,
-    setInspectorOpen,
-    rightTab,
     setRightTab,
     appMode,
-    setAppMode,
     tooltipsEnabled,
     setTooltipsEnabled,
     fontFamily,
@@ -81,23 +139,29 @@ function StudioShell() {
     addCustomTheme,
     clearCustomThemes,
     palette,
+    allPalettes,
+    selectPalette,
     viewMode,
+    setViewMode,
     matrixDense,
+    setMatrixDense,
     cols,
     setCols,
     rows,
     setRows,
     colorProfile,
+    setColorProfile,
     showOverlay,
+    setShowOverlay,
     selectedId,
     setSelectedId,
+    selectedNode,
     singleTel,
     setSingleTel,
     onboarding,
     setOnboarding,
     markStep,
     activeSpotlight,
-    setActiveSpotlight,
     addBox,
     addPreset,
     split,
@@ -114,7 +178,9 @@ function StudioShell() {
     updateNode,
     loadTemplate,
     previewMode,
+    setPreviewMode,
     ptyStatus,
+    desktopConnected,
   } = useStudioStore();
 
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -126,6 +192,17 @@ function StudioShell() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
+  const [scenesOpen, setScenesOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  const [coachDismissed, setCoachDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(COACH_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
   const [authError, setAuthError] = useState<string | null>(null);
   const [localUser, setLocalUser] = useState<LocalUser | null>(() => {
     try {
@@ -156,6 +233,19 @@ function StudioShell() {
     return [...cloudProjects, ...localProjects.filter((p) => !cloudIds.has(p.id))];
   }, [cloudProjects, localProjects]);
 
+  const userLabel = useMemo(() => {
+    if (user) {
+      return `@${(user.user_metadata?.user_name as string | undefined) || user.email || "GitHub"}`;
+    }
+    if (localUser) return `@${localUser.username}`;
+    return null;
+  }, [user, localUser]);
+
+  const linkedGoSnippet = useMemo(
+    () => (activeLens === "hybrid" ? extractLinkedGoSnippet(ir, selectedNode) : null),
+    [activeLens, ir, selectedNode]
+  );
+
   // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -168,6 +258,13 @@ function StudioShell() {
         setProjectsOpen(false);
         setAuthOpen(false);
         setDesktopOpen(false);
+        setScenesOpen(false);
+        setCommandPaletteOpen(false);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
         return;
       }
       const tag = (e.target as HTMLElement)?.tagName;
@@ -292,301 +389,120 @@ function StudioShell() {
   }, [ir, paletteId, templateId, activeProjectId, user, allProjects]);
 
   const selectedTel = singleTel.find((t) => t.id === selectedId) ?? null;
+  const primaryOverlay = ir.overlays[0] ?? null;
+
+  const dismissCoach = () => {
+    setCoachDismissed(true);
+    try {
+      localStorage.setItem(COACH_KEY, "1");
+    } catch {}
+  };
+
+  const terminalOverlayMode: "none" | "padding-band" | "full-box-model" =
+    activeLens === "visual"
+      ? "none"
+      : activeLens === "hybrid"
+      ? "padding-band"
+      : showOverlay
+      ? "full-box-model"
+      : "none";
 
   return (
     <TooltipProvider enabled={tooltipsEnabled}>
-      <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--cs-bg)", color: "var(--cs-text)" }}>
-        {/* FULL-WIDTH SPARKLING CHARM HERO */}
-        <header
-          style={{
-            position: "relative",
-            padding: "12px 20px 24px 14px",
-            borderBottom: "1px solid var(--cs-border)",
-            background: "var(--cs-hero-bg)",
+      <div style={studioStyles.shell}>
+        {/* ZONE 1: 56px Three-Zone Progressive Disclosure Top Bar */}
+        <LensTopBar
+          projectsCount={allProjects.length}
+          userLabel={userLabel}
+          onOpenScenes={() => setScenesOpen(true)}
+          onOpenImport={() => {
+            setImportInitialTab(user ? "github" : "upload");
+            setImportOpen(true);
           }}
-        >
-          {/* Top-Right Utility Navigation */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-            <Tooltip
-              title="Charm Glossary"
-              content="Explore every Charmbracelet library & CLI tool (Lip Gloss, Bubbles, Bubble Tea, Huh, Glamour, Gum, Wish, VHS) with pros, cons, and promo previews."
-              placement="bottom"
-            >
-              <button
-                onClick={() => setGlossaryOpen(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: glossaryOpen ? "var(--cs-mint-bg)" : "var(--cs-btn-bg)",
-                  color: glossaryOpen ? "var(--cs-mint)" : "var(--cs-btn-text)",
-                  border: `1px solid ${glossaryOpen ? "var(--cs-mint-border)" : "var(--cs-btn-border)"}`,
-                }}
-              >
-                <BookOpen size={13} style={{ color: "var(--cs-mint)" }} />
-                <span>Charm Glossary</span>
-              </button>
-            </Tooltip>
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+          onOpenDesktop={() => setDesktopOpen(true)}
+          onOpenProjects={() => setProjectsOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenGlossary={() => setGlossaryOpen(true)}
+          onOpenGuide={() => setGuideOpen(true)}
+          onOpenAuth={() => setAuthOpen(true)}
+        />
 
-            <Tooltip
-              title="Guide, Help & FAQ"
-              content="Open plain-English walkthroughs, Charm library guides, GitHub sync instructions, and beginner FAQs."
-              placement="bottom"
-            >
-              <button
-                onClick={() => setGuideOpen(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: guideOpen ? "var(--cs-code-bg)" : "var(--cs-btn-bg)",
-                  color: guideOpen ? "var(--cs-text-heading)" : "var(--cs-btn-text)",
-                  border: `1px solid ${guideOpen ? "var(--cs-lavender)" : "var(--cs-btn-border)"}`,
-                }}
-              >
-                <HelpCircle size={13} style={{ color: "var(--cs-lavender)" }} />
-                <span>Guide &amp; FAQ</span>
-              </button>
-            </Tooltip>
-
-            <Tooltip
-              title="Studio Settings"
-              content="Create or upload terminal color themes, switch preview fonts, toggle hover tooltips, or download your ir.json backup."
-              placement="bottom"
-            >
-              <button
-                onClick={() => setSettingsOpen(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: settingsOpen ? "var(--cs-pink-bg)" : "var(--cs-btn-bg)",
-                  color: settingsOpen ? "var(--cs-pink-soft)" : "var(--cs-btn-text)",
-                  border: `1px solid ${settingsOpen ? "var(--cs-pink)" : "var(--cs-btn-border)"}`,
-                }}
-              >
-                <Settings size={13} />
-                <span>Settings</span>
-              </button>
-            </Tooltip>
-
-            <Tooltip
-              title="Studio Appearance"
-              content="Switch the entire Charm Studio site between Dark Mode and Charm.land-inspired Light Mode."
-              placement="bottom"
-            >
-              <button
-                onClick={() => setAppMode((m) => (m === "dark" ? "light" : "dark"))}
-                title={appMode === "dark" ? "Switch to Charm.land Light Mode" : "Switch to Studio Dark Mode"}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: "var(--cs-btn-bg)",
-                  color: "var(--cs-btn-text)",
-                  border: "1px solid var(--cs-btn-border)",
-                }}
-              >
-                {appMode === "dark" ? <Sun size={13} /> : <Moon size={13} />}
-                <span>{appMode === "dark" ? "Light" : "Dark"}</span>
-              </button>
-            </Tooltip>
-
-            <Tooltip
-              title="GitHub & Cloud Account"
-              content={
-                user
-                  ? "Signed in! Your saved projects sync to the cloud and your GitHub repos appear in Import / GitHub."
-                  : "Sign in with GitHub to sync projects across devices and browse your GitHub repositories directly in Import."
-              }
-              placement="bottom"
-            >
-              <button
-                onClick={() => setAuthOpen(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 7,
-                  padding: "5px 12px",
-                  borderRadius: 999,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: user || localUser ? "var(--cs-mint-bg)" : "var(--cs-pink-bg)",
-                  color: user || localUser ? "var(--cs-mint)" : "var(--cs-pink-soft)",
-                  border: `1px solid ${user || localUser ? "var(--cs-mint-border)" : "var(--cs-pink-border)"}`,
-                }}
-              >
-                {user?.user_metadata?.avatar_url ? (
-                  <img src={user.user_metadata.avatar_url as string} alt="" style={{ width: 16, height: 16, borderRadius: "50%" }} />
-                ) : user || localUser ? (
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: "currentColor" }} />
-                ) : (
-                  <UserIcon size={13} />
-                )}
-                <span>
-                  {user
-                    ? `Signed in: @${(user.user_metadata?.user_name as string | undefined) || user.email}`
-                    : localUser
-                    ? `Local: @${localUser.username}`
-                    : "Sign In"}
-                </span>
-              </button>
-            </Tooltip>
-          </div>
-
-          {authError && (
-            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", color: "#e11d48", fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span><b>Auth Error:</b> {authError}</span>
-              <button onClick={() => setAuthError(null)} style={{ background: "none", border: "none", color: "#e11d48", cursor: "pointer", display: "inline-flex", alignItems: "center" }} aria-label="Dismiss"><X size={14} /></button>
-            </div>
-          )}
-
+        {/* Auth Error or Post-Login Sync Notice */}
+        {authError && (
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "max-content minmax(320px, 1fr)",
-              gap: 28,
+              padding: "8px 18px",
+              background: "rgba(244, 63, 94, 0.14)",
+              borderBottom: "1px solid rgba(244, 63, 94, 0.45)",
+              color: "#fda4af",
+              fontSize: 12,
+              display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
+              flexShrink: 0,
             }}
           >
-            {/* LEFT: Wordmark */}
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-                <h1
-                  className="charm-wordmark"
-                  style={{
-                    margin: 0,
-                    fontSize: "clamp(48px, 5vw, 72px)",
-                    fontWeight: 800,
-                    lineHeight: 0.94,
-                    letterSpacing: -1.5,
-                    textTransform: "uppercase",
-                    fontFamily: `"Bricolage Grotesque", system-ui, sans-serif`,
-                  }}
-                >
-                  CHARM STUDIO
-                </h1>
-
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 8 }}>
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      width: "100%",
-                      padding: "7px 16px",
-                      borderRadius: 999,
-                      fontSize: "clamp(11.5px, 0.95vw, 13.5px)",
-                      fontWeight: 700,
-                      letterSpacing: 0.5,
-                      whiteSpace: "nowrap",
-                      fontFamily: `"JetBrains Mono", ui-monospace, monospace`,
-                      color: "var(--cs-text-strong)",
-                      background: "var(--cs-pill-bg)",
-                      border: "1px solid var(--cs-pink-border)",
-                    }}
-                  >
-                    <Tooltip title="Lip Gloss" content="CSS-like terminal styling: borders, padding, margins, alignment, and adaptive light/dark colors." placement="bottom">
-                      <span style={{ cursor: "help" }}>Lip Gloss</span>
-                    </Tooltip>
-                    <span style={{ opacity: 0.55 }}>•</span>
-                    <Tooltip title="Bubbles" content="Interactive terminal UI widgets: searchable Lists, Tables, scrollable Viewports, and Text Inputs." placement="bottom">
-                      <span style={{ cursor: "help" }}>Bubbles</span>
-                    </Tooltip>
-                    <span style={{ opacity: 0.55 }}>•</span>
-                    <Tooltip title="Huh" content="Interactive CLI forms, multi-field surveys, selects, and confirmation prompts." placement="bottom">
-                      <span style={{ cursor: "help" }}>Huh</span>
-                    </Tooltip>
-                    <span style={{ opacity: 0.55 }}>•</span>
-                    <Tooltip title="Glamour & Glow" content="Renders styled Markdown (headings, lists, code blocks, quotes) right inside a terminal pane." placement="bottom">
-                      <span style={{ cursor: "help" }}>Glamour</span>
-                    </Tooltip>
-                    <span style={{ opacity: 0.55 }}>•</span>
-                    <Tooltip title="Gum" content="Pre-styled shell script prompts & filters—auto-generates a ready-to-run gum.sh script." placement="bottom">
-                      <span style={{ cursor: "help" }}>Gum</span>
-                    </Tooltip>
-                    <span style={{ opacity: 0.55 }}>•</span>
-                    <Tooltip title="Wish" content="Serve your Go Bubble Tea app over SSH! Add a Wish header to generate SSH server code in main.go." placement="bottom">
-                      <span style={{ cursor: "help" }}>Wish</span>
-                    </Tooltip>
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 500,
-                      color: "var(--cs-lavender-text)",
-                      letterSpacing: 0.3,
-                      textAlign: "center",
-                    }}
-                  >
-                    Live Go TUI Layout Sandbox &amp; Code Generator
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 14 }}>
-                <svg className="charm-sparkle-a" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--cs-pink)" }} aria-hidden="true">
-                  <path d="M12 1L14.6 9.4L23 12L14.6 14.6L12 23L9.4 14.6L1 12L9.4 9.4L12 1Z" />
-                </svg>
-                <svg className="charm-sparkle-b" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: "var(--cs-mint)", marginTop: -22 }} aria-hidden="true">
-                  <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
-                </svg>
-              </div>
-            </div>
-
-            {/* RIGHT: Description */}
-            <div
-              style={{
-                padding: "18px 24px",
-                borderRadius: 12,
-                background: "var(--cs-hero-card)",
-                border: "1px solid var(--cs-border-subtle)",
-                borderLeft: "3px solid var(--cs-pink)",
-                boxShadow: "0 10px 30px rgba(0, 0, 0, 0.12)",
-              }}
+            <span><b>Auth Error:</b> {authError}</span>
+            <button
+              onClick={() => setAuthError(null)}
+              style={{ background: "none", border: "none", color: "inherit", padding: 2, display: "inline-flex" }}
+              aria-label="Dismiss auth error"
             >
-              <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.62, color: "var(--cs-text-body)" }}>
-                Stop guessing terminal cell math in the dark. Tweak borders, padding, and breakpoints
-                in real compiled Go—then poke straight into live Bubbles, stress-test three terminal
-                sizes at once, and walk away with runnable <code style={inlineCode}>main.go</code> and{" "}
-                <code style={inlineCode}>ui/*.go</code> without the compile-resize-sigh loop.
-              </p>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {user && postLoginBanner && (
+          <div
+            style={{
+              padding: "8px 18px",
+              background: CHARM_TOKENS.bgSurface,
+              borderBottom: `1px solid ${CHARM_TOKENS.mintBorder}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ fontSize: 12, color: CHARM_TOKENS.text, display: "flex", alignItems: "center", gap: 8 }}>
+              <CheckCircle2 size={14} style={{ color: CHARM_TOKENS.mint }} />
+              <span>
+                Connected as <b>@{(user.user_metadata?.user_name as string | undefined) || user.email}</b> · Cloud sync and GitHub repository import unlocked
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onClick={() => {
+                  setImportInitialTab("github");
+                  setImportOpen(true);
+                  setPostLoginBanner(false);
+                }}
+                style={{
+                  ...studioStyles.secondaryBtn,
+                  borderColor: CHARM_TOKENS.mintBorder,
+                  color: CHARM_TOKENS.mint,
+                }}
+              >
+                <GitBranch size={12} />
+                <span>Browse GitHub Repos</span>
+              </button>
+              <button
+                onClick={() => setPostLoginBanner(false)}
+                style={{ background: "none", border: "none", color: CHARM_TOKENS.textMuted, padding: 4, display: "inline-flex" }}
+                aria-label="Dismiss login banner"
+              >
+                <X size={14} />
+              </button>
             </div>
           </div>
-        </header>
+        )}
 
-        {/* 3-COLUMN STUDIO WORKSPACE BELOW */}
-        <div
-          style={{
-            flex: 1,
-            display: "grid",
-            gridTemplateColumns: `${layersOpen ? "258px" : "40px"} 1fr ${inspectorOpen ? "394px" : "40px"}`,
-            minWidth: 0,
-          }}
-        >
-          {/* LEFT: Layout Tree */}
+        {/* ZONE 2: Left Outline Rail + Center Hero Terminal Stage + Morphing Right Rail */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
           <LayersPanel
             doc={ir}
             selectedId={selectedId}
@@ -610,171 +526,211 @@ function StudioShell() {
             onCycleOverlayAnchor={setOverlayAnchor}
           />
 
-          {/* CENTER: Terminal Stage */}
-          <div style={{ padding: "0 24px 22px", display: "flex", flexDirection: "column", gap: 16, overflow: "auto", minWidth: 0 }}>
-            <CanvasToolbar
-              userLabel={user ? `@${(user.user_metadata?.user_name as string | undefined) ?? "Account"}` : null}
-              projectsCount={allProjects.length}
-              widgetPickerOpen={widgetPickerOpen}
-              projectsOpen={projectsOpen}
-              importOpen={importOpen}
-              desktopOpen={desktopOpen}
-              onOpenWidgetPicker={() => setWidgetPickerOpen(true)}
-              onOpenProjects={() => setProjectsOpen(true)}
-              onOpenImport={() => {
-                setImportInitialTab(user ? "github" : "upload");
-                setImportOpen(true);
-              }}
-              onOpenSettings={() => setSettingsOpen(true)}
-              onOpenCodeExport={() => {
-                setInspectorOpen(true);
-                setRightTab("code");
-                markStep("exportedCode");
-              }}
-              onOpenDesktopCompanion={() => setDesktopOpen(true)}
-            />
-
-            {/* Post-Login Clarity & Next-Step Banner */}
-            {user && postLoginBanner && (
+          {/* CENTER HERO TERMINAL STAGE */}
+          <main
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: "auto",
+              background: CHARM_TOKENS.bgGround,
+              padding: "20px 24px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            {/* Compact Stage Toolbar — Visible in Code Lens */}
+            {activeLens === "code" && (
               <div
                 style={{
-                  padding: "12px 16px",
-                  background: "var(--cs-pill-bg)",
-                  border: "1px solid var(--cs-mint-border)",
-                  borderRadius: 10,
+                  width: "min(920px, 100%)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 12,
                   flexWrap: "wrap",
+                  gap: 10,
+                  padding: "8px 12px",
+                  borderRadius: 12,
+                  background: CHARM_TOKENS.bgSurface,
+                  border: `1px solid ${CHARM_TOKENS.border}`,
                 }}
               >
-                <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cs-text-body)" }}>
-                  <b style={{ color: "var(--cs-mint)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                    <CheckCircle2 size={14} />
-                    <span>Connected as @{(user.user_metadata?.user_name as string | undefined) || user.email}</span>
-                  </b>
-                  <span style={{ color: "var(--cs-lavender-text)" }}>
-                    {" "}— GitHub sign-in enables <b>Cloud Project Sync</b> across devices and lets you pull Go code straight from your <b>GitHub repositories</b>.
-                  </span>
-                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    onClick={() => {
-                      setImportInitialTab("github");
-                      setImportOpen(true);
-                      setPostLoginBanner(false);
-                    }}
+                  <div
                     style={{
-                      ...btnStyle(true),
-                      background: "var(--cs-mint-bg)",
-                      borderColor: "var(--cs-mint-border)",
-                      color: "var(--cs-mint)",
-                      fontWeight: 700,
                       display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
+                      background: "var(--cs-input)",
+                      border: `1px solid ${CHARM_TOKENS.border}`,
+                      borderRadius: 8,
+                      padding: 2,
                     }}
                   >
-                    <GitBranch size={13} />
-                    <span>Browse My GitHub Repos</span>
-                    <ArrowRight size={13} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setProjectsOpen(true);
-                      setPostLoginBanner(false);
-                    }}
-                    style={btnStyle(false)}
+                    <button
+                      onClick={() => setViewMode("single")}
+                      style={stageToggleBtn(viewMode === "single")}
+                    >
+                      Single
+                    </button>
+                    <button
+                      onClick={() => setViewMode("matrix")}
+                      style={stageToggleBtn(viewMode === "matrix")}
+                    >
+                      Matrix (3×)
+                    </button>
+                  </div>
+
+                  {viewMode === "matrix" ? (
+                    <button
+                      onClick={() => setMatrixDense((v) => !v)}
+                      style={btnStyle(matrixDense)}
+                    >
+                      Dense
+                    </button>
+                  ) : (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: CHARM_TOKENS.textMuted }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span>Cols</span>
+                        <input
+                          type="number"
+                          min={30}
+                          max={140}
+                          value={cols}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n)) setCols(Math.max(30, Math.min(140, Math.round(n))));
+                          }}
+                          className="cs-mono"
+                          style={compactNumInput}
+                        />
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span>Rows</span>
+                        <input
+                          type="number"
+                          min={10}
+                          max={45}
+                          value={rows}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n)) setRows(Math.max(10, Math.min(45, Math.round(n))));
+                          }}
+                          className="cs-mono"
+                          style={compactNumInput}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <select
+                    aria-label="Terminal theme"
+                    value={paletteId}
+                    onChange={(e) => selectPalette(e.target.value)}
+                    style={compactSelect}
                   >
-                    Open Saved Projects ({allProjects.length})
+                    {allPalettes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    aria-label="Color profile"
+                    value={colorProfile}
+                    onChange={(e) => setColorProfile(e.target.value as ColorProfile)}
+                    style={compactSelect}
+                  >
+                    <option value="truecolor">TrueColor</option>
+                    <option value="ansi256">ANSI 256</option>
+                    <option value="ansi16">ANSI 16</option>
+                    <option value="ascii">ASCII</option>
+                  </select>
+
+                  <button onClick={() => setShowOverlay((v) => !v)} style={btnStyle(showOverlay)}>
+                    DevTools
                   </button>
-                  <button onClick={() => setPostLoginBanner(false)} style={{ ...btnStyle(false), display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Dismiss banner" aria-label="Dismiss banner">
-                    <X size={13} />
-                  </button>
+
+                  {primaryOverlay && (
+                    <button
+                      onClick={() => toggleOverlay(primaryOverlay.node.id)}
+                      style={btnStyle(primaryOverlay.visible)}
+                    >
+                      Overlay
+                    </button>
+                  )}
+
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      background: "var(--cs-input)",
+                      border: `1px solid ${CHARM_TOKENS.border}`,
+                      borderRadius: 8,
+                      padding: 2,
+                    }}
+                  >
+                    <button
+                      onClick={() => setPreviewMode("wasm")}
+                      style={stageToggleBtn(previewMode === "wasm")}
+                    >
+                      WASM
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (desktopConnected) {
+                          setPreviewMode("pty");
+                        } else {
+                          setDesktopOpen(true);
+                        }
+                      }}
+                      title={desktopConnected ? "Switch to Native PTY runner" : "Connect Wails Desktop Companion for Native PTY"}
+                      style={stageToggleBtn(previewMode === "pty")}
+                    >
+                      Native PTY
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* First-Run Quick-Start Checklist */}
-            <OnboardingChecklist
-              progress={onboarding}
-              activeSpotlight={activeSpotlight}
-              onSpotlight={setActiveSpotlight}
-              onTriggerStep={(step) => {
-                if (step === "templateOrImport") {
-                  setImportInitialTab("github");
-                  setImportOpen(true);
-                } else if (step === "addedComponent") {
-                  setWidgetPickerOpen(true);
-                } else if (step === "styledOrInteracted") {
-                  setInspectorOpen(true);
-                  setRightTab("inspector");
-                  setActiveSpotlight("terminal-inspector");
-                } else if (step === "exportedCode") {
-                  setInspectorOpen(true);
-                  setRightTab("code");
-                  markStep("exportedCode");
-                }
-              }}
-              onDismiss={() => {
-                setActiveSpotlight(null);
-                setOnboarding((prev) => ({ ...prev, dismissed: true }));
-              }}
-            />
-
-            {/* Canvas Hint + DevTools Legend Bar */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 12.5, color: "var(--cs-text-muted)", paddingTop: 2 }}>
-              <span>
-                <b style={{ color: "var(--cs-text-strong)" }}>Click</b> a pane to select • <b style={{ color: "var(--cs-text-strong)" }}>Double-click</b> to edit text • <b style={{ color: "var(--cs-text-strong)" }}>Tab / ↑↓</b> to test live widgets
-                {viewMode === "matrix" && <span style={{ color: "var(--cs-text-dim)" }}> • Narrow panes collapse items tagged &lt;cols</span>}
-                {onboarding.dismissed && (
-                  <button
-                    onClick={() => setOnboarding((prev) => ({ ...prev, dismissed: false }))}
-                    style={{ marginLeft: 10, background: "none", border: "none", color: "var(--cs-pink-soft)", cursor: "pointer", fontSize: 12, textDecoration: "underline", padding: 0 }}
-                  >
-                    Show Quick-Start Checklist
-                  </button>
-                )}
-              </span>
-              {showOverlay && (
-                <span style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11.5 }}>
-                  <Tooltip title="Margin" content="Outer blank terminal cells outside the border that push neighboring panes away.">
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }}><span style={dot("#fb923c")} /> Margin</span>
-                  </Tooltip>
-                  <Tooltip title="Padding" content="Inner blank terminal cells between the border and the text/widget inside.">
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }}><span style={dot("#4ade80")} /> Padding</span>
-                  </Tooltip>
-                  <Tooltip title="Content" content="The actual area occupied by your widget or text inside padding.">
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }}><span style={dot("#60a5fa")} /> Content</span>
-                  </Tooltip>
-                </span>
-              )}
-            </div>
-
-            {viewMode === "single" && (
-              <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 13, color: "var(--cs-text-muted)", flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  Cols <b style={{ color: "var(--cs-text-strong)", fontVariantNumeric: "tabular-nums" }}>{cols}</b>
-                  <input type="range" min={30} max={140} value={cols} onChange={(e) => setCols(+e.target.value)} style={{ accentColor: "var(--cs-pink)" }} />
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  Rows <b style={{ color: "var(--cs-text-strong)", fontVariantNumeric: "tabular-nums" }}>{rows}</b>
-                  <input type="range" min={10} max={45} value={rows} onChange={(e) => setRows(+e.target.value)} style={{ accentColor: "var(--cs-pink)" }} />
-                </label>
-                <span style={{ fontSize: 11.5, color: "var(--cs-text-dim)" }}>
-                  (Or drag the <code style={inlineCode}>⌟</code> corner handle)
-                </span>
-              </div>
-            )}
-
-            {viewMode === "single" ? (
+            {/* Centered Hero Terminal Viewport(s) */}
+            {activeLens === "code" && viewMode === "matrix" ? (
               <div
-                className={activeSpotlight === "terminal-inspector" ? "charm-spotlight" : undefined}
-                style={{ borderRadius: 12, border: "1px solid transparent", padding: activeSpotlight === "terminal-inspector" ? 4 : 0 }}
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "center",
+                  gap: 18,
+                  alignItems: "flex-start",
+                  width: "100%",
+                }}
               >
+                {MATRIX_PRESETS.map((vp) => (
+                  <TerminalViewport
+                    key={vp.title}
+                    title={vp.title}
+                    doc={ir}
+                    renderTick={renderTick}
+                    cols={vp.cols}
+                    rows={vp.rows}
+                    fontSize={matrixDense ? 9.5 : 11}
+                    fontFamily={fontFamily}
+                    palette={palette}
+                    colorProfile={colorProfile}
+                    showOverlay={showOverlay}
+                    overlayMode={showOverlay ? "full-box-model" : "none"}
+                    selectedId={selectedId}
+                    onSelect={setSelectedId}
+                    onInteract={bumpTick}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, maxWidth: "100%" }}>
                 <TerminalViewport
-                  title={previewMode === "pty" ? "Native PTY Viewport" : "Interactive Viewport"}
+                  title={previewMode === "pty" ? "Native PTY Viewport" : "Interactive Preview"}
                   mode={previewMode}
                   ptyStatus={ptyStatus}
                   doc={ir}
@@ -785,8 +741,9 @@ function StudioShell() {
                   fontFamily={fontFamily}
                   palette={palette}
                   colorProfile={colorProfile}
-                  showOverlay={showOverlay}
-                  showQuickBar={true}
+                  showOverlay={terminalOverlayMode !== "none"}
+                  overlayMode={terminalOverlayMode}
+                  showQuickBar={activeLens !== "visual"}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
                   onInteract={bumpTick}
@@ -807,107 +764,200 @@ function StudioShell() {
                     markStep("styledOrInteracted");
                   }}
                   onRequestInspectData={() => {
-                    setInspectorOpen(true);
+                    if (activeLens === "visual") setActiveLens("hybrid");
                     setRightTab("inspector");
                     setTimeout(() => inspectorScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 40);
                   }}
                 />
-                <div style={{ marginTop: 12, fontFamily: "ui-monospace, monospace", fontSize: 12, color: "var(--cs-text-muted)", fontVariantNumeric: "tabular-nums" }}>
-                  {selectedTel ? (
-                    <span>
-                      Selected <b style={{ color: "var(--cs-text-strong)" }}>#{selectedTel.id}</b> • total box {selectedTel.margin.w}×{selectedTel.margin.h} • inner content {selectedTel.content.w}×{selectedTel.content.h}
-                      {selectedTel.overflowMsg && (
-                        <span style={{ color: "#e11d48", marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <AlertTriangle size={12} />
-                          <span>{selectedTel.overflowMsg}</span>
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span>Node <b>#{selectedId}</b> is currently hidden/collapsed at {cols} cols.</span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div
-                className={activeSpotlight === "terminal-inspector" ? "charm-spotlight" : undefined}
-                style={{ display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-start", borderRadius: 12, border: "1px solid transparent", padding: activeSpotlight === "terminal-inspector" ? 6 : 0 }}
-              >
-                {MATRIX_PRESETS.map((vp) => (
-                  <TerminalViewport
-                    key={vp.title}
-                    title={vp.title}
-                    doc={ir}
-                    renderTick={renderTick}
-                    cols={vp.cols}
-                    rows={vp.rows}
-                    fontSize={matrixDense ? 9.5 : 11}
-                    fontFamily={fontFamily}
-                    palette={palette}
-                    colorProfile={colorProfile}
-                    showOverlay={showOverlay}
-                    selectedId={selectedId}
-                    onSelect={setSelectedId}
-                    onInteract={bumpTick}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
 
-          {/* RIGHT: Collapsible Inspector + Codegen Drawer */}
-          {!inspectorOpen ? (
-            <aside style={{ borderLeft: "1px solid var(--cs-border)", background: "var(--cs-panel)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 12 }}>
-              <button onClick={() => setInspectorOpen(true)} title="Expand Inspector" style={{ ...miniBtn, display: "inline-flex", alignItems: "center" }}>
-                <PanelRightIcon collapsed={true} />
-              </button>
-              <span style={{ writingMode: "vertical-rl", marginTop: 18, fontSize: 11, color: "var(--cs-text-dim)", letterSpacing: 1.6, textTransform: "uppercase" }}>
-                Inspector
-              </span>
-            </aside>
-          ) : (
-            <aside
-              className={activeSpotlight === "terminal-inspector" && rightTab === "inspector" ? "charm-spotlight" : undefined}
-              style={{ borderLeft: "1px solid var(--cs-border)", background: "var(--cs-panel)", display: "flex", flexDirection: "column", position: "sticky", top: 0, maxHeight: "100vh" }}
-            >
-              <div style={{ display: "flex", alignItems: "center", height: 49, borderBottom: "1px solid var(--cs-border)" }}>
-                {(["inspector", "code"] as const).map((t) => (
-                  <button
-                    key={t}
-                    className={t === "code" && activeSpotlight === "code-tab" ? "charm-spotlight" : undefined}
-                    onClick={() => {
-                      setRightTab(t);
-                      if (t === "code") markStep("exportedCode");
-                    }}
+                {selectedTel?.overflowMsg && (
+                  <div
                     style={{
-                      flex: 1,
-                      height: "100%",
-                      padding: 0,
-                      border: "none",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                      fontSize: 13.5,
-                      background: rightTab === t ? "var(--cs-card)" : "transparent",
-                      color: rightTab === t ? "var(--cs-pink)" : "var(--cs-text-dim)",
-                      borderBottom: rightTab === t ? "2px solid var(--cs-pink)" : "2px solid transparent",
+                      fontSize: 12,
+                      color: "#fda4af",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
-                    {t === "inspector" ? "Inspector" : "Go Code"}
-                  </button>
-                ))}
-                <button onClick={() => setInspectorOpen(false)} title="Collapse Inspector" style={{ ...miniBtn, marginRight: 10, display: "inline-flex", alignItems: "center" }}>
-                  <PanelRightIcon collapsed={false} />
+                    <AlertTriangle size={13} />
+                    <span>{selectedTel.overflowMsg}</span>
+                  </div>
+                )}
+
+                {activeLens !== "visual" && selectedTel && (
+                  <div
+                    className="cs-mono"
+                    style={{
+                      fontSize: 11.5,
+                      color: CHARM_TOKENS.textMuted,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    #{selectedTel.id} · outer {selectedTel.margin.w}×{selectedTel.margin.h} · content {selectedTel.content.w}×{selectedTel.content.h}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* LENS 1 (Visual): Dismissible Mint Coach Mark */}
+            {activeLens === "visual" && !coachDismissed && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "9px 14px",
+                  borderRadius: 12,
+                  background: CHARM_TOKENS.mintBg,
+                  border: `1px solid ${CHARM_TOKENS.mintBorder}`,
+                  color: CHARM_TOKENS.mint,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  maxWidth: "min(620px, 100%)",
+                }}
+              >
+                <Sparkles size={14} style={{ flexShrink: 0 }} />
+                <span>Drag any edge or click a pane. Switch to Hybrid to see the live Go.</span>
+                <button
+                  onClick={() => setActiveLens("hybrid")}
+                  style={{
+                    border: `1px solid ${CHARM_TOKENS.mintBorder}`,
+                    background: "transparent",
+                    color: CHARM_TOKENS.mint,
+                    borderRadius: 7,
+                    padding: "4px 9px",
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span>Hybrid</span>
+                  <ArrowRight size={12} />
+                </button>
+                <button
+                  onClick={dismissCoach}
+                  aria-label="Dismiss hint"
+                  title="Dismiss"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: CHARM_TOKENS.mint,
+                    padding: 3,
+                    display: "inline-flex",
+                  }}
+                >
+                  <X size={14} />
                 </button>
               </div>
+            )}
 
-              {rightTab === "inspector" ? (
-                <PropertyInspector scrollRef={inspectorScrollRef} />
-              ) : (
-                <CodePreviewDrawer />
-              )}
-            </aside>
-          )}
+            {/* LENS 2 (Hybrid): Linked Go Code Card directly beneath the terminal */}
+            {activeLens === "hybrid" && linkedGoSnippet && (
+              <section
+                aria-label="Linked Go code preview"
+                style={{
+                  ...studioStyles.codeCard,
+                  width: "min(760px, 100%)",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "9px 14px",
+                    background: CHARM_TOKENS.bgSurface,
+                    borderBottom: `1px solid ${CHARM_TOKENS.border}`,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <Code2 size={14} style={{ color: CHARM_TOKENS.lilac, flexShrink: 0 }} />
+                    <span className="cs-mono" style={{ fontSize: 12, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
+                      {linkedGoSnippet.fileLabel}
+                    </span>
+                    {selectedNode?.style && (
+                      <span className="cs-mono" style={{ fontSize: 11.5, color: CHARM_TOKENS.lilac }}>
+                        · {selectedNode.style}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setActiveLens("code")}
+                    style={{
+                      ...studioStyles.secondaryBtn,
+                      padding: "4px 9px",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    <span>Open Full Code</span>
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+
+                {linkedGoSnippet.emptyReason ? (
+                  <div style={{ padding: 14, fontSize: 12.5, color: CHARM_TOKENS.textMuted }}>
+                    {linkedGoSnippet.emptyReason}
+                  </div>
+                ) : (
+                  <div
+                    className="cs-mono"
+                    style={{
+                      padding: "10px 0",
+                      fontSize: 12,
+                      lineHeight: 1.55,
+                      color: CHARM_TOKENS.text,
+                      overflowX: "auto",
+                    }}
+                  >
+                    {linkedGoSnippet.lines.map((line, idx) => {
+                      const highlighted = isHighlightedGoLine(line, selectedNode?.style);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: "1px 14px",
+                            whiteSpace: "pre",
+                            background: highlighted ? "rgba(255, 94, 174, 0.14)" : "transparent",
+                            borderLeft: highlighted ? `3px solid ${CHARM_TOKENS.pink}` : "3px solid transparent",
+                            color: highlighted ? CHARM_TOKENS.textHeading : CHARM_TOKENS.text,
+                          }}
+                        >
+                          {line || " "}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            )}
+          </main>
+
+          {/* Morphing Right Rail (Floating Visual Card / Hybrid Box-Model / Code File Tree) */}
+          <LensRightRail inspectorScrollRef={inspectorScrollRef} />
         </div>
+
+        {/* Modals */}
+        <ScenePickerModal open={scenesOpen} onClose={() => setScenesOpen(false)} />
+
+        <CommandPaletteModal
+          open={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+          onOpenScenes={() => setScenesOpen(true)}
+          onOpenImport={() => {
+            setImportInitialTab(user ? "github" : "upload");
+            setImportOpen(true);
+          }}
+          onOpenDesktop={() => setDesktopOpen(true)}
+          onOpenProjects={() => setProjectsOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
 
         <AuthModal
           open={authOpen}
@@ -1076,3 +1126,34 @@ function StudioShell() {
     </TooltipProvider>
   );
 }
+
+const stageToggleBtn = (active: boolean): React.CSSProperties => ({
+  border: "none",
+  borderRadius: 6,
+  padding: "4px 10px",
+  fontSize: 11.5,
+  fontWeight: active ? 700 : 600,
+  background: active ? CHARM_TOKENS.pinkBg : "transparent",
+  color: active ? CHARM_TOKENS.pinkSoft : CHARM_TOKENS.textMuted,
+});
+
+const compactNumInput: React.CSSProperties = {
+  width: 54,
+  padding: "4px 6px",
+  borderRadius: 6,
+  background: "var(--cs-input)",
+  border: `1px solid ${CHARM_TOKENS.border}`,
+  color: CHARM_TOKENS.textHeading,
+  fontSize: 12,
+  textAlign: "center",
+};
+
+const compactSelect: React.CSSProperties = {
+  background: "var(--cs-input)",
+  color: CHARM_TOKENS.text,
+  border: `1px solid ${CHARM_TOKENS.border}`,
+  borderRadius: 7,
+  padding: "4px 8px",
+  fontSize: 11.5,
+  fontWeight: 600,
+};

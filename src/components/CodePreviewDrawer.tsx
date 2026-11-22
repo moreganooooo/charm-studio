@@ -94,7 +94,12 @@ function renderFileForDoc(doc: IRDoc, tab: CodeFileTab, goModuleName: string, pa
   }
 }
 
-export function CodePreviewDrawer() {
+interface CodePreviewDrawerProps {
+  highlightNodeId?: string;
+  highlightStyleName?: string;
+}
+
+export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodePreviewDrawerProps = {}) {
   const {
     ir,
     past,
@@ -306,9 +311,51 @@ export function CodePreviewDrawer() {
       </div>
 
       {drawerMode === "source" ? (
-        <pre style={{ margin: 0, padding: 16, overflow: "auto", flex: 1, fontSize: 12, lineHeight: 1.55, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", color: "var(--cs-text)" }}>
-          <code>{generatedOutput}</code>
-        </pre>
+        <div
+          style={{
+            margin: 0,
+            padding: "12px 0",
+            overflow: "auto",
+            flex: 1,
+            fontSize: 11.5,
+            lineHeight: 1.55,
+            fontFamily: "var(--cs-font-mono)",
+            color: "var(--cs-text)",
+            background: "var(--cs-bg-code)",
+          }}
+        >
+          {generatedOutput.split("\n").map((line, idx) => {
+            const matchStyle = Boolean(highlightStyleName && line.includes(highlightStyleName));
+            const matchNode = Boolean(highlightNodeId && line.includes(highlightNodeId));
+            const highlighted = (matchStyle || matchNode) && isGoTab;
+            return (
+              <div
+                key={idx}
+                style={{
+                  display: "flex",
+                  padding: "0 14px 0 11px",
+                  borderLeft: highlighted ? "3px solid var(--cs-pink)" : "3px solid transparent",
+                  background: highlighted ? "rgba(255, 94, 174, 0.14)" : "transparent",
+                }}
+              >
+                <span
+                  style={{
+                    width: 30,
+                    flexShrink: 0,
+                    color: "var(--cs-text-dim)",
+                    userSelect: "none",
+                    textAlign: "right",
+                    paddingRight: 10,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {idx + 1}
+                </span>
+                <span style={{ whiteSpace: "pre" }}>{line}</span>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           {/* Structural AST Delta Summary */}

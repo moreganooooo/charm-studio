@@ -27,6 +27,7 @@ import {
   type IRStyle,
   type IRViewConfig,
   type OverlayAnchor,
+  type StudioLens,
   type TelemetryNode,
   type WorkspaceMode,
 } from "../types";
@@ -36,6 +37,20 @@ import { isWailsRuntimeAvailable } from "../previewTransport";
 import { setActiveTransport, wailsTransport } from "../wasmEngine";
 
 export const PALETTES: ThemePreset[] = [
+  {
+    id: "charm-aubergine",
+    label: "Charm Aubergine (Default)",
+    darkBG: true,
+    background: "#20162d",
+    foreground: "#f4eaff",
+    tokens: {
+      accent: "#ff5eae",
+      borderIdle: "#b9a2ff",
+      textMain: "#f4eaff",
+      modalGlow: "#6dffc2",
+      surface: "#150f1d",
+    },
+  },
   {
     id: "tokyo-dark",
     label: "Tokyo Night (Dark)",
@@ -103,6 +118,8 @@ export function applyPaletteTokens(doc: IRDoc, preset: ThemePreset): IRDoc {
 
 export interface StudioStoreValue {
   // Workspace & Appearance
+  activeLens: StudioLens;
+  setActiveLens: (lens: StudioLens) => void;
   workspaceMode: WorkspaceMode;
   switchWorkspaceMode: (mode: WorkspaceMode) => void;
   showAdvancedStyle: boolean;
@@ -231,25 +248,30 @@ const StudioStoreContext = createContext<StudioStoreValue | null>(null);
 export function StudioProvider({ children }: { children: ReactNode }) {
   const initialDraft = useMemo(() => loadDraft(), []);
 
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => {
+  const [activeLens, setActiveLensState] = useState<StudioLens>(() => {
     try {
-      return localStorage.getItem("charmstudio:workspaceMode:v1") === "pro" ? "pro" : "studio";
-    } catch {
-      return "studio";
-    }
+      const saved = localStorage.getItem("charmstudio:activeLens:v1");
+      if (saved === "visual" || saved === "hybrid" || saved === "code") return saved;
+    } catch {}
+    return "visual";
   });
+
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => (activeLens === "code" ? "pro" : "studio"));
   const [showAdvancedStyle, setShowAdvancedStyle] = useState(false);
 
   const [templateId, setTemplateId] = useState(initialDraft?.templateId ?? TEMPLATES[0].id);
-  const [paletteId, setPaletteId] = useState(initialDraft?.paletteId ?? "tokyo-dark");
-  const [ir, setIrRaw] = useState<IRDoc>(() => initialDraft?.ir ?? structuredClone(TEMPLATES[0].doc));
+  const [paletteId, setPaletteId] = useState(initialDraft?.paletteId ?? "charm-aubergine");
+  const [ir, setIrRaw] = useState<IRDoc>(() => {
+    if (initialDraft?.ir) return initialDraft.ir;
+    return applyPaletteTokens(TEMPLATES[0].doc, PALETTES[0]);
+  });
   const [past, setPast] = useState<IRDoc[]>([]);
   const [future, setFuture] = useState<IRDoc[]>([]);
 
   const [renderTick, setRenderTick] = useState(0);
   const [layersOpen, setLayersOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [rightTab, setRightTab] = useState<"inspector" | "code">("inspector");
+  const [rightTab, setRightTab] = useState<"inspector" | "code">(() => (activeLens === "code" ? "code" : "inspector"));
 
   const [appMode, setAppMode] = useState<"dark" | "light">(() => {
     try {
@@ -273,7 +295,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const [fontFamily, setFontFamily] = useState(`"JetBrains Mono", "SF Mono", Menlo, Monaco, ui-monospace, monospace`);
+  const [fontFamily, setFontFamily] = useState(`"JetBrains Mono", "SF Mono", Menlo, monospace`);
   const [customThemes, setCustomThemes] = useState<ThemePreset[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("charmstudio:customThemes") || "[]");
@@ -283,12 +305,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   });
   const allPalettes = useMemo(() => [...PALETTES, ...customThemes], [customThemes]);
 
-  const [viewMode, setViewMode] = useState<"single" | "matrix">(() => (workspaceMode === "pro" ? "matrix" : "single"));
+  const [viewMode, setViewMode] = useState<"single" | "matrix">("single");
   const [matrixDense, setMatrixDense] = useState(false);
   const [cols, setCols] = useState(82);
   const [rows, setRows] = useState(24);
   const [colorProfile, setColorProfile] = useState<ColorProfile>("truecolor");
-  const [showOverlay, setShowOverlay] = useState<boolean>(() => workspaceMode === "pro");
+  const [showOverlay, setShowOverlay] = useState<boolean>(() => activeLens !== "visual");
 
   const [selectedId, setSelectedId] = useState<string>(TEMPLATES[0].defaultSelectedId);
   const [singleTel, setSingleTel] = useState<TelemetryNode[]>([]);
@@ -541,6 +563,24 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       });
       return f.slice(1);
     });
+  }, []);
+
+  const setActiveLens = useCallback((lens: StudioLens) => {
+    setActiveLensState(lens);
+    try { localStorage.setItem("charmstudio:activeLens:v1", lens); } catch {}
+    if (lens === "visual") {
+      setShowOverlay(false);
+      setViewMode("single");
+      setWorkspaceMode("studio");
+    } else if (lens === "hybrid") {
+      setShowOverlay(true);
+      setViewMode("single");
+      setWorkspaceMode("studio");
+    } else {
+      setShowOverlay(true);
+      setRightTab("code");
+      setWorkspaceMode("pro");
+    }
   }, []);
 
   const switchWorkspaceMode = useCallback((mode: WorkspaceMode) => {
@@ -885,6 +925,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   }, [ir, paletteId, templateId]);
 
   const value: StudioStoreValue = {
+    activeLens,
+    setActiveLens,
     workspaceMode,
     switchWorkspaceMode,
     showAdvancedStyle,

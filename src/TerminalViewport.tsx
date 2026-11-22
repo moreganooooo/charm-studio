@@ -29,6 +29,7 @@ interface Props {
   palette: TermPalette;
   colorProfile: ColorProfile;
   showOverlay: boolean;
+  overlayMode?: "none" | "padding-band" | "full-box-model";
   showQuickBar?: boolean;
   selectedId: string;
   onSelect: (id: string) => void;
@@ -43,7 +44,7 @@ interface Props {
   onRequestInspectData?: (id: string) => void;
 }
 
-const FONT_STACK = `"JetBrains Mono", "SF Mono", Menlo, Monaco, ui-monospace, monospace`;
+const FONT_STACK = `"JetBrains Mono", "SF Mono", Menlo, monospace`;
 
 const INLINE_EDITABLE_TYPES = new Set([
   "text",
@@ -67,6 +68,7 @@ export function TerminalViewport({
   palette,
   colorProfile,
   showOverlay,
+  overlayMode,
   showQuickBar = false,
   selectedId,
   onSelect,
@@ -357,6 +359,9 @@ export function TerminalViewport({
   const selectedTel = telemetry.find((t) => t.id === selectedId) ?? null;
   const overflows = telemetry.filter((t) => t.overflowX || t.overflowY);
   const selectedNode = findNode(doc, selectedId);
+  const selectedStyleObj = selectedNode?.style ? doc.styles[selectedNode.style] : undefined;
+  const effectiveOverlayMode: "none" | "padding-band" | "full-box-model" =
+    overlayMode ?? (showOverlay ? "full-box-model" : "none");
   const canMutateSelected = selectedNode && selectedId !== doc.root.id && !doc.overlays.some((o) => o.node.id === selectedId);
 
   const canvasPixelW = Math.ceil(cols * cellSize.w);
@@ -422,6 +427,21 @@ export function TerminalViewport({
               Native PTY · {ptyStatus?.state ?? "idle"}
               {ptyStatus?.lastBuildMs ? ` (${ptyStatus.lastBuildMs}ms)` : ""}
             </span>
+          </span>
+        ) : effectiveOverlayMode === "padding-band" && selectedStyleObj ? (
+          <span
+            className="cs-mono"
+            style={{
+              color: "var(--cs-pink-soft)",
+              background: "var(--cs-pink-bg)",
+              border: "1px solid var(--cs-pink-border)",
+              borderRadius: 999,
+              padding: "1px 8px",
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            Padding({selectedStyleObj.padding[0]}, {selectedStyleObj.padding[1]})
           </span>
         ) : overflows.length > 0 ? (
           <Tooltip
@@ -520,18 +540,36 @@ export function TerminalViewport({
               }}
               style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
             >
-              {showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
+              {effectiveOverlayMode === "none" && hoveredTel && hoveredTel.id !== selectedId && (
+                <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 94, 174, 0.45)" strokeDasharray="3 3" rx={3} />
+              )}
+              {effectiveOverlayMode === "none" && selectedTel && (
+                <rect {...boxRect(selectedTel.border)} fill="transparent" stroke="#ff5eae" strokeWidth={1.5} rx={3} />
+              )}
+              {effectiveOverlayMode === "padding-band" && hoveredTel && hoveredTel.id !== selectedId && (
+                <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(185, 162, 255, 0.45)" strokeDasharray="3 3" />
+              )}
+              {effectiveOverlayMode === "padding-band" && selectedTel && (() => {
+                const outer = boxRect(selectedTel.padding);
+                const inner = boxRect(selectedTel.content);
+                const d = `M ${outer.x} ${outer.y} H ${outer.x + outer.width} V ${outer.y + outer.height} H ${outer.x} Z M ${inner.x} ${inner.y} V ${inner.y + inner.height} H ${inner.x + inner.width} V ${inner.y} Z`;
+                return (
+                  <>
+                    <path d={d} fillRule="evenodd" fill="rgba(255, 94, 174, 0.25)" />
+                    <rect {...outer} fill="transparent" stroke="#ff5eae" strokeWidth={1.5} />
+                    <rect {...inner} fill="transparent" stroke="rgba(185, 162, 255, 0.7)" strokeDasharray="3 2" />
+                  </>
+                );
+              })()}
+              {effectiveOverlayMode === "full-box-model" && hoveredTel && hoveredTel.id !== selectedId && (
                 <rect {...boxRect(hoveredTel.margin)} fill="rgba(196, 181, 253, 0.09)" stroke="#c4b5fd" strokeDasharray="4 3" />
               )}
-              {showOverlay && selectedTel && (
+              {effectiveOverlayMode === "full-box-model" && selectedTel && (
                 <>
                   <rect {...boxRect(selectedTel.margin)}  fill="rgba(251, 146, 60, 0.16)" stroke="#fb923c" strokeWidth={1.5} />
                   <rect {...boxRect(selectedTel.padding)} fill="rgba(74, 222, 128, 0.14)" stroke="#4ade80" strokeDasharray="3 2" />
                   <rect {...boxRect(selectedTel.content)} fill="rgba(96, 165, 250, 0.18)" stroke="#60a5fa" />
                 </>
-              )}
-              {!showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
-                <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 117, 181, 0.45)" strokeDasharray="3 3" />
               )}
             </svg>
           </>
