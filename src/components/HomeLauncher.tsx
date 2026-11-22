@@ -194,7 +194,7 @@ export function HomeLauncher() {
           {/* LEFT COLUMN: Stacked Display Title + Subtitle + CTAs + Glowing Input */}
           <div className="launcher-intro">
             <h1 className="launcher-wordmark">
-              <span className="launcher-wordmark-ink">Charm<br />Studio</span>
+              <span className="cs-wordmark-ink">Charm<br />Studio</span>
               <Sparkle className="launcher-glint launcher-wordmark-star" aria-hidden="true" />
               <Sparkle className="launcher-glint launcher-wordmark-satellite" aria-hidden="true" />
             </h1>
@@ -403,10 +403,10 @@ export function HomeLauncher() {
                         fontWeight: active ? 700 : 600,
                         textTransform: "capitalize",
                         background: active
-                          ? "linear-gradient(105deg, #ff79bc, #e3b1da 46%, #75f3c6)"
+                          ? "var(--launcher-lens-fill, linear-gradient(105deg, #ff79bc, #e3b1da 46%, #75f3c6))"
                           : "transparent",
                         color: active ? "#0e1714" : CHARM_TOKENS.text,
-                        boxShadow: active ? "0 0 14px rgba(109, 255, 194, 0.35)" : "none",
+                        boxShadow: active ? "var(--launcher-lens-glow, 0 0 14px rgba(109, 255, 194, 0.35))" : "none",
                         transition: "all 140ms ease",
                       }}
                     >

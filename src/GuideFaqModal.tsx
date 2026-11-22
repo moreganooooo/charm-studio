@@ -187,7 +187,7 @@ export function GuideFaqModal({
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Sparkles size={18} style={{ color: "var(--cs-pink)" }} />
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--cs-text-strong)" }}>
-                Charm Studio Guide, Help &amp; FAQ
+                <span className="cs-wordmark-ink">Charm Studio</span> Guide, Help &amp; FAQ
               </h2>
             </div>
             <div style={{ fontSize: 12.5, color: "var(--cs-text-muted)", marginTop: 3 }}>

@@ -107,7 +107,7 @@ export function AuthModal({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 18, color: "var(--cs-text-heading)" }}>
-              {activeUserName ? "Your Account" : "Sign in to Charm Studio"}
+              {activeUserName ? "Your Account" : <>Sign in to <span className="cs-wordmark-ink">Charm Studio</span></>}
             </h2>
             <div style={{ fontSize: 12, color: "var(--cs-text-dim)", marginTop: 3 }}>
               {activeUserName

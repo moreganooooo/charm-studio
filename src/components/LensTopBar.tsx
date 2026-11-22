@@ -118,11 +118,11 @@ export function LensTopBar({
             <path d="M12 1L14.8 9.2L23 12L14.8 14.8L12 23L9.2 14.8L1 12L9.2 9.2L12 1Z" />
           </svg>
           <span
+            className="cs-wordmark-ink"
             style={{
               fontSize: 16,
               fontWeight: 700,
               letterSpacing: "-0.02em",
-              color: CHARM_TOKENS.textHeading,
             }}
           >
             Charm Studio
@@ -178,7 +178,7 @@ export function LensTopBar({
                 padding: "6px 15px",
                 fontSize: 12.5,
                 fontWeight: active ? 700 : 600,
-                background: active ? "var(--cs-pink)" : "transparent",
+                background: active ? "var(--cs-primary-fill, var(--cs-pink))" : "transparent",
                 color: active ? "#150f1d" : CHARM_TOKENS.textMuted,
                 whiteSpace: "nowrap",
                 transition: "background 150ms ease, color 150ms ease",

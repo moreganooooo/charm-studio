@@ -707,7 +707,7 @@ export function TerminalViewport({
         background: "var(--cs-panel)",
         boxShadow: focused
           ? "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 2px var(--cs-pink-bg), var(--cs-shadow)"
-          : "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 36px rgba(0,0,0,0.22)",
+          : "inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--cs-viewport-shadow, 0 14px 36px rgba(0,0,0,0.22))",
         outline: "none",
       }}
     >

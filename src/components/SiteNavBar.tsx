@@ -70,11 +70,11 @@ export function SiteNavBar() {
             <path d="M12 1L14.8 9.2L23 12L14.8 14.8L12 23L9.2 14.8L1 12L9.2 9.2L12 1Z" />
           </svg>
           <span
+            className="cs-wordmark-ink"
             style={{
               fontSize: 16,
               fontWeight: 700,
               letterSpacing: "-0.02em",
-              color: CHARM_TOKENS.textHeading,
             }}
           >
             Charm Studio
