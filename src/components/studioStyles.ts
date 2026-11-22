@@ -19,6 +19,7 @@ export const CHARM_TOKENS = {
   pinkBand: "var(--cs-pink-band)",
   lilac: "var(--cs-lilac)",
   mint: "var(--cs-mint)",
+  mintText: "var(--cs-mint-text)",
   mintBg: "var(--cs-mint-bg)",
   mintBorder: "var(--cs-mint-border)",
   gold: "var(--cs-gold)",

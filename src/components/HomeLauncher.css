@@ -440,32 +440,4 @@
     padding: 11px 16px;
     font-size: 14px;
   }
-
-  .launcher .site-nav {
-    height: auto;
-    grid-template-columns: 1fr auto;
-    gap: 0 8px;
-    padding-block: 8px;
-  }
-
-  .launcher .site-nav nav {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: center;
-  }
-}
-
-@media (max-width: 400px) {
-  .launcher .site-nav-status {
-    padding-inline: 7px;
-    font-size: 10px;
-  }
-}
-
-@media (max-width: 360px) {
-  .launcher .site-nav-status {
-    max-width: 100px;
-    white-space: normal;
-    text-align: center;
-  }
 }

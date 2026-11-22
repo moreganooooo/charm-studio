@@ -34,7 +34,7 @@ export function SiteNavBar() {
 
   return (
     <header
-      className="site-nav"
+      className={isHome ? "site-nav site-nav-home" : "site-nav"}
       style={{
         position: "sticky",
         top: 0,
@@ -83,13 +83,14 @@ export function SiteNavBar() {
       </div>
 
       {/* Center: Subpage Navigation Links */}
-      <nav aria-label="Primary navigation" style={{ display: "flex", alignItems: "center", gap: 26 }}>
+      <nav aria-label="Primary navigation">
         {NAV_ITEMS.map((item) => {
           const active = route === item.to;
           return (
             <RouteLink
               key={item.to}
               to={item.to}
+              aria-current={active ? "page" : undefined}
               style={{
                 textDecoration: "none",
                 padding: "5px 4px",
@@ -109,7 +110,7 @@ export function SiteNavBar() {
       </nav>
 
       {/* Right: Glowing WASM Ready Pill + Theme Toggle + Studio CTA on subpages */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10 }}>
+      <div className="site-nav-tools">
         <span
           className="site-nav-status cs-mono"
           style={{
@@ -146,6 +147,7 @@ export function SiteNavBar() {
 
         {!isHome && (
           <button
+            className="site-nav-studio"
             onClick={() => navigate("/studio")}
             style={{
               ...studioStyles.primaryCta,
