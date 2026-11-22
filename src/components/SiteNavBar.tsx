@@ -125,7 +125,7 @@ export function SiteNavBar() {
             border: `1px solid ${wasmReady ? "rgba(109, 255, 194, 0.85)" : CHARM_TOKENS.border}`,
             color: wasmReady ? "#0f1c19" : CHARM_TOKENS.textMuted,
             boxShadow: wasmReady ? "0 0 22px rgba(109, 255, 194, 0.34)" : "none",
-            transition: "all 220ms ease",
+            transition: "background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease",
           }}
         >
           <span>{wasmReady ? "Go 1.26 WASM Ready" : "Warming Go WASM…"}</span>

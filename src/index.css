@@ -224,7 +224,9 @@ textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .cs-wordmark-ink {
+  .launcher-wordmark .cs-wordmark-ink {
+    contain: layout style paint;
+    transform: translateZ(0);
     animation: cs-wordmark-drift 14s ease-in-out infinite alternate;
   }
 }
@@ -249,18 +251,37 @@ textarea:focus-visible {
   background: var(--cs-scroll-hover);
 }
 
-@keyframes spotlightPulse {
+@keyframes spotlightGlow {
   0%, 100% {
-    box-shadow: 0 0 0 2px rgba(255, 94, 174, 0.85), 0 0 18px rgba(109, 255, 194, 0.35);
+    opacity: 0.45;
+    transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(109, 255, 194, 0.9), 0 0 26px rgba(255, 94, 174, 0.55);
+    opacity: 1;
+    transform: scale(1.015);
   }
 }
 
 .charm-spotlight {
   position: relative;
   z-index: 20;
-  animation: spotlightPulse 1.5s ease-in-out infinite;
   border-color: var(--cs-pink) !important;
+  box-shadow: 0 0 0 2px rgba(255, 94, 174, 0.85), 0 0 18px rgba(109, 255, 194, 0.35);
+}
+
+.charm-spotlight::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 3px rgba(109, 255, 194, 0.85), 0 0 26px rgba(255, 94, 174, 0.55);
+  opacity: 0.65;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .charm-spotlight::after {
+    animation: spotlightGlow 1.5s ease-in-out infinite;
+  }
 }

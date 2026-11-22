@@ -407,7 +407,7 @@ export function HomeLauncher() {
                           : "transparent",
                         color: active ? "#0e1714" : CHARM_TOKENS.text,
                         boxShadow: active ? "var(--launcher-lens-glow, 0 0 14px rgba(109, 255, 194, 0.35))" : "none",
-                        transition: "all 140ms ease",
+                        transition: "color 140ms ease, background 140ms ease, box-shadow 140ms ease",
                       }}
                     >
                       {lens}

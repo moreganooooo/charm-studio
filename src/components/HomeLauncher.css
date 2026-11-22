@@ -31,7 +31,7 @@
 }
 
 [data-theme="light"] .launcher-glint {
-  filter: drop-shadow(0 0 1px white) drop-shadow(0 0 4px color-mix(in srgb, currentColor 26%, transparent));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 32%, transparent));
 }
 
 [data-theme="light"] .launcher-lenses {
@@ -241,6 +241,8 @@
   pointer-events: none;
   fill: currentColor;
   filter: drop-shadow(0 0 4px currentColor);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 
 .launcher-wordmark-star {
@@ -301,11 +303,7 @@
   position: relative;
   display: grid;
   --cs-border-strong: var(--launcher-rim);
-  filter: drop-shadow(0 15px 18px rgba(19, 8, 28, 0.27));
-}
-
-[data-theme="light"] .launcher-terminal {
-  filter: drop-shadow(0 10px 15px rgba(46, 28, 64, 0.12));
+  --cs-viewport-shadow: 0 16px 26px -6px rgba(14, 6, 22, 0.44);
 }
 
 .launcher-lenses {
@@ -333,13 +331,14 @@
   border: 1px solid var(--launcher-rim);
   border-radius: 13px;
   background: linear-gradient(145deg, var(--cs-bg-surface), var(--cs-hero-card) 64%);
-  backdrop-filter: blur(14px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), var(--launcher-shadow);
+  contain: layout style paint;
 }
 
 .launcher-scene {
   position: relative;
   isolation: isolate;
+  contain: layout style;
   display: grid;
   justify-items: center;
   align-content: start;
@@ -414,13 +413,14 @@
 }
 
 @keyframes launcher-twinkle {
-  from { opacity: 0.45; transform: scale(0.85); }
-  to { opacity: 0.95; transform: scale(1.04); }
+  from { opacity: 0.45; transform: scale(0.82); }
+  to { opacity: 0.95; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .launcher-glint,
   .launcher-scene::after {
+    will-change: transform, opacity;
     animation: launcher-twinkle 4.8s ease-in-out var(--glint-delay, 0s) infinite alternate;
   }
 
