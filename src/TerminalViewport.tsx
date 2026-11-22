@@ -711,7 +711,7 @@ export function TerminalViewport({
           display: "flex",
           flexDirection: "column",
           borderBottom: "1px solid var(--cs-border)",
-          background: chrome === "minimal" ? "rgba(22, 15, 32, 0.9)" : "var(--cs-card-alt)",
+          background: chrome === "minimal" ? "var(--terminal-titlebar, rgba(22, 15, 32, 0.9))" : "var(--cs-card-alt)",
           boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
         }}
       >
