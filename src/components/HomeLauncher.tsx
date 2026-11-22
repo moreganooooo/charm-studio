@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, FolderUp } from "lucide-react";
+import { ArrowRight, ArrowUpRight, FolderUp, Sparkle } from "lucide-react";
 import { fetchGitHubRepoToIR } from "../githubImportHelper";
 import { buildIRFromExtracted, extractFromGoSourceAsync } from "../goImporter";
 import { RouteLink, useRouter } from "../router";
@@ -152,7 +152,6 @@ export function HomeLauncher() {
     }
   };
 
-  const isDark = appMode === "dark";
   const currentGoArgs = SPACING_PRESETS[spacingPreset].goArgs;
 
   return (
@@ -162,9 +161,6 @@ export function HomeLauncher() {
         minHeight: "100vh",
         position: "relative",
         overflowX: "hidden",
-        background: isDark
-          ? "radial-gradient(ellipse at 23% 49%, rgba(130, 49, 107, 0.14), transparent 53%), #160f1e"
-          : CHARM_TOKENS.bgGround,
         color: CHARM_TOKENS.text,
         fontFamily: CHARM_TOKENS.fontUi,
         display: "flex",
@@ -196,7 +192,7 @@ export function HomeLauncher() {
         >
           {/* LEFT COLUMN: Stacked Display Title + Subtitle + CTAs + Glowing Input */}
           <div style={{ display: "flex", flexDirection: "column", gap: 22, maxWidth: 480 }}>
-            <h1
+            <h1 className="launcher-wordmark"
               style={{
                 margin: 0,
                 fontSize: "clamp(3.65rem, 7vw, 5.65rem)",
@@ -228,41 +224,14 @@ export function HomeLauncher() {
             {/* Primary & Secondary CTAs */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", paddingTop: 2 }}>
               <button
+                className="launcher-cta launcher-open"
                 onClick={() => navigate("/studio")}
-                style={{
-                  background: "linear-gradient(135deg, #ff5eae 0%, #ff82c3 100%)",
-                  color: "#150f1d",
-                  border: "1px solid rgba(255, 168, 214, 0.65)",
-                  borderRadius: 11,
-                  padding: "11px 20px",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  boxShadow: "0 10px 28px rgba(255, 94, 174, 0.36)",
-                }}
               >
                 <span>Open Studio</span>
                 <ArrowUpRight size={16} strokeWidth={2.4} />
               </button>
 
-              <RouteLink
-                to="/desktop"
-                style={{
-                  textDecoration: "none",
-                  background: isDark ? "rgba(32, 22, 45, 0.72)" : CHARM_TOKENS.bgSurface,
-                  color: CHARM_TOKENS.textHeading,
-                  border: `1px solid ${isDark ? "rgba(185, 162, 255, 0.36)" : CHARM_TOKENS.borderStrong}`,
-                  borderRadius: 11,
-                  padding: "11px 18px",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
-                }}
-              >
+              <RouteLink to="/desktop" className="launcher-cta launcher-companion">
                 Desktop Companion
               </RouteLink>
             </div>
@@ -270,6 +239,8 @@ export function HomeLauncher() {
             {/* Sleek Glowing Import Input Bar */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
               <div
+                className="launcher-import"
+                data-drag-active={dragActive}
                 onDragOver={(e) => {
                   e.preventDefault();
                   setDragActive(true);
@@ -279,24 +250,6 @@ export function HomeLauncher() {
                   e.preventDefault();
                   setDragActive(false);
                   void handleFiles(e.dataTransfer.files);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "5px 8px 5px 15px",
-                  borderRadius: 13,
-                  background: isDark ? "rgba(21, 14, 30, 0.9)" : CHARM_TOKENS.bgSurface,
-                  border: `1.5px solid ${
-                    dragActive
-                      ? CHARM_TOKENS.mint
-                      : isDark
-                      ? "rgba(255, 94, 174, 0.65)"
-                      : CHARM_TOKENS.pink
-                  }`,
-                  boxShadow: dragActive
-                    ? "0 0 28px rgba(109, 255, 194, 0.28)"
-                    : "0 0 28px rgba(255, 94, 174, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
                 }}
               >
                 <input
@@ -375,9 +328,8 @@ export function HomeLauncher() {
 
           {/* RIGHT COLUMN: Live WASM terminal, floating lens controls and Go snippet */}
           <div className="launcher-stage" ref={stageRef}>
-            {/* Crisp Minimal Sparkle Accents */}
-            <span aria-hidden="true" className="cs-mono" style={{ position: "absolute", left: 4, top: 28, fontSize: 14, color: CHARM_TOKENS.mint, opacity: 0.8 }}>+</span>
-            <span aria-hidden="true" className="cs-mono" style={{ position: "absolute", right: 12, bottom: 94, fontSize: 13, color: CHARM_TOKENS.pink, opacity: 0.75 }}>+</span>
+            <Sparkle className="launcher-glint launcher-glint-mint" size={13} aria-hidden="true" />
+            <Sparkle className="launcher-glint launcher-glint-pink" size={9} aria-hidden="true" />
 
             {/* Real Go WASM Terminal Frame */}
             <div className="launcher-terminal">
