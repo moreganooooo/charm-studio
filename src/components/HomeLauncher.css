@@ -45,8 +45,13 @@
 }
 
 .launcher-companion {
+  --launcher-spectrum: linear-gradient(108deg, var(--cs-pink-border), var(--launcher-rim) 55%, var(--cs-mint-border));
   color: var(--cs-text-heading);
   font-weight: 600;
+}
+
+.launcher-companion:is(:hover, :focus-visible) {
+  --launcher-spectrum: linear-gradient(108deg, var(--cs-pink), var(--cs-lilac) 55%, var(--cs-mint));
 }
 
 .launcher-cta:focus-visible {
@@ -68,6 +73,82 @@
 .launcher-import[data-drag-active="true"] {
   border-color: var(--cs-mint);
   box-shadow: 0 0 0 3px var(--cs-mint-bg);
+}
+
+.launcher-import input::placeholder {
+  color: var(--cs-text-muted);
+  opacity: 1;
+}
+
+.launcher-file-picker,
+.launcher-submit {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cs-text-body);
+}
+
+.launcher-file-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.launcher-file-picker:has(:focus-visible) {
+  outline: 2px solid var(--cs-pink);
+  outline-offset: 2px;
+}
+
+.launcher-file-picker:hover,
+.launcher-submit:hover:enabled {
+  background: var(--cs-pink-bg);
+}
+
+.launcher-file-picker:has(:disabled),
+.launcher-submit:disabled {
+  opacity: 0.55;
+}
+
+.launcher-import-status,
+.launcher-import-error {
+  padding-inline: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--cs-text-muted);
+}
+
+.launcher-import-status:empty {
+  position: absolute;
+  padding: 0;
+}
+
+.launcher-import-error {
+  color: var(--cs-pink-soft);
+  overflow-wrap: anywhere;
+}
+
+.launcher-preset {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+@media (pointer: coarse) {
+  .launcher-preset,
+  .launcher-file-picker,
+  .launcher-submit,
+  .launcher-lenses button {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .launcher-stage {
