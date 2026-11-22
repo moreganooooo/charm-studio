@@ -90,6 +90,7 @@ export function HomeLauncher() {
   };
 
   const handleFastImport = async () => {
+    if (importBusy) return;
     const raw = importInput.trim();
     if (!raw) {
       setImportError("Paste a GitHub repo URL (e.g. dlvhdr/gh-dash), Go code, or drop a styles.go file.");
@@ -121,7 +122,7 @@ export function HomeLauncher() {
   };
 
   const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    if (importBusy || !files?.length) return;
     setImportError(null);
     setImportBusy(true);
     try {
@@ -238,8 +239,14 @@ export function HomeLauncher() {
 
             {/* Sleek Glowing Import Input Bar */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
-              <div
+              <form
                 className="launcher-import"
+                aria-label="Import into Studio"
+                aria-busy={importBusy}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleFastImport();
+                }}
                 data-drag-active={dragActive}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -254,12 +261,14 @@ export function HomeLauncher() {
               >
                 <input
                   value={importInput}
-                  onChange={(e) => setImportInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleFastImport();
+                  onChange={(e) => {
+                    setImportInput(e.target.value);
+                    setImportError(null);
                   }}
-                  placeholder="Paste GitHub repo URL or drop styles.go..."
-                  aria-label="Paste GitHub repo URL or drop styles.go"
+                  readOnly={importBusy}
+                  placeholder="GitHub URL or drop a file"
+                  aria-label="GitHub repository URL or Go source code"
+                  aria-describedby={importError ? "launcher-import-error" : undefined}
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -272,54 +281,36 @@ export function HomeLauncher() {
                   }}
                 />
 
-                <label
-                  title="Choose .go or ir.json file"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    color: CHARM_TOKENS.textMuted,
-                    cursor: "pointer",
-                    flexShrink: 0,
-                  }}
-                >
-                  <FolderUp size={15} />
+                <label className="launcher-file-picker" title="Choose Go files or an ir.json file">
+                  <FolderUp size={16} aria-hidden="true" />
                   <input
                     type="file"
                     multiple
                     accept=".go,.json"
-                    onChange={(e) => void handleFiles(e.target.files)}
-                    style={{ display: "none" }}
+                    aria-label="Choose Go files or an ir.json file"
+                    disabled={importBusy}
+                    onChange={(event) => {
+                      void handleFiles(event.currentTarget.files);
+                      event.currentTarget.value = "";
+                    }}
                   />
                 </label>
 
                 <button
-                  onClick={() => void handleFastImport()}
+                  type="submit"
+                  className="launcher-submit"
                   disabled={importBusy}
                   aria-label="Import and open in Studio"
                   title="Import into Studio"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 32,
-                    height: 32,
-                    borderRadius: 9,
-                    border: "none",
-                    background: importInput.trim() ? CHARM_TOKENS.pinkBg : "transparent",
-                    color: importInput.trim() ? CHARM_TOKENS.pinkSoft : CHARM_TOKENS.textHeading,
-                    flexShrink: 0,
-                  }}
                 >
-                  <ArrowRight size={16} />
+                  <ArrowRight size={16} aria-hidden="true" />
                 </button>
+              </form>
+              <div className="launcher-import-status" role="status">
+                {importBusy ? "Importing into Studio…" : ""}
               </div>
-
               {importError && (
-                <div style={{ fontSize: 12, color: "#fda4af", paddingLeft: 4 }}>
+                <div id="launcher-import-error" className="launcher-import-error" role="alert">
                   {importError}
                 </div>
               )}
@@ -336,8 +327,11 @@ export function HomeLauncher() {
               <TerminalViewport
                 title=""
                 chrome="minimal"
+                pageKeyboardNavigation
                 headerRightSlot={
                   <div
+                    role="group"
+                    aria-label="Preview padding"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -348,7 +342,7 @@ export function HomeLauncher() {
                       border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                     }}
                   >
-                    <span className="cs-mono" style={{ fontSize: 10, color: CHARM_TOKENS.textDim, padding: "0 4px" }}>
+                    <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, padding: "0 4px" }}>
                       Pad
                     </span>
                     {([1, 2, 3] as const).map((lvl) => {
@@ -358,16 +352,17 @@ export function HomeLauncher() {
                           key={lvl}
                           onClick={() => setSpacingPreset(lvl)}
                           aria-pressed={active}
-                          className="cs-mono"
+                          className="launcher-preset cs-mono"
+                          aria-label={`Preset ${lvl}: Padding(${SPACING_PRESETS[lvl].goArgs})`}
                           title={`Padding(${SPACING_PRESETS[lvl].goArgs})`}
                           style={{
                             border: "none",
                             borderRadius: 5,
                             padding: "2px 7px",
-                            fontSize: 10.5,
+                            fontSize: 12,
                             fontWeight: 700,
                             background: active ? CHARM_TOKENS.mintBg : "transparent",
-                            color: active ? CHARM_TOKENS.mint : CHARM_TOKENS.textMuted,
+                            color: active ? CHARM_TOKENS.textHeading : CHARM_TOKENS.textMuted,
                           }}
                         >
                           {lvl}

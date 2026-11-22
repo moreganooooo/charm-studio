@@ -124,6 +124,7 @@ interface Props {
   overlayMode?: "none" | "padding-band" | "full-box-model";
   showQuickBar?: boolean;
   chrome?: "full" | "minimal";
+  pageKeyboardNavigation?: boolean;
   headerRightSlot?: React.ReactNode;
   selectedId: string;
   onSelect: (id: string) => void;
@@ -166,6 +167,7 @@ export function TerminalViewport({
   overlayMode,
   showQuickBar = false,
   chrome = "full",
+  pageKeyboardNavigation = false,
   headerRightSlot,
   selectedId,
   onSelect,
@@ -547,6 +549,9 @@ export function TerminalViewport({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (mode === "pty") return;
     if (inlineEdit) return;
+    // The launcher is a web page with controls after the demo. Let Tab leave
+    // the preview and let its native buttons handle their own keystrokes.
+    if (pageKeyboardNavigation && (e.key === "Tab" || e.target !== e.currentTarget)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const handled = dispatchKey(selectedId, e.key, e.shiftKey);
     if (handled) {
