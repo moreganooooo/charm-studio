@@ -31,6 +31,9 @@ import {
   type WorkspaceMode,
 } from "../types";
 import type { WidgetPreset } from "../widgetPresets";
+import type { McpServerStatus, PtyStatus, WorktreeSession } from "../previewTransport";
+import { isWailsRuntimeAvailable } from "../previewTransport";
+import { setActiveTransport, wailsTransport } from "../wasmEngine";
 
 export const PALETTES: ThemePreset[] = [
   {
@@ -202,6 +205,25 @@ export interface StudioStoreValue {
   resetToTemplate: () => void;
   shareLink: () => Promise<void>;
   sharedCopied: boolean;
+
+  // Desktop Companion, Native PTY, MCP & Worktree Isolation
+  previewMode: "wasm" | "pty";
+  setPreviewMode: (mode: "wasm" | "pty") => void;
+  desktopConnected: boolean;
+  desktopBridgeUrl: string;
+  setDesktopBridgeUrl: (url: string) => void;
+  refreshDesktopConnection: () => Promise<boolean>;
+  projectDir: string;
+  setProjectDir: (dir: string) => void;
+  ptyStatus: PtyStatus | null;
+  startPtyRunner: (dir?: string) => Promise<void>;
+  stopPtyRunner: () => Promise<void>;
+  mcpStatus: McpServerStatus | null;
+  refreshMcpStatus: () => Promise<void>;
+  worktrees: WorktreeSession[];
+  activeWorktreeId: string | null;
+  setActiveWorktreeId: (id: string | null) => void;
+  refreshWorktrees: (dir?: string) => Promise<void>;
 }
 
 const StudioStoreContext = createContext<StudioStoreValue | null>(null);
@@ -289,6 +311,30 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   });
   const [activeSpotlight, setActiveSpotlight] = useState<SpotlightKey>(null);
 
+  // Desktop Companion, Native PTY, MCP & Worktrees
+  const [previewMode, setPreviewMode] = useState<"wasm" | "pty">("wasm");
+  const [desktopConnected, setDesktopConnected] = useState<boolean>(() => isWailsRuntimeAvailable());
+  const [desktopBridgeUrl, setDesktopBridgeUrlState] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("charmstudio:bridgeUrl:v1") || "http://127.0.0.1:43120";
+      wailsTransport.setBridgeUrl(saved);
+      return saved;
+    } catch {
+      return "http://127.0.0.1:43120";
+    }
+  });
+  const [projectDir, setProjectDirState] = useState<string>(() => {
+    try {
+      return localStorage.getItem("charmstudio:projectDir:v1") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [ptyStatus, setPtyStatus] = useState<PtyStatus | null>(null);
+  const [mcpStatus, setMcpStatus] = useState<McpServerStatus | null>(null);
+  const [worktrees, setWorktrees] = useState<WorktreeSession[]>([]);
+  const [activeWorktreeId, setActiveWorktreeId] = useState<string | null>(null);
+
   useEffect(() => {
     try { localStorage.setItem("charmstudio:onboarding:v1", JSON.stringify(onboarding)); } catch {}
   }, [onboarding]);
@@ -325,6 +371,127 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveDraft({ ir, paletteId, templateId });
   }, [ir, paletteId, templateId]);
+
+  const setDesktopBridgeUrl = useCallback((url: string) => {
+    const clean = url.trim() || "http://127.0.0.1:43120";
+    setDesktopBridgeUrlState(clean);
+    wailsTransport.setBridgeUrl(clean);
+    try { localStorage.setItem("charmstudio:bridgeUrl:v1", clean); } catch {}
+  }, []);
+
+  const setProjectDir = useCallback((dir: string) => {
+    setProjectDirState(dir);
+    try { localStorage.setItem("charmstudio:projectDir:v1", dir); } catch {}
+  }, []);
+
+  const refreshMcpStatus = useCallback(async () => {
+    try {
+      const st = await wailsTransport.getMcpStatus();
+      setMcpStatus(st);
+    } catch {
+      // ignore when disconnected
+    }
+  }, []);
+
+  const refreshWorktrees = useCallback(async (dirOverride?: string) => {
+    const target = (dirOverride ?? projectDir).trim();
+    if (!target) {
+      setWorktrees([]);
+      return;
+    }
+    try {
+      const list = await wailsTransport.listWorktrees(target);
+      setWorktrees(list ?? []);
+    } catch {
+      // ignore if directory is not a git repo yet
+    }
+  }, [projectDir]);
+
+  const refreshDesktopConnection = useCallback(async () => {
+    const ok = await wailsTransport.checkConnection();
+    setDesktopConnected(ok);
+    setActiveTransport(ok || previewMode === "pty" ? "wails" : "wasm");
+    if (ok) {
+      await wailsTransport.init();
+      try {
+        const [st, mcpSt] = await Promise.all([
+          wailsTransport.getPtyStatus(),
+          wailsTransport.getMcpStatus(),
+        ]);
+        setPtyStatus(st);
+        setMcpStatus(mcpSt);
+      } catch {
+        // ignore transient errors
+      }
+      await refreshWorktrees();
+    }
+    return ok;
+  }, [previewMode, refreshWorktrees]);
+
+  useEffect(() => {
+    setActiveTransport(desktopConnected || previewMode === "pty" ? "wails" : "wasm");
+  }, [desktopConnected, previewMode]);
+
+  useEffect(() => {
+    let active = true;
+    wailsTransport.checkConnection().then((ok) => {
+      if (!active) return;
+      setDesktopConnected(ok);
+      if (ok) {
+        wailsTransport.init().then(() => {
+          wailsTransport.getPtyStatus().then((st) => active && setPtyStatus(st)).catch(() => {});
+          wailsTransport.getMcpStatus().then((st) => active && setMcpStatus(st)).catch(() => {});
+        });
+      }
+    });
+
+    const unsubStatus = wailsTransport.onPtyStatus((st) => {
+      if (active) setPtyStatus(st);
+    });
+    const unsubIr = wailsTransport.onMcpIrUpdated((rawJson) => {
+      if (!active) return;
+      try {
+        const parsed = JSON.parse(rawJson) as IRDoc;
+        if (parsed && parsed.root && parsed.styles) {
+          setIrRaw(parsed);
+        }
+      } catch {
+        // ignore invalid MCP IR push
+      }
+    });
+    return () => {
+      active = false;
+      unsubStatus();
+      unsubIr();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!desktopConnected) return;
+    const timer = setTimeout(() => {
+      wailsTransport.updateMcpContext(ir, selectedId, projectDir).then(() => {
+        refreshMcpStatus();
+      }).catch(() => {});
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [desktopConnected, ir, selectedId, projectDir, refreshMcpStatus]);
+
+  const startPtyRunner = useCallback(async (dirOverride?: string) => {
+    const targetDir = (dirOverride ?? projectDir).trim();
+    if (!targetDir) throw new Error("Enter a local Go project directory first");
+    if (dirOverride) setProjectDir(dirOverride);
+    await wailsTransport.init();
+    const st = await wailsTransport.startPty(targetDir, cols, rows);
+    setPtyStatus(st);
+    setDesktopConnected(true);
+    setPreviewMode("pty");
+  }, [projectDir, cols, rows, setProjectDir]);
+
+  const stopPtyRunner = useCallback(async () => {
+    await wailsTransport.stopPty();
+    const st = await wailsTransport.getPtyStatus().catch(() => null);
+    if (st) setPtyStatus(st);
+  }, []);
 
   const markStep = useCallback((step: keyof OnboardingProgress["steps"]) => {
     setOnboarding((prev) => (prev.steps[step] ? prev : { ...prev, steps: { ...prev.steps, [step]: true } }));
@@ -806,6 +973,23 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     resetToTemplate,
     shareLink,
     sharedCopied,
+    previewMode,
+    setPreviewMode,
+    desktopConnected,
+    desktopBridgeUrl,
+    setDesktopBridgeUrl,
+    refreshDesktopConnection,
+    projectDir,
+    setProjectDir,
+    ptyStatus,
+    startPtyRunner,
+    stopPtyRunner,
+    mcpStatus,
+    refreshMcpStatus,
+    worktrees,
+    activeWorktreeId,
+    setActiveWorktreeId,
+    refreshWorktrees,
   };
 
   return createElement(StudioStoreContext.Provider, { value }, children);

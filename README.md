@@ -22,6 +22,8 @@ Stop guessing terminal cell math in the dark. Tweak borders, padding, margins, a
 * **Custom Theme Uploader & Fonts** — Import custom JSON color schemes, create your own theme tokens, and switch preview monospace fonts in Settings.
 * **Clean Go Code Export** — Generates copy-ready `styles.go`, `layout.go`, runnable `main.go`, and portable `ir.json`.
 * **Save, Share & Cloud Sync** — `⌘Z` Undo/Redo, compressed `#s=...` shareable URL links, multi-project local storage, and optional **GitHub OAuth + Supabase** cloud sync.
+* **Wails v3 Desktop Companion & Native PTY Runner** — Run real Go TUI binaries inside `charmbracelet/x/xpty` + `charmbracelet/x/vt` with incremental `go build` on save, streamed live to `xterm.js`.
+* **Worktree-Isolated MCP Server ("Vibe Coding")** — Built-in MCP HTTP/SSE/Stdio server exposing live layout IR, selection, theme tokens, Charm v2 migration rules, `astsync` tools, and isolated `git worktree` preview branches for AI coding agents.
 
 ---
 
@@ -86,23 +88,47 @@ Charm Studio works locally out of the box with zero backend. To enable **Sign in
 
 ---
 
+### 3. Optional: Run Wails v3 Desktop Companion (Native PTY + MCP + Worktrees)
+```bash
+# Headless companion bridge (connects to Vite dev UI at http://127.0.0.1:43120 + MCP at :43121)
+cd desktop
+go mod tidy
+go run . --headless
+
+# Or run the full Wails v3 native desktop window (after npm run build + copying dist/)
+cd desktop
+task build
+```
+
+---
+
 ## 🧱 Architecture
 
 ```text
 charm-studio/
-├── engine/               # Go WASM layout & Bubbles v2 evaluator
+├── engine/               # Go WASM & native Go layout, AST, PTY, MCP, and Git worktree engine
 │   ├── main.go           # Resolves constraints, composites v2 Canvas, emits cells + telemetry
+│   ├── astsync/          # dave/dst AST parser, surgical Go patcher & ComputeGoDiff
+│   ├── ptyrunner/        # fsnotify watcher + incremental go build + xpty/vt runner
+│   ├── mcp/              # Embedded MCP JSON-RPC 2.0 server (Stdio + Streamable HTTP/SSE)
+│   ├── worktree/         # Git worktree session manager & AST/line diff engine
 │   ├── wasm_stubs/       # Minimal GOOS=js build-tag stubs for bubbletea/v2 & clipboard
 │   └── build-wasm.sh
+├── desktop/              # Wails v3 (v3.0.0+) Go 1.26+ desktop companion host
+│   ├── main.go           # Wails v3 application, --headless bridge, --mcp-stdio, embedded dist/
+│   ├── services.go       # Native StudioService RPCs (astsync, PTY, MCP, worktree)
+│   └── bridge.go         # Local HTTP/WebSocket bridge for browser dev mode
 └── src/                  # Vite + React + TypeScript studio UI
-    ├── App.tsx              # Studio shell, modals, auth & cloud sync lifecycle
-    ├── store/studioStore.ts # Centralized layout tree state, viewport settings & undo/redo stack
-    ├── components/          # CanvasToolbar, PropertyInspector, CodePreviewDrawer (with AST diff)
-    ├── TerminalViewport.tsx # HiDPI Canvas cell-grid renderer + SVG DevTools overlay
-    ├── LayersPanel.tsx      # Layout Tree builder & v2 Layer toggles
-    ├── codegen.ts           # Idiomatic Go v2 generator (theme_gen.go, layout_gen.go, model/update/view)
-    ├── goImporter.ts        # Client-side Go style/color extractor & GitHub repo scanner
-    └── projectsStore.ts     # Hybrid localStorage + Supabase cloud project store
+    ├── App.tsx                  # Studio shell, modals, auth & cloud sync lifecycle
+    ├── previewTransport.ts      # PreviewTransport abstraction (WasmTransport + WailsTransport)
+    ├── DesktopCompanionModal.tsx# Native PTY, MCP agent config & git worktree diff UI
+    ├── store/studioStore.ts     # Centralized layout tree state, desktop/PTY/MCP state & undo/redo
+    ├── components/              # CanvasToolbar, PropertyInspector, CodePreviewDrawer
+    ├── TerminalViewport.tsx     # HiDPI Canvas WASM grid + xterm.js Native PTY renderer
+    ├── LayersPanel.tsx          # Layout Tree builder & v2 Layer toggles
+    ├── codegen.ts               # Idiomatic Go v2 generator (theme_gen.go, layout_gen.go, model/update/view)
+    ├── goImporter.ts            # Go AST/regex style/color extractor & GitHub repo scanner
+    └── projectsStore.ts         # Hybrid localStorage + Supabase cloud project store
 ```
 
 ---

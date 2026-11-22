@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { ArrowRight, CheckCircle2, Copy, FileCode2, FolderOpen, Lock, RefreshCw, X } from "lucide-react";
-import { buildIRFromExtracted, extractFromGoSource, type ExtractedGoSummary } from "./goImporter";
+import { buildIRFromExtracted, extractFromGoSource, extractFromGoSourceAsync, type ExtractedGoSummary } from "./goImporter";
 import type { IRDoc } from "./types";
-import { syncGoWithDst } from "./wasmEngine";
+import { syncGoWithTransport } from "./wasmEngine";
 
 interface Props {
   open: boolean;
@@ -173,6 +173,9 @@ export function ImportModal({
     setError(null);
     setSourceLabel(label);
     setSummary(extractFromGoSource(text));
+    void extractFromGoSourceAsync(text).then((asyncSummary) => {
+      setSummary(asyncSummary);
+    }).catch(() => {});
   };
 
   const handleFiles = async (files: FileList | null) => {
@@ -584,8 +587,8 @@ export function ImportModal({
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {currentDoc && goText.trim() && (
                   <button
-                    onClick={() => {
-                      const res = syncGoWithDst(goText, currentDoc);
+                    onClick={async () => {
+                      const res = await syncGoWithTransport(goText, currentDoc);
                       if (res.error) {
                         setError(res.error);
                         return;

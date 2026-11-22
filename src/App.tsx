@@ -19,6 +19,7 @@ import { CanvasToolbar } from "./components/CanvasToolbar";
 import { CodePreviewDrawer } from "./components/CodePreviewDrawer";
 import { PropertyInspector } from "./components/PropertyInspector";
 import { btnStyle, dot, inlineCode, miniBtn } from "./components/studioStyles";
+import { DesktopCompanionModal } from "./DesktopCompanionModal";
 import { GuideFaqModal } from "./GuideFaqModal";
 import { PanelRightIcon } from "./icons";
 import { ImportModal } from "./ImportModal";
@@ -112,6 +113,8 @@ function StudioShell() {
     removeOverlay,
     updateNode,
     loadTemplate,
+    previewMode,
+    ptyStatus,
   } = useStudioStore();
 
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -122,6 +125,7 @@ function StudioShell() {
   const [widgetPickerOpen, setWidgetPickerOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [localUser, setLocalUser] = useState<LocalUser | null>(() => {
     try {
@@ -163,6 +167,7 @@ function StudioShell() {
         setImportOpen(false);
         setProjectsOpen(false);
         setAuthOpen(false);
+        setDesktopOpen(false);
         return;
       }
       const tag = (e.target as HTMLElement)?.tagName;
@@ -613,6 +618,7 @@ function StudioShell() {
               widgetPickerOpen={widgetPickerOpen}
               projectsOpen={projectsOpen}
               importOpen={importOpen}
+              desktopOpen={desktopOpen}
               onOpenWidgetPicker={() => setWidgetPickerOpen(true)}
               onOpenProjects={() => setProjectsOpen(true)}
               onOpenImport={() => {
@@ -625,6 +631,7 @@ function StudioShell() {
                 setRightTab("code");
                 markStep("exportedCode");
               }}
+              onOpenDesktopCompanion={() => setDesktopOpen(true)}
             />
 
             {/* Post-Login Clarity & Next-Step Banner */}
@@ -767,7 +774,9 @@ function StudioShell() {
                 style={{ borderRadius: 12, border: "1px solid transparent", padding: activeSpotlight === "terminal-inspector" ? 4 : 0 }}
               >
                 <TerminalViewport
-                  title="Interactive Viewport"
+                  title={previewMode === "pty" ? "Native PTY Viewport" : "Interactive Viewport"}
+                  mode={previewMode}
+                  ptyStatus={ptyStatus}
                   doc={ir}
                   renderTick={renderTick}
                   cols={cols}
@@ -1057,6 +1066,11 @@ function StudioShell() {
           onClose={() => setGlossaryOpen(false)}
           onOpenWidgetPicker={() => setWidgetPickerOpen(true)}
           onLoadTemplate={loadTemplate}
+        />
+
+        <DesktopCompanionModal
+          open={desktopOpen}
+          onClose={() => setDesktopOpen(false)}
         />
       </div>
     </TooltipProvider>

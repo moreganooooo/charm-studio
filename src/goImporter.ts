@@ -1,5 +1,5 @@
 import type { ContentType, IRDoc, IRNode, IROverlay, IRStyle, MouseMode, TokenPair, ViewCursorMode } from "./types";
-import { parseGoWithDst } from "./wasmEngine";
+import { parseGoWithDst, parseGoWithTransport } from "./wasmEngine";
 
 export interface ExtractedGoSummary {
   styles: Record<string, IRStyle>;
@@ -63,25 +63,35 @@ function addLockedProp(map: Record<string, string[]>, styleName: string, prop: s
   }
 }
 
+function buildSummaryFromDstParsed(dstParsed: ReturnType<typeof parseGoWithDst>): ExtractedGoSummary | null {
+  if (!dstParsed || dstParsed.error || !dstParsed.styles) return null;
+  const styles = dstParsed.styles;
+  return {
+    styles,
+    tokens: dstParsed.tokens ?? {},
+    view: dstParsed.view,
+    root: dstParsed.root,
+    overlays: dstParsed.overlays,
+    detectedBubbles: dstParsed.detectedBubbles ?? [],
+    styleNames: dstParsed.styleNames ?? Object.keys(styles),
+    colorCount: Number(dstParsed.colorCount ?? 0),
+    syncDisabled: Boolean(dstParsed.syncDisabled),
+    lockedSymbols: dstParsed.lockedSymbols ?? [],
+    lockedProps: dstParsed.lockedProps,
+    engineUsed: "dave/dst",
+  };
+}
+
+export async function extractFromGoSourceAsync(combinedGo: string): Promise<ExtractedGoSummary> {
+  const dstParsed = await parseGoWithTransport(combinedGo);
+  const fromDst = buildSummaryFromDstParsed(dstParsed);
+  if (fromDst) return fromDst;
+  return extractFromGoSource(combinedGo);
+}
+
 export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
-  const dstParsed = parseGoWithDst(combinedGo);
-  if (dstParsed && !dstParsed.error && dstParsed.styles) {
-    const styles = dstParsed.styles;
-    return {
-      styles,
-      tokens: dstParsed.tokens ?? {},
-      view: dstParsed.view,
-      root: dstParsed.root,
-      overlays: dstParsed.overlays,
-      detectedBubbles: dstParsed.detectedBubbles ?? [],
-      styleNames: dstParsed.styleNames ?? Object.keys(styles),
-      colorCount: Number(dstParsed.colorCount ?? 0),
-      syncDisabled: Boolean(dstParsed.syncDisabled),
-      lockedSymbols: dstParsed.lockedSymbols ?? [],
-      lockedProps: dstParsed.lockedProps,
-      engineUsed: "dave/dst",
-    };
-  }
+  const fromDst = buildSummaryFromDstParsed(parseGoWithDst(combinedGo));
+  if (fromDst) return fromDst;
 
   const tokens: Record<string, TokenPair> = {
     accent:     { light: "#2e7de9", dark: "#7aa2f7" },

@@ -8,7 +8,10 @@ require (
 	charm.land/huh/v2 v2.0.3
 	charm.land/lipgloss/v2 v2.1.1
 	github.com/charmbracelet/colorprofile v0.4.3
+	github.com/charmbracelet/x/vt v0.0.0-20261008173134-6b8d4baf91b4
+	github.com/charmbracelet/x/xpty v0.1.3
 	github.com/dave/dst v0.28.0
+	github.com/fsnotify/fsnotify v1.9.0
 )
 
 require (

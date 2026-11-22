@@ -6,6 +6,7 @@ import {
   Moon,
   Plus,
   Redo2,
+  Server,
   Sparkles,
   Sun,
   Terminal,
@@ -24,11 +25,13 @@ interface Props {
   widgetPickerOpen: boolean;
   projectsOpen: boolean;
   importOpen: boolean;
+  desktopOpen: boolean;
   onOpenWidgetPicker: () => void;
   onOpenProjects: () => void;
   onOpenImport: () => void;
   onOpenSettings: () => void;
   onOpenCodeExport: () => void;
+  onOpenDesktopCompanion: () => void;
 }
 
 export function CanvasToolbar({
@@ -37,11 +40,13 @@ export function CanvasToolbar({
   widgetPickerOpen,
   projectsOpen,
   importOpen,
+  desktopOpen,
   onOpenWidgetPicker,
   onOpenProjects,
   onOpenImport,
   onOpenSettings,
   onOpenCodeExport,
+  onOpenDesktopCompanion,
 }: Props) {
   const {
     workspaceMode,
@@ -77,6 +82,9 @@ export function CanvasToolbar({
     setShowOverlay,
     tooltipsEnabled,
     setTooltipsEnabled,
+    desktopConnected,
+    previewMode,
+    setPreviewMode,
   } = useStudioStore();
 
   const showModal = ir.overlays[0]?.visible ?? false;
@@ -201,6 +209,26 @@ export function CanvasToolbar({
               <span>Export Go</span>
             </button>
           </Tooltip>
+          <Tooltip
+            title="Wails v3 Desktop Companion · PTY & MCP"
+            content="Connect to the native Go host for live go build + xpty streaming, MCP agent endpoints, and git worktree prompt isolation."
+            placement="bottom"
+          >
+            <button
+              onClick={onOpenDesktopCompanion}
+              style={{
+                ...btnStyle(desktopOpen),
+                borderColor: desktopConnected ? "var(--cs-mint-border)" : desktopOpen ? "var(--cs-pink)" : "var(--cs-btn-border)",
+                color: desktopConnected ? "var(--cs-mint)" : desktopOpen ? "var(--cs-pink-soft)" : "var(--cs-btn-text)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              <Server size={13} />
+              <span>{desktopConnected ? "Desktop · Live" : "Desktop / MCP"}</span>
+            </button>
+          </Tooltip>
           <Tooltip content="Undo last layout or style change (Cmd/Ctrl + Z)" placement="bottom">
             <button onClick={undo} disabled={past.length === 0} style={{ ...btnStyle(false), display: "inline-flex", alignItems: "center", gap: 5 }}>
               <Undo2 size={13} />
@@ -249,6 +277,29 @@ export function CanvasToolbar({
             </button>
           </div>
         </Tooltip>
+
+        {(desktopConnected || previewMode === "pty") && (
+          <Tooltip
+            title="Preview Engine: WASM vs Native PTY"
+            content="Switch between browser Go WASM layout sandbox and real compiled Go binary execution over xpty."
+            placement="bottom"
+          >
+            <div style={{ display: "inline-flex", background: "var(--cs-input)", borderRadius: 7, padding: 3, border: "1px solid var(--cs-border)" }}>
+              <button onClick={() => setPreviewMode("wasm")} style={segBtn(previewMode === "wasm")}>
+                WASM
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode("single");
+                  setPreviewMode("pty");
+                }}
+                style={segBtn(previewMode === "pty")}
+              >
+                Native PTY
+              </button>
+            </div>
+          </Tooltip>
+        )}
 
         {/* Viewport Presets (always visible in Studio, and paired with Matrix toggle in Pro) */}
         <div style={{ display: "inline-flex", background: "var(--cs-input)", borderRadius: 7, padding: 3, border: "1px solid var(--cs-border)" }}>

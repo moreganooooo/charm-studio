@@ -1,0 +1,25 @@
+version: '3'
+
+tasks:
+  build:frontend:
+    dir: ..
+    cmds:
+      - npm install
+      - npm run build
+      - rm -rf desktop/frontend/dist
+      - mkdir -p desktop/frontend/dist
+      - cp -R dist/* desktop/frontend/dist/
+
+  build:
+    deps: [build:frontend]
+    cmds:
+      - go mod tidy
+      - go build -o bin/charmstudio-desktop .
+
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml
+
+  headless:
+    cmds:
+      - go run . --headless

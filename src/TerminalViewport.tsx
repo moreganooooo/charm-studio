@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Trash2 } from "lucide-react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
+import { AlertTriangle, Check, Columns2, Copy, Keyboard, Pencil, Plus, Rows2, Terminal as TerminalIcon, Trash2 } from "lucide-react";
 import { Tooltip } from "./Tooltip";
+import type { PtyStatus } from "./previewTransport";
 import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type Rect, type TelemetryNode } from "./types";
-import { dispatchKey, ensureEngineReady, hitTestCell, renderFrame } from "./wasmEngine";
+import { dispatchKey, ensureEngineReady, hitTestCell, renderFrame, wailsTransport } from "./wasmEngine";
 
 export interface TermPalette {
   id: string;
@@ -14,6 +18,8 @@ export interface TermPalette {
 
 interface Props {
   title: string;
+  mode?: "wasm" | "pty";
+  ptyStatus?: PtyStatus | null;
   doc: IRDoc;
   renderTick: number;
   cols: number;
@@ -50,6 +56,8 @@ const INLINE_EDITABLE_TYPES = new Set([
 
 export function TerminalViewport({
   title,
+  mode = "wasm",
+  ptyStatus = null,
   doc,
   renderTick,
   cols,
@@ -73,6 +81,19 @@ export function TerminalViewport({
   onRequestInspectData,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const xtermHostRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  const ptyConfigRef = useRef({ cols, rows, fontSize, fontFamily, palette });
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    ptyConfigRef.current = { cols, rows, fontSize, fontFamily, palette };
+  }, [cols, rows, fontSize, fontFamily, palette]);
 
   const [ready, setReady] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -89,7 +110,79 @@ export function TerminalViewport({
     return () => { cancelled = true; };
   }, []);
 
+  // Native PTY xterm.js lifecycle
   useEffect(() => {
+    if (mode !== "pty") {
+      if (xtermRef.current) {
+        xtermRef.current.dispose();
+        xtermRef.current = null;
+        fitAddonRef.current = null;
+      }
+      return;
+    }
+    const host = xtermHostRef.current;
+    if (!host) return;
+
+    const cfg = ptyConfigRef.current;
+    const term = new Terminal({
+      cols: cfg.cols,
+      rows: cfg.rows,
+      fontSize: cfg.fontSize,
+      fontFamily: cfg.fontFamily,
+      cursorBlink: true,
+      convertEol: false,
+      theme: {
+        background: cfg.palette.background,
+        foreground: cfg.palette.foreground,
+        cursor: cfg.palette.foreground,
+      },
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(host);
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    const dataSub = term.onData((data) => {
+      void wailsTransport.sendKey(selectedIdRef.current, data, { rawSeq: data });
+    });
+
+    const unsubOut = wailsTransport.onPtyOutput((chunk) => {
+      term.write(chunk);
+    });
+
+    wailsTransport.init().then(() => {
+      wailsTransport.getPtyBuffer().then((buf) => {
+        if (buf) term.write(buf);
+      }).catch(() => {});
+      void wailsTransport.resize(ptyConfigRef.current.cols, ptyConfigRef.current.rows);
+    }).catch(() => {});
+
+    return () => {
+      unsubOut();
+      dataSub.dispose();
+      term.dispose();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (mode !== "pty" || !term) return;
+    term.options.fontSize = fontSize;
+    term.options.fontFamily = fontFamily;
+    term.options.theme = {
+      background: palette.background,
+      foreground: palette.foreground,
+      cursor: palette.foreground,
+    };
+    term.resize(cols, rows);
+    void wailsTransport.resize(cols, rows);
+  }, [mode, cols, rows, fontSize, fontFamily, palette]);
+
+  useEffect(() => {
+    if (mode !== "wasm") return;
     const canvas = canvasRef.current;
     if (!ready || !canvas) return;
     const ctx = canvas.getContext("2d");
@@ -164,7 +257,7 @@ export function TerminalViewport({
 
     setTelemetry(frame.telemetry ?? []);
     onTelemetry?.(frame.telemetry ?? []);
-  }, [ready, doc, renderTick, cols, rows, fontSize, fontFamily, palette, colorProfile]);
+  }, [mode, ready, doc, renderTick, cols, rows, fontSize, fontFamily, palette, colorProfile]);
 
   const hitTest = (e: React.MouseEvent<SVGSVGElement>): TelemetryNode | null => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -207,6 +300,7 @@ export function TerminalViewport({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (mode === "pty") return;
     if (inlineEdit) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const handled = dispatchKey(selectedId, e.key, e.shiftKey);
@@ -308,7 +402,28 @@ export function TerminalViewport({
             </Tooltip>
           )}
         </span>
-        {overflows.length > 0 ? (
+        {mode === "pty" ? (
+          <span
+            style={{
+              color: ptyStatus?.state === "error" ? "#e11d48" : "var(--cs-mint)",
+              background: ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.14)" : "var(--cs-mint-bg)",
+              border: `1px solid ${ptyStatus?.state === "error" ? "rgba(244, 63, 94, 0.45)" : "var(--cs-mint-border)"}`,
+              borderRadius: 999,
+              padding: "1px 8px",
+              fontSize: 11,
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <TerminalIcon size={11} />
+            <span>
+              Native PTY · {ptyStatus?.state ?? "idle"}
+              {ptyStatus?.lastBuildMs ? ` (${ptyStatus.lastBuildMs}ms)` : ""}
+            </span>
+          </span>
+        ) : overflows.length > 0 ? (
           <Tooltip
             title="Layout Overflow Detected"
             content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to select and adjust Width or Collapse Below.`}
@@ -332,46 +447,98 @@ export function TerminalViewport({
       </div>
 
       <div style={{ position: "relative", padding: 6, background: palette.background }}>
-        {!ready && (
-          <div style={{ padding: 24, fontSize: 12, color: "var(--cs-text-muted)", fontFamily: "ui-monospace, monospace" }}>
-            Booting Go Lip Gloss engine...
+        {mode === "pty" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {ptyStatus?.state === "error" && ptyStatus.error && (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  background: "rgba(244, 63, 94, 0.14)",
+                  border: "1px solid rgba(244, 63, 94, 0.4)",
+                  color: "#fda4af",
+                  fontSize: 11.5,
+                  fontFamily: `"JetBrains Mono", ui-monospace, monospace`,
+                  maxHeight: 140,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {ptyStatus.error}
+              </pre>
+            )}
+            <div
+              ref={xtermHostRef}
+              onMouseDown={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const c = Math.max(0, Math.min(cols - 1, Math.floor(((e.clientX - rect.left) / Math.max(1, rect.width)) * cols)));
+                const r = Math.max(0, Math.min(rows - 1, Math.floor(((e.clientY - rect.top) / Math.max(1, rect.height)) * rows)));
+                void wailsTransport.sendMouse(c, r, { button: e.button, action: "press" });
+              }}
+              onMouseUp={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const c = Math.max(0, Math.min(cols - 1, Math.floor(((e.clientX - rect.left) / Math.max(1, rect.width)) * cols)));
+                const r = Math.max(0, Math.min(rows - 1, Math.floor(((e.clientY - rect.top) / Math.max(1, rect.height)) * rows)));
+                void wailsTransport.sendMouse(c, r, { button: e.button, action: "release" });
+              }}
+              onWheel={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const c = Math.max(0, Math.min(cols - 1, Math.floor(((e.clientX - rect.left) / Math.max(1, rect.width)) * cols)));
+                const r = Math.max(0, Math.min(rows - 1, Math.floor(((e.clientY - rect.top) / Math.max(1, rect.height)) * rows)));
+                void wailsTransport.sendMouse(c, r, { button: e.deltaY < 0 ? 64 : 65, action: "wheel" });
+              }}
+              style={{
+                width: Math.ceil(cols * Math.max(7, fontSize * 0.61)),
+                height: Math.ceil(rows * Math.max(16, fontSize * 1.24)),
+                overflow: "hidden",
+              }}
+            />
           </div>
+        ) : (
+          <>
+            {!ready && (
+              <div style={{ padding: 24, fontSize: 12, color: "var(--cs-text-muted)", fontFamily: "ui-monospace, monospace" }}>
+                Booting Go Lip Gloss engine...
+              </div>
+            )}
+            <canvas ref={canvasRef} style={{ display: ready ? "block" : "none" }} />
+            <svg
+              onMouseMove={(e) => setHoveredId(hitTest(e)?.id ?? null)}
+              onMouseLeave={() => setHoveredId(null)}
+              onClick={(e) => {
+                e.currentTarget.closest<HTMLElement>("[tabindex]")?.focus();
+                const hit = hitTest(e);
+                if (hit) onSelect(hit.id);
+              }}
+              onDoubleClick={(e) => {
+                const hit = hitTest(e);
+                if (hit) {
+                  onSelect(hit.id);
+                  openInlineEditForNode(hit.id);
+                }
+              }}
+              style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
+            >
+              {showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
+                <rect {...boxRect(hoveredTel.margin)} fill="rgba(196, 181, 253, 0.09)" stroke="#c4b5fd" strokeDasharray="4 3" />
+              )}
+              {showOverlay && selectedTel && (
+                <>
+                  <rect {...boxRect(selectedTel.margin)}  fill="rgba(251, 146, 60, 0.16)" stroke="#fb923c" strokeWidth={1.5} />
+                  <rect {...boxRect(selectedTel.padding)} fill="rgba(74, 222, 128, 0.14)" stroke="#4ade80" strokeDasharray="3 2" />
+                  <rect {...boxRect(selectedTel.content)} fill="rgba(96, 165, 250, 0.18)" stroke="#60a5fa" />
+                </>
+              )}
+              {!showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
+                <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 117, 181, 0.45)" strokeDasharray="3 3" />
+              )}
+            </svg>
+          </>
         )}
-        <canvas ref={canvasRef} style={{ display: ready ? "block" : "none" }} />
-        <svg
-          onMouseMove={(e) => setHoveredId(hitTest(e)?.id ?? null)}
-          onMouseLeave={() => setHoveredId(null)}
-          onClick={(e) => {
-            e.currentTarget.closest<HTMLElement>("[tabindex]")?.focus();
-            const hit = hitTest(e);
-            if (hit) onSelect(hit.id);
-          }}
-          onDoubleClick={(e) => {
-            const hit = hitTest(e);
-            if (hit) {
-              onSelect(hit.id);
-              openInlineEditForNode(hit.id);
-            }
-          }}
-          style={{ position: "absolute", inset: 6, width: "calc(100% - 12px)", height: "calc(100% - 12px)", cursor: "pointer" }}
-        >
-          {showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
-            <rect {...boxRect(hoveredTel.margin)} fill="rgba(196, 181, 253, 0.09)" stroke="#c4b5fd" strokeDasharray="4 3" />
-          )}
-          {showOverlay && selectedTel && (
-            <>
-              <rect {...boxRect(selectedTel.margin)}  fill="rgba(251, 146, 60, 0.16)" stroke="#fb923c" strokeWidth={1.5} />
-              <rect {...boxRect(selectedTel.padding)} fill="rgba(74, 222, 128, 0.14)" stroke="#4ade80" strokeDasharray="3 2" />
-              <rect {...boxRect(selectedTel.content)} fill="rgba(96, 165, 250, 0.18)" stroke="#60a5fa" />
-            </>
-          )}
-          {!showOverlay && hoveredTel && hoveredTel.id !== selectedId && (
-            <rect {...boxRect(hoveredTel.border)} fill="transparent" stroke="rgba(255, 117, 181, 0.45)" strokeDasharray="3 3" />
-          )}
-        </svg>
 
         {/* Floating On-Canvas Quick-Action Bar */}
-        {showQuickBar && ready && selectedTel && selectedNode?.kind === "Box" && !inlineEdit && (
+        {mode === "wasm" && showQuickBar && ready && selectedTel && selectedNode?.kind === "Box" && !inlineEdit && (
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
