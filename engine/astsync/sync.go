@@ -90,19 +90,19 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 				switch sel.Sel.Name {
 				case "Foreground":
 					if !overriddenSet["fg"] {
-						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorExpr(call.Args[0], tokenVarNames) {
 							preservedDynamic["Foreground"] = dst.Clone(call.Args[0]).(dst.Expr)
 						}
 					}
 				case "Background":
 					if !overriddenSet["bg"] {
-						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorExpr(call.Args[0], tokenVarNames) {
 							preservedDynamic["Background"] = dst.Clone(call.Args[0]).(dst.Expr)
 						}
 					}
 				case "BorderForeground":
 					if !overriddenSet["borderColor"] {
-						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorTokenExpr(call.Args[0], tokenVarNames) {
+						if _, ok := extractHexFromColorExpr(call.Args[0]); !ok && !isKnownColorExpr(call.Args[0], tokenVarNames) {
 							preservedDynamic["BorderForeground"] = dst.Clone(call.Args[0]).(dst.Expr)
 						}
 					}
@@ -323,7 +323,10 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 	return expr, lockedProps
 }
 
-func isKnownColorTokenExpr(e dst.Expr, tokenVarNames map[string]string) bool {
+func isKnownColorExpr(e dst.Expr, tokenVarNames map[string]string) bool {
+	if _, ok := indexedColor(e); ok {
+		return true
+	}
 	if id, ok := e.(*dst.Ident); ok {
 		for _, v := range tokenVarNames {
 			if v == id.Name {
@@ -391,6 +394,10 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 				Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Options")},
 				Args: optExprs,
 			}
+		case "note":
+			base = &dst.CallExpr{Fun: &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent("NewNote")}}
+			base = &dst.CallExpr{Fun: &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Title")}, Args: []dst.Expr{strLit(f.Label)}}
+			base = &dst.CallExpr{Fun: &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Description")}, Args: []dst.Expr{strLit(f.Description)}}
 		case "confirm":
 			base = &dst.CallExpr{
 				Fun: &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent("NewConfirm")},

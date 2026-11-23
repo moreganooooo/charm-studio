@@ -166,6 +166,23 @@ func appendUniqueStr(slice []string, item string) []string {
 	return append(slice, item)
 }
 
+// indexedColor reads a literal Lip Gloss index, preserving its terminal semantics.
+func indexedColor(e dst.Expr) (string, bool) {
+	call, ok := e.(*dst.CallExpr)
+	if !ok || len(call.Args) != 1 || !(isPkgCall(e, "lipgloss", "Color") || isPkgCall(e, "compat", "Color")) {
+		return "", false
+	}
+	value, ok := unquoteLit(call.Args[0])
+	if !ok {
+		return "", false
+	}
+	index, err := strconv.ParseUint(value, 10, 8)
+	if err != nil {
+		return "", false
+	}
+	return strconv.FormatUint(index, 10), true
+}
+
 func extractHexFromColorExpr(e dst.Expr) (string, bool) {
 	if s, ok := unquoteLit(e); ok && strings.HasPrefix(s, "#") {
 		return s, true
@@ -613,6 +630,9 @@ func ParseGoSource(src string) GoParseResult {
 	sort.Strings(out.DetectedBubbles)
 
 	resolveArg := func(e dst.Expr) (string, bool) {
+		if index, ok := indexedColor(e); ok {
+			return index, true
+		}
 		switch v := e.(type) {
 		case *dst.BasicLit:
 			if s, ok := unquoteLit(v); ok && strings.HasPrefix(s, "#") {
@@ -1442,6 +1462,12 @@ func parseHuhFieldChain(e dst.Expr, idx int) IRHuhField {
 			out.Kind = "input"
 		case "NewSelect":
 			out.Kind = "select"
+		case "NewNote":
+			out.Kind = "note"
+		case "Description":
+			if out.Kind == "note" && len(call.Args) == 1 {
+				out.Description, _ = unquoteLit(call.Args[0])
+			}
 		case "NewConfirm":
 			out.Kind = "confirm"
 		case "Title":

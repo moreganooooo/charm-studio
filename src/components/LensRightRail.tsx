@@ -1,3 +1,4 @@
+import { swatchColor } from "../ansiColor";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Code2, Minus, Plus, SlidersHorizontal } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
@@ -45,7 +46,7 @@ function resolveColorHex(val: string | undefined, tokens: Record<string, { light
     const key = val.slice(1);
     return tokens[key]?.dark || "#ff5eae";
   }
-  return val;
+  return swatchColor(val);
 }
 
 export function LensRightRail({ inspectorScrollRef }: Props) {

@@ -202,6 +202,9 @@ func sampleNodeText(node astsync.IRNode, spec astsync.IRStyle, innerW, innerH in
 			lines := make([]string, 0, len(node.WidgetData.HuhFields)*2)
 			for _, f := range node.WidgetData.HuhFields {
 				lines = append(lines, f.Label)
+				if f.Kind == "note" && f.Description != "" {
+					lines = append(lines, f.Description)
+				}
 			}
 			body = strings.Join(lines, "\n")
 		} else if body == "" {

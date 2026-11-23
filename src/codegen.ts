@@ -657,6 +657,9 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
           fixtureHookVars.push(`\tpreview${pascalBase}${suffix} = func() []string { return nil }`);
           return `\t\t\thuh.NewSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...),`;
         }
+        if (f.kind === "note") {
+          return `\t\t\thuh.NewNote().Title(${JSON.stringify(f.label)}).Description(${JSON.stringify(f.description ?? "")}),`;
+        }
         if (f.kind === "confirm") {
           return `\t\t\thuh.NewConfirm().Title(${JSON.stringify(f.label)}),`;
         }

@@ -4,6 +4,7 @@ import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
 import { HelpDot, Tooltip } from "../Tooltip";
 import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor, type ViewCursorMode } from "../types";
+import { isAnsiIndex } from "../ansiColor";
 import { ColorSwatchPicker } from "./ColorSwatchPicker";
 import { WidgetDataEditor } from "../WidgetDataEditor";
 import {
@@ -870,10 +871,10 @@ export function PropertyInspector({ scrollRef }: Props) {
                       <select aria-label={`${label} color`} value={value} disabled={locked}
                         onChange={(e) => updateSelectedStyle({ [prop]: e.target.value })} style={inputStyle}>
                         <option value="">{prop === "bg" ? "None" : "Default"}</option>
-                        {value && !token && <option value={value}>{value}</option>}
+                        {value && !token && <option value={value}>{isAnsiIndex(value) ? `ANSI ${value}` : value}</option>}
                         {tokenKeys.map((key) => <option key={key} value={`$${key}`}>${key}</option>)}
                       </select>
-                      <ColorSwatchPicker label={label} value={hex} disabled={locked}
+                      <ColorSwatchPicker allowAnsi label={label} value={hex} disabled={locked}
                         onChange={(color) => updateSelectedStyle({ [prop]: color })} />
                     </Fragment>
                   );
