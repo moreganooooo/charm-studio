@@ -1,3 +1,4 @@
+import { readGoAnsiColor } from "./ansiColor";
 import {
   generateLayoutGenGoWithSpans,
   generateModelGoWithSpans,
@@ -238,20 +239,19 @@ export function applyInlineGoExpression(
     }
   }
 
-  // Hex colors or $token names in BorderForeground / Foreground / Background
-  const hexMatch = /"(#[0-9a-fA-F]{3,8})"/.exec(text);
-  if (hexMatch && opts.targetNode?.style) {
-    const hex = hexMatch[1];
-    if (text.includes("BorderForeground(")) {
-      opts.updateSelectedStyle({ borderColor: hex });
-      opts.setActiveProperty("colors");
-      applied = true;
-    } else if (text.includes("Foreground(")) {
-      opts.updateSelectedStyle({ fg: hex });
-      opts.setActiveProperty("colors");
-      applied = true;
-    } else if (text.includes("Background(")) {
-      opts.updateSelectedStyle({ bg: hex });
+  // Literal hex or indexed colors in a Lip Gloss style call.
+  if (opts.targetNode?.style) {
+    const colorCalls = /\b(BorderForeground|Foreground|Background)\(\s*((?:(?:lipgloss|compat)\.)?Color\(\s*"(?:\d+|#[\da-fA-F]{3,8})"\s*\)|"#[\da-fA-F]{3,8}")\s*\)/g;
+    const patch: Partial<IRStyle> = {};
+    for (const [, method, args] of text.matchAll(colorCalls)) {
+      const color = readGoAnsiColor(args) ?? /"(#[\da-fA-F]{3,8})"/.exec(args)?.[1];
+      if (color !== undefined) {
+        const prop = method === "Foreground" ? "fg" : method === "Background" ? "bg" : "borderColor";
+        patch[prop] = color;
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      opts.updateSelectedStyle(patch);
       opts.setActiveProperty("colors");
       applied = true;
     }

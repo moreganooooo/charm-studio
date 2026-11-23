@@ -256,7 +256,7 @@ export class WasmTransport implements PreviewTransport {
           h: n.height?.mode === "fixed" ? Math.max(2, (n.height.value ?? 6) - 2) : Math.max(6, rows - 6),
         };
         n.content = renderCharmWidgetContent(n, next, size.w, size.h, darkBG, cols, rows);
-        if (n.contentType?.startsWith("bubble:")) {
+        if (n.contentType?.startsWith("bubble:") || n.contentType === "huh:form") {
           n.contentType = "text";
         }
       }

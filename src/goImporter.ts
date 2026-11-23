@@ -1,3 +1,4 @@
+import { readGoAnsiColor } from "./ansiColor";
 import type { ContentType, IRDoc, IRNode, IROverlay, IRStyle, MouseMode, TokenPair, ViewCursorMode } from "./types";
 import { parseGoWithDst, parseGoWithTransport } from "./wasmEngine";
 
@@ -115,6 +116,7 @@ function extractUntouchedFunctions(src: string): string[] {
 
 function isSimpleColorExpr(args: string): boolean {
   const trimmed = args.trim();
+  if (readGoAnsiColor(trimmed) !== undefined) return true;
   if (/^"#[0-9a-fA-F]{3,8}"$/.test(trimmed)) return true;
   if (/^(?:lipgloss\.|compat\.)?Color\(\s*"#[0-9a-fA-F]{3,8}"\s*\)$/.test(trimmed)) return true;
   if (/^(?:lipgloss\.|compat\.)?AdaptiveColor\s*\{/.test(trimmed)) return true;
@@ -365,6 +367,8 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
   }
 
   const resolveColorArg = (arg: string): string => {
+    const index = readGoAnsiColor(arg);
+    if (index !== undefined) return index;
     const twoHex = [...arg.matchAll(/#[0-9a-fA-F]{6}/g)].map((h) => h[0]);
     if (twoHex.length === 2) {
       const [lHex, dHex] = twoHex;

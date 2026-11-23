@@ -42,8 +42,9 @@ type IRTableColumn struct {
 
 type IRHuhField struct {
 	ID          string   `json:"id"`
-	Kind        string   `json:"kind"` // "input", "select", "confirm"
+	Kind        string   `json:"kind"` // "input", "select", "confirm", "note"
 	Label       string   `json:"label"`
+	Description string   `json:"description,omitempty"`
 	Placeholder string   `json:"placeholder,omitempty"`
 	Options     []string `json:"options,omitempty"`
 }

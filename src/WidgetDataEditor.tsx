@@ -290,10 +290,14 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
     const fields = data.huhFields ?? [];
 
     const addField = (kind: IRHuhField["kind"]) => {
-      const idx = fields.length + 1;
+      let idx = fields.length + 1;
+      const prefix = kind === "select" ? "field" : kind;
+      while (fields.some((f) => f.id === `${prefix}${idx}`)) idx++;
       const fresh: IRHuhField =
         kind === "select"
           ? { id: `field${idx}`, kind, label: `Option ${idx}`, options: ["Choice A", "Choice B", "Choice C"] }
+          : kind === "note"
+          ? { id: `note${idx}`, kind, label: "Note", description: "" }
           : kind === "confirm"
           ? { id: `confirm${idx}`, kind, label: "Proceed with setup?" }
           : { id: `input${idx}`, kind, label: `Field ${idx}`, placeholder: "value..." };
@@ -305,6 +309,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button onClick={() => addField("input")} style={miniAddBtn}>+ Text Input</button>
           <button onClick={() => addField("select")} style={miniAddBtn}>+ Select List</button>
+          <button onClick={() => addField("note")} style={miniAddBtn}>+ Note</button>
           <button onClick={() => addField("confirm")} style={miniAddBtn}>+ Confirm Yes/No</button>
         </div>
 
@@ -341,9 +346,31 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                   const next = fields.map((f, i) => (i === idx ? { ...f, label: e.target.value } : f));
                   onChangeWidgetData({ ...data, huhFields: next });
                 }}
+                aria-label={field.kind === "note" ? "Note title" : "Field label"}
                 placeholder="Field label"
                 style={inputStyle}
               />
+
+              {field.kind === "note" && (
+                <>
+                  <textarea aria-label="Note description" placeholder="Note description" rows={3}
+                    value={field.description ?? ""} style={inputStyle}
+                    onChange={(e) => onChangeWidgetData({ ...data, huhFields: fields.map((f, i) =>
+                      i === idx ? { ...f, description: e.target.value } : f) })} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {([-1, 1] as const).map((offset) => (
+                      <button key={offset} type="button" disabled={!fields[idx + offset]} style={miniAddBtn}
+                        onClick={() => {
+                          const next = [...fields];
+                          [next[idx], next[idx + offset]] = [next[idx + offset], next[idx]];
+                          onChangeWidgetData({ ...data, huhFields: next });
+                        }}>
+                        {offset < 0 ? "Move note up" : "Move note down"}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {field.kind === "input" && (
                 <input

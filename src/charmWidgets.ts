@@ -236,7 +236,7 @@ function getHuhState(id: string, fields: IRHuhField[]): HuhState {
     fields.forEach((f) => {
       if (f.kind === "input") inputs[f.id] = f.placeholder ?? "charm-cli-app";
       else if (f.kind === "select") selects[f.id] = 0;
-      else confirms[f.id] = true;
+      else if (f.kind === "confirm") confirms[f.id] = true;
     });
     s = { focusIdx: 0, inputs, selects, confirms, submitted: false };
     huhStates.set(id, s);
@@ -247,7 +247,8 @@ function getHuhState(id: string, fields: IRHuhField[]): HuhState {
     if (f.kind === "select" && s!.selects[f.id] === undefined) s!.selects[f.id] = 0;
     if (f.kind === "confirm" && s!.confirms[f.id] === undefined) s!.confirms[f.id] = true;
   });
-  if (s.focusIdx >= fields.length) s.focusIdx = Math.max(0, fields.length - 1);
+  const editableCount = fields.filter((f) => f.kind !== "note").length;
+  s.focusIdx = Math.min(s.focusIdx, Math.max(0, editableCount - 1));
   return s;
 }
 
@@ -417,14 +418,19 @@ export function dispatchCharmWidgetKey(nodeId: string, key: string, ct?: Content
   }
 
   if (ct === "huh:form") {
-    const fields = huhFieldsRegistry.get(nodeId) ?? defaultWidgetData("huh:form").huhFields ?? [];
-    if (fields.length === 0) return false;
-    const s = getHuhState(nodeId, fields);
+    const allFields = huhFieldsRegistry.get(nodeId) ?? defaultWidgetData("huh:form").huhFields ?? [];
+    const fields = allFields.filter((f) => f.kind !== "note");
+    const s = getHuhState(nodeId, allFields);
+    if (fields.length === 0) {
+      if (key !== "Enter") return false;
+      s.submitted = true;
+      return true;
+    }
     if (key === "Tab" || key === "ArrowDown") {
       s.focusIdx = (s.focusIdx + 1) % fields.length;
       return true;
     }
-    if (key === "ArrowUp") {
+    if (key === "ArrowUp" || key === "Shift+Tab") {
       s.focusIdx = (s.focusIdx + fields.length - 1) % fields.length;
       return true;
     }
@@ -718,8 +724,10 @@ function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number,
 
   const bar = (active: boolean) => (active ? fg(accent, "┃ ") : fg(muted, "│ "));
 
+  const activeField = fields.filter((f) => f.kind !== "note")[s.focusIdx];
+  let activeEnd = 0;
   fields.forEach((field, idx) => {
-    const active = s.focusIdx === idx;
+    const active = field === activeField;
     lines.push(bar(active) + bold(fg(active ? accent : textMain, field.label)));
     if (field.kind === "input") {
       const val = s.inputs[field.id] ?? "";
@@ -738,12 +746,19 @@ function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number,
       } else {
         lines.push(bar(active) + fg(glow, "◀ ") + bold(fg(accent, opts[selIdx])) + fg(glow, " ▶"));
       }
+    } else if (field.kind === "note") {
+      if (field.description) {
+        for (const paragraph of field.description.split("\n")) {
+          for (const line of wrapPlainText(paragraph, w - 2)) lines.push(bar(false) + fg(textMain, line));
+        }
+      }
     } else {
       const yes = s.confirms[field.id] ?? true;
       const yesBtn = yes ? fgBg(onAccent, accent, "  Yes  ", true) : fgBg(textMain, surface, "  Yes  ", false);
       const noBtn = !yes ? fgBg(onAccent, glow, "  No  ", true) : fgBg(textMain, surface, "  No  ", false);
       lines.push(bar(active) + yesBtn + "  " + noBtn);
     }
+    if (active) activeEnd = lines.length;
     if (idx < fields.length - 1) lines.push("");
   });
 
@@ -755,7 +770,9 @@ function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number,
     lines.push(faint(fg(muted, "tab/↑↓ focus • ←/→ choose • enter submit")));
   }
 
-  return lines.slice(0, Math.max(1, innerH)).map((l) => clipVisible(l, w)).join("\n");
+  const height = Math.max(1, innerH);
+  const start = Math.max(0, (s.submitted ? lines.length : activeEnd) - height);
+  return lines.slice(start, start + height).map((l) => clipVisible(l, w)).join("\n");
 }
 
 function renderInlineMarkdown(line: string, accent: string, glow: string, textMain: string, surface: string): string {

@@ -128,7 +128,8 @@ export interface IRTableColumn {
 
 export interface IRHuhField {
   id: string;
-  kind: "input" | "select" | "confirm";
+  kind: "input" | "select" | "confirm" | "note";
+  description?: string;
   label: string;
   placeholder?: string;
   options?: string[];

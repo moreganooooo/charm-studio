@@ -309,3 +309,58 @@ func RenderApp(w, h int, st Theme) string {
 		t.Fatalf("dynamic text input settings were overwritten: %+v", preserved)
 	}
 }
+
+func TestIndexedStyleColorsRoundTrip(t *testing.T) {
+	const src = `package ui
+import "charm.land/lipgloss/v2"
+var Label = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("0")).Foreground(lipgloss.Color("196")).Background(lipgloss.Color("255"))
+`
+	parsed := ParseGoSource(src)
+	style := parsed.Styles["label"]
+	if parsed.Error != "" || style.Fg != "196" || style.Bg != "255" || style.BorderColor != "0" || len(parsed.LockedProps["label"]) != 0 {
+		t.Fatalf("unexpected indexed style: %+v (locks %v, error %s)", style, parsed.LockedProps, parsed.Error)
+	}
+	style.Fg = "15"
+	doc := IRDoc{Styles: map[string]IRStyle{"label": style}}
+	updated := SyncGoSource(src, doc)
+	again := ParseGoSource(updated.UpdatedGo)
+	if updated.Error != "" || again.Error != "" || again.Styles["label"].Fg != "15" || again.Styles["label"].Bg != "255" || again.Styles["label"].BorderColor != "0" || len(updated.LockedProps["label"]) != 0 {
+		t.Fatalf("indexed style changed on sync: %+v", updated)
+	}
+	for _, arg := range []string{`"256"`, "lookupIndex()"} {
+		expr := "lipgloss.Color(" + arg + ")"
+		updated := SyncGoSource(strings.Replace(src, `lipgloss.Color("196")`, expr, 1), doc)
+		if !strings.Contains(updated.UpdatedGo, "Foreground("+expr+")") || len(updated.LockedProps["label"]) != 1 {
+			t.Fatalf("unexpected edit of unsupported color: %+v", updated)
+		}
+	}
+}
+
+func TestHuhNoteRoundTrip(t *testing.T) {
+	const src = `package ui
+import "charm.land/huh/v2"
+func buildWidgets() {
+	// @tui:id=formPane
+	formPaneModel := huh.NewForm(huh.NewGroup(huh.NewInput().Title("Name"), huh.NewNote().Title("Before continuing").Description("First line\nSecond line"), huh.NewConfirm().Title("Proceed?")))
+	_ = formPaneModel
+}
+func RenderApp(w, h int, st Theme) string {
+	// @tui:id=formPane
+	formPane := st.Main.Width(w).Height(h).Render("")
+	return formPane
+}`
+	parsed := ParseGoSource(src)
+	if parsed.Root == nil || parsed.Root.WidgetData == nil || len(parsed.Root.WidgetData.HuhFields) != 3 {
+		t.Fatalf("missing form: %+v", parsed)
+	}
+	fields := parsed.Root.WidgetData.HuhFields
+	if fields[0].Kind != "input" || fields[1].Kind != "note" || fields[1].Label != "Before continuing" || fields[1].Description != "First line\nSecond line" || fields[2].Kind != "confirm" {
+		t.Fatalf("incorrect field data: %+v", fields)
+	}
+	fields[1].Description = "Check the \"Name\" field."
+	updated := SyncGoSource(src, IRDoc{Root: *parsed.Root})
+	again := ParseGoSource(updated.UpdatedGo)
+	if updated.Error != "" || again.Root == nil || again.Root.WidgetData == nil || len(again.Root.WidgetData.HuhFields) != 3 || again.Root.WidgetData.HuhFields[1].Description != fields[1].Description {
+		t.Fatalf("note changed on sync: %+v", updated)
+	}
+}

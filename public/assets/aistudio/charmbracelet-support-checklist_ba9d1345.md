@@ -5,7 +5,7 @@ Use this checklist to track library and component support as you build out your 
 ## Phase 1: Canvas & Layout Engine (`lipgloss`)
 - [ ] **Box Model:** Width, height, max-width, max-height, padding (top/right/bottom/left), and margins.
 - [ ] **Borders & Dividers:** Border styles (rounded, thick, double, normal, hidden, custom) and per-side border toggles.
-- [ ] **Typography & Colors:** Foreground/background colors (HEX, ANSI, AdaptiveColor for light/dark terminals), bold, italic, underline, strikethrough, and faint text.
+- [x] **Typography & Colors:** Foreground/background colors (HEX, ANSI, AdaptiveColor for light/dark terminals), bold, italic, underline, strikethrough, and faint text.
 - [ ] **Alignment & Positioning:** Horizontal alignment (left, center, right), vertical alignment (top, center, bottom), and `Place()` coordinates.
 - [x] **Layout Compositors:** `JoinHorizontal` (rows/columns) and `JoinVertical` (stacks) to build split panes, headers, and grids.
 
@@ -28,7 +28,7 @@ Use this checklist to track library and component support as you build out your 
 - [ ] **Select (`Select`):** Single-choice dropdown/radio list with filtering.
 - [ ] **MultiSelect (`MultiSelect`):** Checkbox list with min/max selection limits.
 - [x] **Confirm (`Confirm`):** Affirmative/negative toggle buttons (e.g., Yes/No).
-- [ ] **Note (`Note`):** Read-only callout or instruction block inside a form.
+- [x] **Note (`Note`):** Read-only callout or instruction block inside a form.
 - [ ] **Form & Group Containers:** Multi-step wizard pagination and built-in theme presets (Charm, Dracula, Catppuccin, Base16).
 
 ## Phase 4: Rich Content, Themes & Polish
