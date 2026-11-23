@@ -152,6 +152,13 @@ export function WidgetPreviewCanvas({
           ctx.globalAlpha = 1;
         }
 
+        if ((attrs & 32) !== 0) {
+          ctx.fillStyle = fg;
+          ctx.globalAlpha = isFaint ? 0.55 : 1;
+          ctx.fillRect(px, py + ch * 0.52, cw * (cell.w || 1), 1);
+          ctx.globalAlpha = 1;
+        }
+
         if (isUnderline) {
           ctx.fillStyle = fg;
           ctx.fillRect(px, py + ch - 2, cw, 1);

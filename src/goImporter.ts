@@ -170,10 +170,10 @@ function extractGoSyncMetadata(src: string): GoSyncMetadata {
     }
     const chain = chainLines.join(" ");
 
-    const callRe = /\.(\w+)\(/g;
+    const callRe = /\.\s*(\w+)\(/g;
     for (const cm of chain.matchAll(callRe)) {
       const method = cm[1];
-      const args = extractBalancedArgs(chain, (cm.index ?? 0) + method.length + 1).trim();
+      const args = extractBalancedArgs(chain, (cm.index ?? 0) + cm[0].length - 1).trim();
       if (!args && (method === "Border" || method.startsWith("Padding") || method.startsWith("Margin"))) continue;
 
       if (method === "Border") {
@@ -190,7 +190,7 @@ function extractGoSyncMetadata(src: string): GoSyncMetadata {
         if (!/^-?\d+(?:\s*,\s*-?\d+){0,3}$/.test(args)) recordDynamic(styleName, "margin", args);
       } else if (method === "MarginTop" || method === "MarginRight" || method === "MarginBottom" || method === "MarginLeft") {
         if (!/^-?\d+$/.test(args)) recordDynamic(styleName, "margin", args);
-      } else if (method === "Bold" || method === "Italic" || method === "Faint" || method === "Underline") {
+      } else if (method === "Bold" || method === "Italic" || method === "Faint" || method === "Underline" || method === "Strikethrough") {
         if (args !== "true" && args !== "false") recordDynamic(styleName, method.toLowerCase(), args);
       } else if (method === "BorderForeground" && args && !isSimpleColorExpr(args)) {
         recordDynamic(styleName, "borderColor", args);
@@ -445,17 +445,18 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
 
     if (/RoundedBorder\(\)/.test(chain)) st.border = "rounded";
     else if (/ThickBorder\(\)/.test(chain)) st.border = "thick";
+    else if (/HiddenBorder\(\)/.test(chain)) st.border = "hidden";
     else if (/DoubleBorder\(\)/.test(chain)) st.border = "double";
     else if (/NormalBorder\(\)/.test(chain)) st.border = "normal";
 
-    const callRe = /\.(\w+)\(/g;
+    const callRe = /\.\s*(\w+)\(/g;
     for (const cm of chain.matchAll(callRe)) {
       const method = cm[1];
-      const args = extractBalancedArgs(chain, (cm.index ?? 0) + method.length + 1);
+      const args = extractBalancedArgs(chain, (cm.index ?? 0) + cm[0].length - 1);
       const trimmedArgs = args.trim();
 
       if (method === "Border") {
-        if (!/(?:Rounded|Thick|Double|Normal)Border\(\)/.test(trimmedArgs)) {
+        if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)/.test(trimmedArgs)) {
           addLockedProp(lockedProps, styleName, "border");
           lockedSymbolsSet.add(styleName);
         }
@@ -514,8 +515,8 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
           addLockedProp(lockedProps, styleName, "margin");
           lockedSymbolsSet.add(styleName);
         }
-      } else if (method === "Bold" || method === "Italic" || method === "Faint" || method === "Underline") {
-        const propKey = method.toLowerCase() as "bold" | "italic" | "faint" | "underline";
+      } else if (method === "Bold" || method === "Italic" || method === "Faint" || method === "Underline" || method === "Strikethrough") {
+        const propKey = method.toLowerCase() as "bold" | "italic" | "faint" | "underline" | "strikethrough";
         if (trimmedArgs === "true" || trimmedArgs === "false") {
           st[propKey] = trimmedArgs === "true";
         } else {

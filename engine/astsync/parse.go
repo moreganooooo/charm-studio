@@ -336,6 +336,9 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 						case "DoubleBorder":
 							st.Border = "double"
 							matched = true
+						case "HiddenBorder":
+							st.Border = "hidden"
+							matched = true
 						case "NormalBorder":
 							st.Border = "normal"
 							matched = true
@@ -485,6 +488,14 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 					st.Underline = b
 				} else {
 					recordDyn("underline", rawExprText(call.Args[0]))
+				}
+			}
+		case "Strikethrough":
+			if len(call.Args) == 1 {
+				if b, ok := boolIdentVal(call.Args[0]); ok {
+					st.Strikethrough = b
+				} else {
+					recordDyn("strikethrough", rawExprText(call.Args[0]))
 				}
 			}
 		case "BorderForeground":

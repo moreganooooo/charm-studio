@@ -80,7 +80,7 @@ export interface IRViewConfig {
 }
 
 export interface IRStyle {
-  border: "rounded" | "normal" | "thick" | "double" | "none";
+  border: "rounded" | "normal" | "thick" | "double" | "hidden" | "none";
   borderEdges?: [boolean, boolean, boolean, boolean];
   borderColor: string;
   fg: string;
@@ -91,6 +91,7 @@ export interface IRStyle {
   italic?: boolean;
   faint?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   alignH?: "left" | "center" | "right";
   alignV?: "top" | "center" | "bottom";
   truncate?: boolean;

@@ -110,6 +110,9 @@ func summarizeIRStyleDiff(a, b IRStyle) []string {
 	if a.Underline != b.Underline {
 		changes = append(changes, fmt.Sprintf("underline: %v", b.Underline))
 	}
+	if a.Strikethrough != b.Strikethrough {
+		changes = append(changes, fmt.Sprintf("strikethrough: %v", b.Strikethrough))
+	}
 	if a.Padding != b.Padding {
 		changes = append(changes, fmt.Sprintf("padding: %v", b.Padding))
 	}

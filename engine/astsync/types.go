@@ -6,20 +6,21 @@ type TokenPair struct {
 }
 
 type IRStyle struct {
-	Border      string   `json:"border"`
-	BorderEdges *[4]bool `json:"borderEdges,omitempty"` // [top, right, bottom, left]
-	BorderColor string   `json:"borderColor"`
-	Fg          string   `json:"fg"`
-	Bg          string   `json:"bg,omitempty"`
-	Padding     [4]int   `json:"padding"`
-	Margin      [4]int   `json:"margin"`
-	Bold        bool     `json:"bold"`
-	Italic      bool     `json:"italic,omitempty"`
-	Faint       bool     `json:"faint,omitempty"`
-	Underline   bool     `json:"underline,omitempty"`
-	AlignH      string   `json:"alignH,omitempty"` // "left", "center", "right"
-	AlignV      string   `json:"alignV,omitempty"` // "top", "center", "bottom"
-	Truncate    bool     `json:"truncate,omitempty"`
+	Border        string   `json:"border"`
+	BorderEdges   *[4]bool `json:"borderEdges,omitempty"` // [top, right, bottom, left]
+	BorderColor   string   `json:"borderColor"`
+	Fg            string   `json:"fg"`
+	Bg            string   `json:"bg,omitempty"`
+	Padding       [4]int   `json:"padding"`
+	Margin        [4]int   `json:"margin"`
+	Bold          bool     `json:"bold"`
+	Italic        bool     `json:"italic,omitempty"`
+	Faint         bool     `json:"faint,omitempty"`
+	Underline     bool     `json:"underline,omitempty"`
+	Strikethrough bool     `json:"strikethrough,omitempty"`
+	AlignH        string   `json:"alignH,omitempty"` // "left", "center", "right"
+	AlignV        string   `json:"alignV,omitempty"` // "top", "center", "bottom"
+	Truncate      bool     `json:"truncate,omitempty"`
 }
 
 type IRSize struct {

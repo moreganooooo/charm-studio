@@ -55,6 +55,7 @@ function borderExpr(border: IRStyle["border"]): string | null {
     case "rounded": return ".Border(lipgloss.RoundedBorder())";
     case "normal":  return ".Border(lipgloss.NormalBorder())";
     case "thick":   return ".Border(lipgloss.ThickBorder())";
+    case "hidden":  return ".Border(lipgloss.HiddenBorder())";
     case "double":  return ".Border(lipgloss.DoubleBorder())";
     default:        return null;
   }
@@ -133,6 +134,7 @@ export function generateStylesGo(doc: IRDoc): string {
       if (st.italic) chains.push(".Italic(true)");
       if (st.faint) chains.push(".Faint(true)");
       if (st.underline) chains.push(".Underline(true)");
+      if (st.strikethrough) chains.push(".Strikethrough(true)");
       if (st.alignH && st.alignH !== "left") chains.push(`.AlignHorizontal(${lipPos(st.alignH, "h")})`);
       if (st.alignV && st.alignV !== "top") chains.push(`.AlignVertical(${lipPos(st.alignV, "v")})`);
 

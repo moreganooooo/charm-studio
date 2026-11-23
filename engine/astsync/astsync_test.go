@@ -225,3 +225,40 @@ func TestComputeGoDiff(t *testing.T) {
 		t.Fatalf("expected locked_untouched bucket entries, got %+v", diff.Deltas)
 	}
 }
+
+func TestHiddenBorderAndStrikethroughRoundTrip(t *testing.T) {
+	src := `package ui
+import "charm.land/lipgloss/v2"
+var Sidebar = lipgloss.NewStyle().Border(lipgloss.HiddenBorder()).BorderLeft(false).Strikethrough(true)
+`
+	parsed := ParseGoSource(src)
+	style := parsed.Styles["sidebar"]
+	if parsed.Error != "" || style.Border != "hidden" || !style.Strikethrough ||
+		style.BorderEdges == nil || style.BorderEdges[3] || len(parsed.LockedProps["sidebar"]) != 0 {
+		t.Fatalf("unexpected imported sidebar: %+v (locks %v, error %s)", style, parsed.LockedProps["sidebar"], parsed.Error)
+	}
+
+	doc := IRDoc{Styles: map[string]IRStyle{"sidebar": style}}
+	synced := SyncGoSource(src, doc)
+	reparsed := ParseGoSource(synced.UpdatedGo)
+	got := reparsed.Styles["sidebar"]
+	if synced.Error != "" || reparsed.Error != "" || got.Border != "hidden" || !got.Strikethrough ||
+		got.BorderEdges == nil || *got.BorderEdges != *style.BorderEdges {
+		t.Fatalf("style changed after sync: %+v (sync %s, parse %s)", got, synced.Error, reparsed.Error)
+	}
+
+	style.Border = "none"
+	style.Strikethrough = false
+	doc.Styles["sidebar"] = style
+	cleared := SyncGoSource(synced.UpdatedGo, doc)
+	if cleared.Error != "" || strings.Contains(cleared.UpdatedGo, "HiddenBorder()") || strings.Contains(cleared.UpdatedGo, "Strikethrough(") {
+		t.Fatalf("could not clear styles: %+v", cleared)
+	}
+
+	dynamic := strings.Replace(src, "Strikethrough(true)", "Strikethrough(isDone())", 1)
+	preserved := SyncGoSource(dynamic, doc)
+	if preserved.Error != "" || !strings.Contains(preserved.UpdatedGo, "Strikethrough(isDone())") ||
+		!strings.Contains(strings.Join(preserved.LockedProps["sidebar"], ","), "strikethrough") {
+		t.Fatalf("dynamic strikethrough was not preserved: %+v", preserved)
+	}
+}
