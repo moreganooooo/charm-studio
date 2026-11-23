@@ -103,11 +103,14 @@ export function generateStylesGo(doc: IRDoc): string {
     .map(([name]) => `\t${toPascal(name)} lipgloss.Style // @tui:style=${name}`)
     .join("\n");
 
-  const tokenDecls = tokenEntries
-    .map(([name, pair]) =>
-      `\t// @tui:token=${name}\n\t${toCamel(name)} := ld(lipgloss.Color(${JSON.stringify(pair.light)}), lipgloss.Color(${JSON.stringify(pair.dark)}))`
-    )
-    .join("\n");
+  const usedColors = new Set(styleEntries.flatMap(([, style]) =>
+    [style.fg, style.bg, borderExpr(style.border) ? style.borderColor : undefined]
+  ));
+  const tokenDecls = tokenEntries.map(([name, pair]) => {
+    const variable = toCamel(name);
+    const declaration = `\t// @tui:token=${name}\n\t${variable} := ld(lipgloss.Color(${JSON.stringify(pair.light)}), lipgloss.Color(${JSON.stringify(pair.dark)}))`;
+    return usedColors.has(`$${name}`) ? declaration : `${declaration}\n\t_ = ${variable}`;
+  }).join("\n");
 
   const styleInits = styleEntries
     .map(([name, st]) => {
@@ -154,8 +157,7 @@ ${structFields}
 }
 
 func NewTheme(isDark bool) Theme {
-\tld := lipgloss.LightDark(isDark)
-
+${tokenEntries.length ? "\tld := lipgloss.LightDark(isDark)\n" : ""}
 ${tokenDecls}
 
 \treturn Theme{
