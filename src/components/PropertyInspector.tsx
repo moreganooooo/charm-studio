@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Code2, Lock, Moon, RotateCcw, Sun, Unlock } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
 import { HelpDot, Tooltip } from "../Tooltip";
 import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor, type ViewCursorMode } from "../types";
+import { ColorSwatchPicker } from "./ColorSwatchPicker";
 import { WidgetDataEditor } from "../WidgetDataEditor";
 import {
   btnStyle,
@@ -29,6 +30,7 @@ export function PropertyInspector({ scrollRef }: Props) {
     selectedNode,
     selectedOverlay,
     selectedStyle,
+    effectivePalette,
     workspaceMode,
     showAdvancedStyle,
     setShowAdvancedStyle,
@@ -855,40 +857,27 @@ export function PropertyInspector({ scrollRef }: Props) {
                 </div>
               )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                <label style={{ ...labelCol, opacity: isPropLocked("borderColor") ? 0.65 : 1 }}>
-                  <FieldLockLabel text="Border" locked={isPropLocked("borderColor")} />
-                  <select value={selectedStyle.borderColor || ""} disabled={isPropLocked("borderColor")} onChange={(e) => updateSelectedStyle({ borderColor: e.target.value })} style={inputStyle}>
-                    <option value="">Default</option>
-                    {tokenKeys.map((k) => (
-                      <option key={k} value={`$${k}`}>
-                        ${k}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ ...labelCol, opacity: isPropLocked("fg") ? 0.65 : 1 }}>
-                  <FieldLockLabel text="Text" locked={isPropLocked("fg")} />
-                  <select value={selectedStyle.fg || ""} disabled={isPropLocked("fg")} onChange={(e) => updateSelectedStyle({ fg: e.target.value })} style={inputStyle}>
-                    <option value="">Default</option>
-                    {tokenKeys.map((k) => (
-                      <option key={k} value={`$${k}`}>
-                        ${k}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label style={{ ...labelCol, opacity: isPropLocked("bg") ? 0.65 : 1 }}>
-                  <FieldLockLabel text="Fill (Bg)" locked={isPropLocked("bg")} />
-                  <select value={selectedStyle.bg || ""} disabled={isPropLocked("bg")} onChange={(e) => updateSelectedStyle({ bg: e.target.value })} style={inputStyle}>
-                    <option value="">None</option>
-                    {tokenKeys.map((k) => (
-                      <option key={k} value={`$${k}`}>
-                        ${k}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", alignItems: "center", gap: 6 }}>
+                {(["borderColor", "fg", "bg"] as const).map((prop) => {
+                  const label = prop === "fg" ? "Text" : prop === "bg" ? "Fill" : "Border";
+                  const value = selectedStyle[prop] || "";
+                  const token = value.startsWith("$") ? ir.tokens[value.slice(1)] : undefined;
+                  const hex = token ? token[effectivePalette.darkBG ? "dark" : "light"] : value;
+                  const locked = isPropLocked(prop);
+                  return (
+                    <Fragment key={prop}>
+                      <FieldLockLabel text={label} locked={locked} />
+                      <select aria-label={`${label} color`} value={value} disabled={locked}
+                        onChange={(e) => updateSelectedStyle({ [prop]: e.target.value })} style={inputStyle}>
+                        <option value="">{prop === "bg" ? "None" : "Default"}</option>
+                        {value && !token && <option value={value}>{value}</option>}
+                        {tokenKeys.map((key) => <option key={key} value={`$${key}`}>${key}</option>)}
+                      </select>
+                      <ColorSwatchPicker label={label} value={hex} disabled={locked}
+                        onChange={(color) => updateSelectedStyle({ [prop]: color })} />
+                    </Fragment>
+                  );
+                })}
               </div>
 
               {(["borderColor", "fg", "bg"] as const).map((colorProp) =>
@@ -1086,24 +1075,13 @@ export function PropertyInspector({ scrollRef }: Props) {
               <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <code style={{ fontSize: 12.5, color: "var(--cs-text-heading)" }}>${name}</code>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--cs-text-muted)" }}>
-                    <Sun size={12} />
-                    <input
-                      type="color"
-                      value={pair.light}
-                      onChange={(e) => updateToken(name, "light", e.target.value)}
-                      style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
-                    />
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--cs-text-muted)" }}>
-                    <Moon size={12} />
-                    <input
-                      type="color"
-                      value={pair.dark}
-                      onChange={(e) => updateToken(name, "dark", e.target.value)}
-                      style={{ width: 26, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
-                    />
-                  </label>
+                  {(["light", "dark"] as const).map((mode) => (
+                    <span key={mode} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {mode === "light" ? <Sun size={12} aria-hidden="true" /> : <Moon size={12} aria-hidden="true" />}
+                      <ColorSwatchPicker label={`$${name} · ${mode}`} value={pair[mode]} disabled={fileSyncDisabled}
+                        onChange={(hex) => updateToken(name, mode, hex)} />
+                    </span>
+                  ))}
                 </div>
               </div>
             ))}
