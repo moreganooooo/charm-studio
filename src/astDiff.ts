@@ -43,6 +43,7 @@ function summarizeStyleDiff(a: IRStyle, b: IRStyle): string[] {
   if ((a.bg ?? "") !== (b.bg ?? "")) changes.push(`bg: ${a.bg || "none"} → ${b.bg || "none"}`);
   if (a.bold !== b.bold) changes.push(`bold: ${b.bold}`);
   if (!!a.italic !== !!b.italic) changes.push(`italic: ${!!b.italic}`);
+  if (!!a.strikethrough !== !!b.strikethrough) changes.push(`strikethrough: ${!!b.strikethrough}`);
   if (JSON.stringify(a.padding) !== JSON.stringify(b.padding)) changes.push(`padding: [${b.padding.join(",")}]`);
   if (JSON.stringify(a.margin) !== JSON.stringify(b.margin)) changes.push(`margin: [${b.margin.join(",")}]`);
   if ((a.alignH ?? "left") !== (b.alignH ?? "left") || (a.alignV ?? "top") !== (b.alignV ?? "top")) {

@@ -229,7 +229,8 @@ export function applyInlineGoExpression(
     else if (expr.includes("normal")) nextBorder = "normal";
     else if (expr.includes("thick")) nextBorder = "thick";
     else if (expr.includes("double")) nextBorder = "double";
-    else if (expr.includes("hidden") || expr.includes("none")) nextBorder = "none";
+    else if (expr.includes("hidden")) nextBorder = "hidden";
+    else if (expr.includes("none")) nextBorder = "none";
     if (nextBorder) {
       opts.updateSelectedStyle({ border: nextBorder });
       opts.setActiveProperty("border");

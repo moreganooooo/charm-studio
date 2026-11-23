@@ -822,6 +822,7 @@ export function PropertyInspector({ scrollRef }: Props) {
                     <option value="normal">NormalBorder (┌─┐)</option>
                     <option value="thick">ThickBorder (┏━┓)</option>
                     <option value="double">DoubleBorder (╔═╗)</option>
+                    <option value="hidden">Hidden (reserves border space)</option>
                     <option value="none">None</option>
                   </select>
                 </label>
@@ -938,6 +939,7 @@ export function PropertyInspector({ scrollRef }: Props) {
                 <label style={{ ...checkLbl, opacity: isPropLocked("italic") ? 0.65 : 1 }}><input type="checkbox" disabled={isPropLocked("italic")} checked={!!selectedStyle.italic} onChange={(e) => updateSelectedStyle({ italic: e.target.checked })} style={chkAcc} /> Italic{isPropLocked("italic") && <Lock size={10} color="#fbbf24" />}</label>
                 <label style={{ ...checkLbl, opacity: isPropLocked("faint") ? 0.65 : 1 }}><input type="checkbox" disabled={isPropLocked("faint")} checked={!!selectedStyle.faint} onChange={(e) => updateSelectedStyle({ faint: e.target.checked })} style={chkAcc} /> Faint{isPropLocked("faint") && <Lock size={10} color="#fbbf24" />}</label>
                 <label style={{ ...checkLbl, opacity: isPropLocked("underline") ? 0.65 : 1 }}><input type="checkbox" disabled={isPropLocked("underline")} checked={!!selectedStyle.underline} onChange={(e) => updateSelectedStyle({ underline: e.target.checked })} style={chkAcc} /> Underline{isPropLocked("underline") && <Lock size={10} color="#fbbf24" />}</label>
+                <label style={{ ...checkLbl, opacity: isPropLocked("strikethrough") ? 0.65 : 1 }}><input type="checkbox" disabled={isPropLocked("strikethrough")} checked={!!selectedStyle.strikethrough} onChange={(e) => updateSelectedStyle({ strikethrough: e.target.checked })} style={chkAcc} /> Strikethrough{isPropLocked("strikethrough") && <Lock size={10} color="#fbbf24" />}</label>
                 <label style={{ ...checkLbl, opacity: isAllStyleLocked ? 0.65 : 1 }}><input type="checkbox" disabled={isAllStyleLocked} checked={!!selectedStyle.truncate} onChange={(e) => updateSelectedStyle({ truncate: e.target.checked })} style={chkAcc} /> Truncate (…)</label>
               </div>
             </div>

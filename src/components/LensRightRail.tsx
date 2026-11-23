@@ -785,6 +785,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                     <option value="normal">Normal (lipgloss.NormalBorder())</option>
                     <option value="thick">Thick (lipgloss.ThickBorder())</option>
                     <option value="double">Double (lipgloss.DoubleBorder())</option>
+                    <option value="hidden">Hidden (reserves border space)</option>
                     <option value="none">None</option>
                   </select>
                 </div>

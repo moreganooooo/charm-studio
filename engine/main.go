@@ -17,6 +17,7 @@ import (
     "charm.land/huh/v2"
     "charm.land/lipgloss/v2"
     "github.com/charmbracelet/colorprofile"
+    uv "github.com/charmbracelet/ultraviolet"
 )
 
 // --- Layout IR ---
@@ -45,6 +46,7 @@ type IRStyle struct {
     Italic      bool     `json:"italic,omitempty"`
     Faint       bool     `json:"faint,omitempty"`
     Underline   bool     `json:"underline,omitempty"`
+    Strikethrough bool     `json:"strikethrough,omitempty"`
     AlignH      string   `json:"alignH,omitempty"` // "left", "center", "right"
     AlignV      string   `json:"alignV,omitempty"` // "top", "center", "bottom"
     Truncate    bool     `json:"truncate,omitempty"`
@@ -107,7 +109,7 @@ type CellDTO struct {
     C string `json:"c,omitempty"`
     F string `json:"f,omitempty"`
     B string `json:"b,omitempty"`
-    A uint8  `json:"a,omitempty"` // 1=bold, 2=italic, 4=reverse, 8=faint, 16=underline
+    A uint8  `json:"a,omitempty"` // 1=bold, 2=italic, 4=reverse, 8=faint, 16=underline, 32=strikethrough
     W int    `json:"w,omitempty"`
 }
 
@@ -526,7 +528,8 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
             Bold(spec.Bold).
             Italic(spec.Italic).
             Faint(spec.Faint).
-            Underline(spec.Underline)
+            Underline(spec.Underline).
+            Strikethrough(spec.Strikethrough)
 
         switch spec.Border {
         case "rounded":
@@ -537,6 +540,8 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
             s = s.Border(lipgloss.ThickBorder())
         case "double":
             s = s.Border(lipgloss.DoubleBorder())
+        case "hidden":
+            s = s.Border(lipgloss.HiddenBorder())
         }
 
         if spec.Border != "" && spec.Border != "none" && spec.BorderEdges != nil {
@@ -806,6 +811,9 @@ func renderStudio(_ js.Value, args []js.Value) any {
             }
             if c.Style.Underline > 0 {
                 at |= 16
+            }
+            if c.Style.Attrs&uv.AttrStrikethrough != 0 {
+                at |= 32
             }
             cells[row*cols+col] = CellDTO{
                 C: c.Content,

@@ -101,7 +101,8 @@ func buildLayoutStyles(doc astsync.IRDoc) map[string]lipgloss.Style {
 			Bold(spec.Bold).
 			Italic(spec.Italic).
 			Faint(spec.Faint).
-			Underline(spec.Underline)
+			Underline(spec.Underline).
+			Strikethrough(spec.Strikethrough)
 
 		switch spec.Border {
 		case "rounded":
@@ -112,6 +113,8 @@ func buildLayoutStyles(doc astsync.IRDoc) map[string]lipgloss.Style {
 			s = s.Border(lipgloss.ThickBorder())
 		case "double":
 			s = s.Border(lipgloss.DoubleBorder())
+		case "hidden":
+			s = s.Border(lipgloss.HiddenBorder())
 		}
 
 		if spec.Border != "" && spec.Border != "none" && spec.BorderEdges != nil {

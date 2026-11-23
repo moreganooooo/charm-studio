@@ -56,7 +56,7 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 							preservedDynamic["BorderForeground"] = dst.Clone(call.Args[0]).(dst.Expr)
 						}
 					}
-				case "Bold", "Italic", "Faint", "Underline":
+				case "Bold", "Italic", "Faint", "Underline", "Strikethrough":
 					if !overriddenSet[lowerFirst(sel.Sel.Name)] {
 						if _, ok := boolIdentVal(call.Args[0]); !ok {
 							preservedDynamic[sel.Sel.Name] = dst.Clone(call.Args[0]).(dst.Expr)
@@ -68,7 +68,7 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 						if bCall, ok := call.Args[0].(*dst.CallExpr); ok {
 							if bSel, ok := bCall.Fun.(*dst.SelectorExpr); ok {
 								switch bSel.Sel.Name {
-								case "RoundedBorder", "ThickBorder", "DoubleBorder", "NormalBorder":
+								case "RoundedBorder", "ThickBorder", "DoubleBorder", "NormalBorder", "HiddenBorder":
 									isStd = true
 								}
 							}
@@ -160,6 +160,8 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 			bFn = "RoundedBorder"
 		case "thick":
 			bFn = "ThickBorder"
+		case "hidden":
+			bFn = "HiddenBorder"
 		case "double":
 			bFn = "DoubleBorder"
 		}
@@ -234,6 +236,13 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 		lockedProps = appendUniqueStr(lockedProps, "underline")
 	} else if spec.Underline {
 		chain("Underline", boolIdent(true))
+	}
+
+	if dyn, ok := preservedDynamic["Strikethrough"]; ok {
+		chain("Strikethrough", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "strikethrough")
+	} else if spec.Strikethrough {
+		chain("Strikethrough", boolIdent(true))
 	}
 
 	if dyn, ok := preservedDynamic["AlignHorizontal"]; ok {
