@@ -9,6 +9,8 @@ import (
     "strings"
     "syscall/js"
 
+    "charmstudio/engine/astsync"
+
     "charm.land/bubbles/v2/list"
     "charm.land/bubbles/v2/table"
     "charm.land/bubbles/v2/textinput"
@@ -68,6 +70,7 @@ type IRNode struct {
     Width       IRSize   `json:"width"`
     Height      IRSize   `json:"height"`
     Content     string   `json:"content"`
+    WidgetData  *astsync.IRWidgetData `json:"widgetData,omitempty"`
     Children    []IRNode `json:"children"`
 }
 
@@ -150,7 +153,8 @@ var (
     lastRootID     string
 )
 
-func getOrCreateBubble(id, kind, fallbackText string, w, h int, hasDarkBG bool, tokens map[string]TokenPair) *bubbleEntry {
+func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]TokenPair) *bubbleEntry {
+    id, kind := node.ID, node.ContentType
     entry, ok := bubblesStore[id]
     if !ok || entry.kind != kind {
         entry = &bubbleEntry{kind: kind}
@@ -200,7 +204,7 @@ func getOrCreateBubble(id, kind, fallbackText string, w, h int, hasDarkBG bool, 
         case "bubble:viewport":
             vp := viewport.New(viewport.WithWidth(max(10, w)), viewport.WithHeight(max(3, h)))
             vp.SoftWrap = true
-            sample := fallbackText
+            sample := node.Content
             if strings.Count(sample, "\n") < 4 {
                 sample = strings.Join([]string{
                     "[18:01:02] INFO  Booting charmstudio WASM evaluator...",
@@ -222,10 +226,8 @@ func getOrCreateBubble(id, kind, fallbackText string, w, h int, hasDarkBG bool, 
 
         case "bubble:textinput":
             ti := textinput.New()
-            ti.Placeholder = "Filter services or type a command..."
             ti.SetVirtualCursor(true)
             ti.Focus()
-            ti.SetWidth(max(6, w-3))
             entry.input = ti
 
         case "huh:form":
@@ -287,8 +289,43 @@ func getOrCreateBubble(id, kind, fallbackText string, w, h int, hasDarkBG bool, 
         entry.vp.SetWidth(max(10, w))
         entry.vp.SetHeight(max(3, h))
     case "bubble:textinput":
-        entry.input.SetStyles(textinput.DefaultStyles(hasDarkBG))
-        entry.input.SetWidth(max(6, w-3))
+        input := &entry.input
+        data := node.WidgetData
+        input.Prompt, input.Placeholder = data.TextInputLabels()
+        input.EchoMode = textinput.EchoNormal
+        limit := 0
+        if data != nil {
+            switch data.InputEchoMode {
+            case "password":
+                input.EchoMode = textinput.EchoPassword
+            case "none":
+                input.EchoMode = textinput.EchoNone
+            }
+            if data.InputCharLimit != nil {
+                limit = max(0, *data.InputCharLimit)
+            }
+        }
+        if limit != input.CharLimit {
+            input.CharLimit = limit
+            input.SetValue(input.Value())
+        }
+        styles := textinput.DefaultStyles(hasDarkBG)
+        if data != nil {
+            if pair, ok := tokens["accent"]; ok {
+                styles.Focused.Prompt = styles.Focused.Prompt.Foreground(ld(lipgloss.Color(pair.Light), lipgloss.Color(pair.Dark)))
+            }
+            if pair, ok := tokens["textMain"]; ok {
+                styles.Focused.Text = styles.Focused.Text.Foreground(ld(lipgloss.Color(pair.Light), lipgloss.Color(pair.Dark)))
+            }
+            if pair, ok := tokens["borderIdle"]; ok {
+                styles.Focused.Placeholder = styles.Focused.Placeholder.Foreground(ld(lipgloss.Color(pair.Light), lipgloss.Color(pair.Dark))).Faint(true)
+            }
+            if pair, ok := tokens["modalGlow"]; ok {
+                styles.Cursor.Color = ld(lipgloss.Color(pair.Light), lipgloss.Color(pair.Dark))
+            }
+        }
+        input.SetStyles(styles)
+        input.SetWidth(max(1, w-lipgloss.Width(input.Prompt)-1))
     case "huh:form":
         if entry.form != nil {
             entry.form.WithTheme(huh.ThemeFunc(huh.ThemeCharm))
@@ -318,7 +355,7 @@ func truncateText(text string, maxW, maxH int) string {
 
 func renderNodeContent(node IRNode, spec IRStyle, innerW, innerH int, hasDarkBG bool, tokens map[string]TokenPair) string {
     if strings.HasPrefix(node.ContentType, "bubble:") || node.ContentType == "huh:form" {
-        b := getOrCreateBubble(node.ID, node.ContentType, node.Content, innerW, innerH, hasDarkBG, tokens)
+        b := getOrCreateBubble(node, innerW, innerH, hasDarkBG, tokens)
         switch b.kind {
         case "bubble:list":
             return b.list.View()
@@ -399,7 +436,14 @@ func dispatchStudioKey(_ js.Value, args []js.Value) any {
     case "bubble:viewport":
         entry.vp, _ = entry.vp.Update(msg)
     case "bubble:textinput":
-        entry.input, _ = entry.input.Update(msg)
+        switch keyStr {
+        case "Tab", "Shift+Tab":
+            return false // Let Studio move focus to the adjacent widget.
+        case "Escape":
+            entry.input.Reset()
+        default:
+            entry.input, _ = entry.input.Update(msg)
+        }
     case "huh:form":
         if entry.form != nil {
             m, _ := entry.form.Update(msg)

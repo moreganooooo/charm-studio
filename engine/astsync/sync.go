@@ -13,6 +13,56 @@ import (
 	"github.com/dave/dst/dstutil"
 )
 
+func textInputSetting(data *IRWidgetData, field string) dst.Expr {
+	switch field {
+	case "CharLimit":
+		if data.InputCharLimit != nil {
+			return intLit(max(0, *data.InputCharLimit))
+		}
+	case "EchoMode":
+		constants := map[string]string{"normal": "EchoNormal", "password": "EchoPassword", "none": "EchoNone"}
+		if name, ok := constants[data.InputEchoMode]; ok {
+			return &dst.SelectorExpr{X: dst.NewIdent("textinput"), Sel: dst.NewIdent(name)}
+		}
+	}
+	return nil
+}
+
+// Older generated constructors do not assign EchoMode or CharLimit. Insert only
+// settings the IR supplies, leaving existing (including dynamic) assignments in place.
+func insertMissingTextInputSettings(c *dstutil.Cursor, recv string, data *IRWidgetData) bool {
+	block, ok := c.Parent().(*dst.BlockStmt)
+	if !ok || c.Index() < 0 {
+		return false
+	}
+	assigned := map[string]bool{}
+	for _, stmt := range block.List[c.Index()+1:] {
+		as, ok := stmt.(*dst.AssignStmt)
+		if !ok {
+			continue
+		}
+		for _, lhs := range as.Lhs {
+			if sel, ok := lhs.(*dst.SelectorExpr); ok {
+				if id, ok := sel.X.(*dst.Ident); ok && id.Name == recv {
+					assigned[sel.Sel.Name] = true
+				}
+			}
+		}
+	}
+	added := false
+	for _, field := range []string{"CharLimit", "EchoMode"} {
+		if val := textInputSetting(data, field); val != nil && !assigned[field] {
+			c.InsertAfter(&dst.AssignStmt{
+				Lhs: []dst.Expr{&dst.SelectorExpr{X: dst.NewIdent(recv), Sel: dst.NewIdent(field)}},
+				Tok: token.ASSIGN,
+				Rhs: []dst.Expr{val},
+			})
+			added = true
+		}
+	}
+	return added
+}
+
 func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string, tokenVarNames map[string]string, existingExpr dst.Expr, overridden []string) (dst.Expr, []string) {
 	if ldFuncName == "" {
 		ldFuncName = "ld"
@@ -658,6 +708,10 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 								if patchHuhFormExpr(rhs, wd.HuhFields) {
 									patched[wn.ID+".huhForm"] = true
 								}
+							} else if isPkgCall(rhs, "textinput", "New") && wn.ContentType == "bubble:textinput" {
+								if insertMissingTextInputSettings(c, ident.Name, wd) {
+									patched[wn.ID+".textinput"] = true
+								}
 							} else if isPkgCall(rhs, "table", "New") {
 								if patchTableNewCall(rhs, wd) {
 									patched[wn.ID+".table"] = true
@@ -677,14 +731,23 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 									node.Rhs[i] = strLit(wn.WidgetData.ListTitle)
 									patched[wn.ID+".Title"] = true
 								}
+							case "EchoMode", "CharLimit":
+								field := sel.Sel.Name
+								_, literalLimit := intLitVal(rhs)
+								if wn.ContentType == "bubble:textinput" && ((field == "EchoMode" && inputEchoMode(rhs) != "") || (field == "CharLimit" && literalLimit)) {
+									if value := textInputSetting(wn.WidgetData, field); value != nil {
+										node.Rhs[i] = value
+										patched[wn.ID+"."+field] = true
+									}
+								}
 							case "Prompt":
-								if wn.WidgetData.InputPrompt != "" {
-									node.Rhs[i] = strLit(wn.WidgetData.InputPrompt)
+								if wn.WidgetData.InputPrompt != nil {
+									node.Rhs[i] = strLit(*wn.WidgetData.InputPrompt)
 									patched[wn.ID+".Prompt"] = true
 								}
 							case "Placeholder":
-								if wn.WidgetData.InputPlaceholder != "" {
-									node.Rhs[i] = strLit(wn.WidgetData.InputPlaceholder)
+								if wn.WidgetData.InputPlaceholder != nil {
+									node.Rhs[i] = strLit(*wn.WidgetData.InputPlaceholder)
 									patched[wn.ID+".Placeholder"] = true
 								}
 							}
