@@ -166,12 +166,6 @@ textarea:focus-visible {
   gap: 16px;
 }
 
-.site-nav-status {
-  white-space: nowrap;
-  padding: 6px 14px;
-  font-size: 11.5px;
-}
-
 .site-nav nav,
 .site-nav-tools {
   display: flex;
@@ -181,19 +175,49 @@ textarea:focus-visible {
 .site-nav nav { gap: 26px; }
 .site-nav-tools { justify-content: flex-end; gap: 10px; }
 
+.site-nav-studio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: #190f1c;
+  border: 1px solid #ff98ce;
+  background: radial-gradient(circle at calc(100% - 18px) 50%, #95f6cd, transparent 15px),
+    linear-gradient(110deg, #ff4da6, #ff87c5);
+  box-shadow: inset 0 1px 0 #ffffff38, 0 5px 18px -5px var(--cs-pink-border);
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 120ms ease;
+}
+
+.site-nav-studio:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 #ffffff48, 0 7px 22px -4px var(--cs-pink-border);
+}
+
+[data-theme="light"] .site-nav-studio {
+  color: #382338;
+  border-color: #c79ab9;
+  background: radial-gradient(circle at calc(100% - 18px) 50%, #f4e9e1, transparent 16px),
+    var(--cs-primary-fill);
+  box-shadow: inset 0 1px 0 #ffffff8c, 0 4px 14px -6px #a86d9766;
+}
+
 @media (max-width: 760px) {
   .site-nav {
     height: auto;
     padding: 8px 14px;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px 8px;
   }
   .site-nav-tools { display: contents; }
-  .site-nav-status { grid-area: 1 / 2; padding: 5px 7px; font-size: 10px; }
-  .site-nav-tools > button:first-of-type { grid-area: 1 / 3; }
-  .site-nav nav { grid-area: 2 / 1 / 3 / -1; justify-self: start; gap: clamp(6px, 3vw, 20px); }
-  .site-nav-home nav { justify-self: center; }
-  .site-nav-studio { grid-area: 2 / 2 / 3 / -1; justify-self: end; }
+  .site-nav-tools > button:first-of-type { grid-area: 1 / 2; justify-self: end; }
+  .site-nav nav { grid-area: 2 / 1 / 3 / 2; justify-self: start; gap: clamp(6px, 3vw, 20px); }
+  .site-nav-home nav { justify-self: start; }
+  .site-nav-studio { grid-area: 2 / 2 / 3 / 3; justify-self: end; }
 }
 
 .cs-wordmark-ink {
@@ -285,3 +309,46 @@ textarea:focus-visible {
     animation: spotlightGlow 1.5s ease-in-out infinite;
   }
 }
+
+.cs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes csFocusBurst {
+  0% {
+    box-shadow: 0 0 0 0 rgba(109, 255, 194, 0.7), 0 0 0 0 rgba(255, 94, 174, 0.45);
+  }
+  55% {
+    box-shadow: 0 0 0 4px rgba(109, 255, 194, 0.45), 0 0 18px 2px rgba(255, 94, 174, 0.32);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgba(109, 255, 194, 0.28);
+  }
+}
+
+.cs-focus-burst {
+  box-shadow: 0 0 0 2px var(--cs-mint);
+  border-color: var(--cs-mint) !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cs-focus-burst {
+    animation: csFocusBurst 120ms ease-out 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-focus-burst {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

@@ -4,12 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -148,13 +145,10 @@ func (s *Server) ResourceURIs() []string {
 
 func (s *Server) ToolNames() []string {
 	return []string{
-		"get_layout_context",
-		"inspect_node",
-		"list_migration_rules",
-		"parse_go_source",
-		"patch_go_source",
-		"compute_go_diff",
-		"update_layout_ir",
+		"inspect_layout",
+		"propose_padding_fix",
+		"validate_all_sizes",
+		"explain_overflow",
 	}
 }
 
@@ -311,9 +305,9 @@ func (s *Server) HandleMessage(raw []byte) ([]byte, bool) {
 		case "charmstudio://selection":
 			var lockReason string
 			var dynExprs map[string]string
-			if node != nil && node.Style != "" {
-				lockReason = snap.IR.LockReasons[node.Style]
-				dynExprs = snap.IR.DynamicExprs[node.Style]
+			if snap.SelectedNode != nil && snap.SelectedNode.Style != "" {
+				lockReason = snap.IR.LockReasons[snap.SelectedNode.Style]
+				dynExprs = snap.IR.DynamicExprs[snap.SelectedNode.Style]
 			}
 			b, _ := json.MarshalIndent(map[string]any{
 				"selectedId":     snap.SelectedID,
@@ -380,110 +374,84 @@ func (s *Server) HandleMessage(raw []byte) ([]byte, bool) {
 func (s *Server) toolSchemas() []map[string]any {
 	return []map[string]any{
 		{
-			"name":        "get_layout_context",
-			"description": "Returns the active Charm Studio layout tree IR JSON, selected // @tui:id=... node, Theme tokens, and active project/worktree directory.",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
-		},
-		{
-			"name":        "inspect_node",
-			"description": "Inspect a node by its // @tui:id=<id> identifier, returning its layout properties, children, path, and resolved style.",
+			"name":        "inspect_layout",
+			"description": "Inspect the active Studio layout tree, selection, resolved styles, sync locks, and computed cell bounds at a terminal size.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"nodeId": map[string]any{"type": "string", "description": "Target @tui:id node identifier (defaults to current selection)."},
+					"nodeId": map[string]any{"type": "string", "description": "Optional @tui:id node identifier to focus (defaults to active selection)."},
+					"cols":   map[string]any{"type": "integer", "description": "Terminal columns to inspect (defaults to 80)."},
+					"rows":   map[string]any{"type": "integer", "description": "Terminal rows to inspect (defaults to 24)."},
 				},
 			},
 		},
 		{
-			"name":        "list_migration_rules",
-			"description": "List embedded Charmbracelet v2 API, @tui:sync-disable ownership, and git worktree rules (imports, view, messages, colors, bubbles, annotations, workflow).",
+			"name":        "propose_padding_fix",
+			"description": "Propose a minimal Lip Gloss padding adjustment to relieve pane overflow while respecting @tui:sync-disable and dynamic expression locks.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"category": map[string]any{"type": "string", "description": "Optional filter category (imports, view, messages, colors, bubbles, annotations, workflow, all)."},
+					"nodeId": map[string]any{"type": "string", "description": "Target @tui:id node identifier (defaults to first overflowing pane or selection)."},
+					"cols":   map[string]any{"type": "integer", "description": "Failing terminal columns (defaults to 58)."},
+					"rows":   map[string]any{"type": "integer", "description": "Failing terminal rows (defaults to 18)."},
+					"apply":  map[string]any{"type": "boolean", "description": "When true, applies the proposed padding update into the running Charm Studio layout."},
 				},
 			},
 		},
 		{
-			"name":        "parse_go_source",
-			"description": "Parse Go source code using engine/astsync (dave/dst) to extract Lip Gloss v2 styles, tokens, tea.View, Bubbles/Huh widgets, @tui:sync-disable locks, and dynamic Go expressions.",
-			"inputSchema": map[string]any{
-				"type":     "object",
-				"required": []string{"goSource"},
-				"properties": map[string]any{
-					"goSource": map[string]any{"type": "string"},
-				},
-			},
-		},
-		{
-			"name":        "patch_go_source",
-			"description": "Safely patch existing Go source (preferring an isolated git worktree when active) with the active Studio IR using dave/dst while preserving comments, dynamic Go expressions, and // @tui:sync-disable locks.",
+			"name":        "validate_all_sizes",
+			"description": "Validate the active layout across responsive terminal size presets (Compact 58x18, Standard 80x24, Wide 116x30, or custom sizes).",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"existingGo":   map[string]any{"type": "string", "description": "Raw Go source to patch (optional if relativePath is given)."},
-					"relativePath": map[string]any{"type": "string", "description": "Optional path relative to active worktree or project directory to read & write back cleanly."},
-					"writeFile":    map[string]any{"type": "boolean", "description": "When true with relativePath, persists updated Go back to disk inside the active worktree/project."},
+					"sizes": map[string]any{
+						"type":        "array",
+						"description": "Optional custom terminal sizes ({ title, cols, rows }). Defaults to Compact, Standard, and Wide presets.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"title": map[string]any{"type": "string"},
+								"cols":  map[string]any{"type": "integer"},
+								"rows":  map[string]any{"type": "integer"},
+							},
+						},
+					},
 				},
 			},
 		},
 		{
-			"name":        "compute_go_diff",
-			"description": "Compute a structural dave/dst Go AST delta + unified line diff between two versions of a Go file.",
+			"name":        "explain_overflow",
+			"description": "Explain why a pane overflows at a given terminal size, returning exact cell deltas, blocking rule or content extent, lock state, and fix suggestions.",
 			"inputSchema": map[string]any{
-				"type":     "object",
-				"required": []string{"beforeGo", "afterGo"},
+				"type": "object",
 				"properties": map[string]any{
-					"beforeGo": map[string]any{"type": "string"},
-					"afterGo":  map[string]any{"type": "string"},
-				},
-			},
-		},
-		{
-			"name":        "update_layout_ir",
-			"description": "Push an updated IRDoc JSON back into the running Charm Studio session.",
-			"inputSchema": map[string]any{
-				"type":     "object",
-				"required": []string{"ir"},
-				"properties": map[string]any{
-					"ir": map[string]any{"type": "object"},
+					"nodeId": map[string]any{"type": "string", "description": "Target @tui:id node identifier (defaults to first overflowing pane or selection)."},
+					"cols":   map[string]any{"type": "integer", "description": "Terminal columns to diagnose (defaults to 58)."},
+					"rows":   map[string]any{"type": "integer", "description": "Terminal rows to diagnose (defaults to 18)."},
 				},
 			},
 		},
 	}
-}
-
-func (s *Server) resolveSafeProjectFile(rel string) (string, error) {
-	snap := s.ContextSnapshot()
-	base := snap.WorktreeDir
-	if base == "" {
-		base = snap.ProjectDir
-	}
-	if base == "" {
-		return "", errors.New("no active project or worktree directory configured in Charm Studio")
-	}
-	cleanBase, err := filepath.Abs(base)
-	if err != nil {
-		return "", err
-	}
-	target := filepath.Clean(filepath.Join(cleanBase, rel))
-	relCheck, err := filepath.Rel(cleanBase, target)
-	if err != nil || strings.HasPrefix(relCheck, "..") || filepath.IsAbs(relCheck) {
-		return "", errors.New("path escapes active project/worktree root")
-	}
-	return target, nil
 }
 
 func (s *Server) callTool(name string, rawArgs json.RawMessage) toolResult {
 	switch name {
-	case "get_layout_context":
-		return textToolOK(s.ContextSnapshot())
-
-	case "inspect_node":
+	case "inspect_layout":
 		var args struct {
 			NodeID string `json:"nodeId"`
+			Cols   int    `json:"cols"`
+			Rows   int    `json:"rows"`
 		}
 		_ = json.Unmarshal(rawArgs, &args)
+		cols := args.Cols
+		if cols <= 0 {
+			cols = 80
+		}
+		rows := args.Rows
+		if rows <= 0 {
+			rows = 24
+		}
+
 		snap := s.ContextSnapshot()
 		targetID := strings.TrimSpace(args.NodeID)
 		if targetID == "" {
@@ -502,6 +470,8 @@ func (s *Server) callTool(name string, rawArgs json.RawMessage) toolResult {
 		if node == nil {
 			return textToolErr("node not found: " + targetID)
 		}
+
+		eval := evaluateLayout(snap.IR, cols, rows, "")
 		var stPtr *astsync.IRStyle
 		var styleLocks []string
 		var styleReason string
@@ -515,108 +485,302 @@ func (s *Server) callTool(name string, rawArgs json.RawMessage) toolResult {
 			styleReason = snap.IR.LockReasons[node.Style]
 			styleDyn = snap.IR.DynamicExprs[node.Style]
 		}
+
+		var nodeBounds *NodeTelemetry
+		for i := range eval.Nodes {
+			if eval.Nodes[i].ID == targetID {
+				cp := eval.Nodes[i]
+				nodeBounds = &cp
+				break
+			}
+		}
+
 		return textToolOK(map[string]any{
-			"nodeId":       targetID,
-			"path":         path,
-			"node":         node,
-			"style":        stPtr,
-			"lockedProps":  styleLocks,
-			"lockReason":   styleReason,
-			"dynamicExprs": styleDyn,
-			"nodeLocks":    snap.IR.LockedProps["node:"+targetID],
-			"nodeDynamic":  snap.IR.DynamicExprs["node:"+targetID],
+			"cols":           eval.Cols,
+			"rows":           eval.Rows,
+			"selectedId":     snap.SelectedID,
+			"targetId":       targetID,
+			"nodePath":       path,
+			"targetNode":     node,
+			"bounds":         nodeBounds,
+			"style":          stPtr,
+			"lockedProps":    styleLocks,
+			"lockReason":     styleReason,
+			"dynamicExprs":   styleDyn,
+			"nodeLocks":      snap.IR.LockedProps["node:"+targetID],
+			"nodeDynamic":    snap.IR.DynamicExprs["node:"+targetID],
+			"nodes":          eval.Nodes,
+			"overflowCount":  len(eval.Diagnoses),
+			"projectDir":     snap.ProjectDir,
+			"worktreeDir":    snap.WorktreeDir,
+			"worktreeBranch": snap.WorktreeBranch,
 		})
 
-	case "list_migration_rules":
+	case "propose_padding_fix":
 		var args struct {
-			Category string `json:"category"`
+			NodeID string `json:"nodeId"`
+			Cols   int    `json:"cols"`
+			Rows   int    `json:"rows"`
+			Apply  bool   `json:"apply"`
 		}
 		_ = json.Unmarshal(rawArgs, &args)
-		return textToolOK(FilterCharmV2Rules(args.Category))
+		cols := args.Cols
+		if cols <= 0 {
+			cols = 58
+		}
+		rows := args.Rows
+		if rows <= 0 {
+			rows = 18
+		}
 
-	case "parse_go_source":
-		var args struct {
-			GoSource string `json:"goSource"`
-		}
-		if err := json.Unmarshal(rawArgs, &args); err != nil {
-			return textToolErr("invalid arguments: " + err.Error())
-		}
-		return textToolOK(astsync.ParseGoSource(args.GoSource))
-
-	case "patch_go_source":
-		var args struct {
-			ExistingGo   string `json:"existingGo"`
-			RelativePath string `json:"relativePath"`
-			WriteFile    bool   `json:"writeFile"`
-		}
-		if err := json.Unmarshal(rawArgs, &args); err != nil {
-			return textToolErr("invalid arguments: " + err.Error())
-		}
-		src := args.ExistingGo
-		var diskPath string
-		if strings.TrimSpace(args.RelativePath) != "" {
-			resolved, err := s.resolveSafeProjectFile(args.RelativePath)
-			if err != nil {
-				return textToolErr(err.Error())
-			}
-			diskPath = resolved
-			if src == "" {
-				b, err := os.ReadFile(diskPath)
-				if err != nil {
-					return textToolErr("failed reading file: " + err.Error())
-				}
-				src = string(b)
-			}
-		}
-		if strings.TrimSpace(src) == "" {
-			return textToolErr("provide existingGo or relativePath")
-		}
 		snap := s.ContextSnapshot()
-		res := astsync.SyncGoSource(src, snap.IR)
-		if res.Error != "" {
-			return textToolErr(res.Error)
-		}
-		if args.WriteFile && diskPath != "" && !res.SyncDisabled {
-			if err := os.WriteFile(diskPath, []byte(res.UpdatedGo), 0o644); err != nil {
-				return textToolErr("patched AST but failed to write file: " + err.Error())
+		beforeEval := evaluateLayout(snap.IR, cols, rows, "")
+		targetID := strings.TrimSpace(args.NodeID)
+		if targetID == "" {
+			if len(beforeEval.Diagnoses) > 0 {
+				targetID = beforeEval.Diagnoses[0].NodeID
+			} else {
+				targetID = snap.SelectedID
 			}
 		}
-		return textToolOK(res)
 
-	case "compute_go_diff":
-		var args struct {
-			BeforeGo string `json:"beforeGo"`
-			AfterGo  string `json:"afterGo"`
+		node := findIRNode(snap.IR.Root, snap.IR.Overlays, targetID)
+		if node == nil {
+			return textToolErr("node not found: " + targetID)
 		}
-		if err := json.Unmarshal(rawArgs, &args); err != nil {
-			return textToolErr("invalid arguments: " + err.Error())
+		if node.Style == "" {
+			return textToolErr("target node has no assigned style: " + targetID)
 		}
-		return textToolOK(astsync.ComputeGoDiff(args.BeforeGo, args.AfterGo))
+		styleSpec, ok := snap.IR.Styles[node.Style]
+		if !ok {
+			return textToolErr("style not found on document: " + node.Style)
+		}
 
-	case "update_layout_ir":
+		styleLocks := snap.IR.LockedProps[node.Style]
+		lockReason := snap.IR.LockReasons[node.Style]
+		paddingLocked := lockReason == "sync-disabled" || hasPropLock(styleLocks, "*") || hasPropLock(styleLocks, "padding")
+
+		var targetDiag *OverflowDiagnosis
+		for i := range beforeEval.Diagnoses {
+			if beforeEval.Diagnoses[i].NodeID == targetID {
+				cp := beforeEval.Diagnoses[i]
+				targetDiag = &cp
+				break
+			}
+		}
+
+		beforePad := styleSpec.Padding
+		proposedPad := beforePad
+		if targetDiag != nil {
+			if targetDiag.DeltaW > 0 {
+				trimH := max(1, (targetDiag.DeltaW+1)/2)
+				proposedPad[1] = max(0, beforePad[1]-trimH)
+				proposedPad[3] = max(0, beforePad[3]-trimH)
+			}
+			if targetDiag.DeltaH > 0 {
+				trimV := max(1, (targetDiag.DeltaH+1)/2)
+				proposedPad[0] = max(0, beforePad[0]-trimV)
+				proposedPad[2] = max(0, beforePad[2]-trimV)
+			}
+		} else {
+			if proposedPad[1] > 0 || proposedPad[3] > 0 {
+				proposedPad[1] = max(0, proposedPad[1]-1)
+				proposedPad[3] = max(0, proposedPad[3]-1)
+			} else if proposedPad[0] > 0 || proposedPad[2] > 0 {
+				proposedPad[0] = max(0, proposedPad[0]-1)
+				proposedPad[2] = max(0, proposedPad[2]-1)
+			}
+		}
+
+		changed := proposedPad != beforePad
+		candidateDoc := snap.IR
+		candidateStyles := make(map[string]astsync.IRStyle, len(snap.IR.Styles))
+		for k, v := range snap.IR.Styles {
+			candidateStyles[k] = v
+		}
+		updatedStyle := styleSpec
+		updatedStyle.Padding = proposedPad
+		candidateStyles[node.Style] = updatedStyle
+		candidateDoc.Styles = candidateStyles
+
+		afterEval := evaluateLayout(candidateDoc, cols, rows, "")
+		stillOverflows := false
+		for _, d := range afterEval.Diagnoses {
+			if d.NodeID == targetID {
+				stillOverflows = true
+				break
+			}
+		}
+
+		applied := false
+		if args.Apply && changed && !paddingLocked {
+			s.mu.Lock()
+			nextStyles := make(map[string]astsync.IRStyle, len(s.ir.Styles))
+			for k, v := range s.ir.Styles {
+				nextStyles[k] = v
+			}
+			if cur, exists := nextStyles[node.Style]; exists {
+				cur.Padding = proposedPad
+				nextStyles[node.Style] = cur
+			}
+			s.ir.Styles = nextStyles
+			updatedDoc := s.ir
+			cb := s.onIRUpdate
+			s.mu.Unlock()
+			applied = true
+			if cb != nil {
+				cb(updatedDoc)
+			}
+		}
+
+		goSnippet := fmt.Sprintf("Padding(%d, %d, %d, %d)", proposedPad[0], proposedPad[1], proposedPad[2], proposedPad[3])
+		summary := fmt.Sprintf("Propose updating %s (%s) from Padding(%d, %d, %d, %d) to %s at %d×%d", node.ID, node.Style, beforePad[0], beforePad[1], beforePad[2], beforePad[3], goSnippet, cols, rows)
+		if !changed {
+			summary = fmt.Sprintf("Padding on %s (%s) is already minimal (%d, %d, %d, %d)", node.ID, node.Style, beforePad[0], beforePad[1], beforePad[2], beforePad[3])
+		} else if paddingLocked {
+			summary = fmt.Sprintf("Padding on %s (%s) is locked (%s); inspect // @tui:sync-disable before modifying %s", node.ID, node.Style, lockReason, goSnippet)
+		}
+
+		return textToolOK(map[string]any{
+			"nodeId":          node.ID,
+			"styleName":       node.Style,
+			"cols":            cols,
+			"rows":            rows,
+			"beforePadding":   beforePad,
+			"proposedPadding": proposedPad,
+			"changed":         changed,
+			"locked":          paddingLocked,
+			"lockReason":      lockReason,
+			"overflowsBefore": targetDiag != nil,
+			"overflowsAfter":  stillOverflows,
+			"resolved":        targetDiag != nil && !stillOverflows,
+			"applied":         applied,
+			"goSnippet":       goSnippet,
+			"summary":         summary,
+		})
+
+	case "validate_all_sizes":
 		var args struct {
-			IR astsync.IRDoc `json:"ir"`
+			Sizes []SizeSpec `json:"sizes"`
 		}
-		if err := json.Unmarshal(rawArgs, &args); err != nil {
-			return textToolErr("invalid IRDoc payload: " + err.Error())
+		_ = json.Unmarshal(rawArgs, &args)
+		sizes := args.Sizes
+		if len(sizes) == 0 {
+			sizes = DefaultMatrixSizes()
 		}
-		if args.IR.Root.ID == "" {
-			return textToolErr("ir.root.id is required")
+
+		snap := s.ContextSnapshot()
+		type presetResult struct {
+			Title         string              `json:"title"`
+			Cols          int                 `json:"cols"`
+			Rows          int                 `json:"rows"`
+			Fits          bool                `json:"fits"`
+			OverflowCount int                 `json:"overflowCount"`
+			Diagnoses     []OverflowDiagnosis `json:"diagnoses,omitempty"`
 		}
-		s.mu.Lock()
-		if args.IR.Tokens == nil {
-			args.IR.Tokens = map[string]astsync.TokenPair{}
+		results := make([]presetResult, 0, len(sizes))
+		failingCount := 0
+		for _, sz := range sizes {
+			title := strings.TrimSpace(sz.Title)
+			if title == "" {
+				title = fmt.Sprintf("%d×%d", sz.Cols, sz.Rows)
+			}
+			eval := evaluateLayout(snap.IR, sz.Cols, sz.Rows, title)
+			fits := len(eval.Diagnoses) == 0
+			if !fits {
+				failingCount++
+			}
+			results = append(results, presetResult{
+				Title:         title,
+				Cols:          eval.Cols,
+				Rows:          eval.Rows,
+				Fits:          fits,
+				OverflowCount: len(eval.Diagnoses),
+				Diagnoses:     eval.Diagnoses,
+			})
 		}
-		if args.IR.Styles == nil {
-			args.IR.Styles = map[string]astsync.IRStyle{}
+
+		return textToolOK(map[string]any{
+			"allFit":       failingCount == 0,
+			"checkedCount": len(results),
+			"failingCount": failingCount,
+			"results":      results,
+		})
+
+	case "explain_overflow":
+		var args struct {
+			NodeID string `json:"nodeId"`
+			Cols   int    `json:"cols"`
+			Rows   int    `json:"rows"`
 		}
-		s.ir = args.IR
-		cb := s.onIRUpdate
-		s.mu.Unlock()
-		if cb != nil {
-			cb(args.IR)
+		_ = json.Unmarshal(rawArgs, &args)
+		cols := args.Cols
+		if cols <= 0 {
+			cols = 58
 		}
-		return textToolOK(map[string]any{"ok": true, "rootId": args.IR.Root.ID})
+		rows := args.Rows
+		if rows <= 0 {
+			rows = 18
+		}
+
+		snap := s.ContextSnapshot()
+		eval := evaluateLayout(snap.IR, cols, rows, "")
+		targetID := strings.TrimSpace(args.NodeID)
+		if targetID == "" {
+			if len(eval.Diagnoses) > 0 {
+				targetID = eval.Diagnoses[0].NodeID
+			} else {
+				targetID = snap.SelectedID
+			}
+		} else if findIRNode(snap.IR.Root, snap.IR.Overlays, targetID) == nil {
+			return textToolErr("node not found: " + targetID)
+		}
+
+		for _, diag := range eval.Diagnoses {
+			if diag.NodeID == targetID {
+				return textToolOK(map[string]any{
+					"overflows":       true,
+					"nodeId":          diag.NodeID,
+					"nodeLabel":       diag.NodeLabel,
+					"styleName":       diag.StyleName,
+					"cols":            diag.Cols,
+					"rows":            diag.Rows,
+					"headline":        diag.Headline,
+					"copyText":        diag.CopyText,
+					"allocatedW":      diag.AllocatedW,
+					"allocatedH":      diag.AllocatedH,
+					"actualW":         diag.ActualW,
+					"actualH":         diag.ActualH,
+					"deltaW":          diag.DeltaW,
+					"deltaH":          diag.DeltaH,
+					"deltaSummary":    diag.DeltaSummary,
+					"failingProperty": diag.FailingProperty,
+					"causeRule":       diag.CauseRule,
+					"goFile":          diag.GoFile,
+					"goSymbol":        diag.GoSymbol,
+					"locked":          diag.Locked,
+					"lockReason":      diag.LockReason,
+					"fixes":           diag.Suggestions,
+				})
+			}
+		}
+
+		var bounds *NodeTelemetry
+		for i := range eval.Nodes {
+			if eval.Nodes[i].ID == targetID {
+				cp := eval.Nodes[i]
+				bounds = &cp
+				break
+			}
+		}
+		return textToolOK(map[string]any{
+			"overflows": false,
+			"nodeId":    targetID,
+			"cols":      eval.Cols,
+			"rows":      eval.Rows,
+			"summary":   fmt.Sprintf("%s fits cleanly within %d x %d", targetID, eval.Cols, eval.Rows),
+			"bounds":    bounds,
+		})
 
 	default:
 		return textToolErr("unknown tool: " + name)

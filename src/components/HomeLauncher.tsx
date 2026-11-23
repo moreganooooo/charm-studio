@@ -36,11 +36,41 @@ export function HomeLauncher() {
   // Hero showcase interactive state
   const [previewLens, setPreviewLens] = useState<StudioLens>("hybrid");
   const [spacingPreset, setSpacingPreset] = useState<1 | 2 | 3>(2);
+  const [padAnnouncement, setPadAnnouncement] = useState("");
   const [previewSelectedId, setPreviewSelectedId] = useState("mainPane");
   const [previewTick, setPreviewTick] = useState(0);
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const presetRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [previewCols, setPreviewCols] = useState(58);
+
+  const selectSpacingPreset = (nextPreset: 1 | 2 | 3, moveFocus = false) => {
+    setSpacingPreset(nextPreset);
+    setPadAnnouncement(
+      `Preview padding preset ${nextPreset} of 3 selected: Padding(${SPACING_PRESETS[nextPreset].goArgs}). Applied to preview and ui/theme_gen.go snippet.`
+    );
+    if (moveFocus) {
+      presetRefs.current[nextPreset - 1]?.focus();
+    }
+  };
+
+  const handlePresetKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    const presets: readonly (1 | 2 | 3)[] = [1, 2, 3];
+    let nextIdx: number | null = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      nextIdx = (idx + 1) % presets.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      nextIdx = (idx + presets.length - 1) % presets.length;
+    } else if (e.key === "Home") {
+      nextIdx = 0;
+    } else if (e.key === "End") {
+      nextIdx = presets.length - 1;
+    }
+    if (nextIdx === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectSpacingPreset(presets[nextIdx], true);
+  };
 
   // Size the live cell grid to its column without scaling the canvas or its hit targets.
   useEffect(() => {
@@ -325,8 +355,10 @@ export function HomeLauncher() {
                 pageKeyboardNavigation
                 headerRightSlot={
                   <div
-                    role="group"
+                    role="radiogroup"
                     aria-label="Preview padding"
+                    aria-describedby="launcher-pad-snippet"
+                    onKeyDown={(e) => e.stopPropagation()}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -337,33 +369,49 @@ export function HomeLauncher() {
                       border: `1px solid ${CHARM_TOKENS.borderSubtle}`,
                     }}
                   >
-                    <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, padding: "0 4px" }}>
+                    <span
+                      id="launcher-pad-label"
+                      aria-hidden="true"
+                      className="cs-mono"
+                      style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, padding: "0 4px" }}
+                    >
                       Pad
                     </span>
-                    {([1, 2, 3] as const).map((lvl) => {
+                    {([1, 2, 3] as const).map((lvl, idx) => {
                       const active = spacingPreset === lvl;
                       return (
                         <button
                           key={lvl}
-                          onClick={() => setSpacingPreset(lvl)}
-                          aria-pressed={active}
+                          ref={(el) => {
+                            presetRefs.current[idx] = el;
+                          }}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          tabIndex={active ? 0 : -1}
+                          onClick={() => selectSpacingPreset(lvl)}
+                          onKeyDown={(e) => handlePresetKeyDown(e, idx)}
                           className="launcher-preset cs-mono"
-                          aria-label={`Preset ${lvl}: Padding(${SPACING_PRESETS[lvl].goArgs})`}
+                          aria-label={`Padding preset ${lvl} of 3: Padding(${SPACING_PRESETS[lvl].goArgs})`}
                           title={`Padding(${SPACING_PRESETS[lvl].goArgs})`}
                           style={{
-                            border: "none",
+                            border: active ? `1px solid ${CHARM_TOKENS.mintBorder}` : "1px solid transparent",
                             borderRadius: 5,
                             padding: "2px 7px",
                             fontSize: 12,
                             fontWeight: 700,
                             background: active ? CHARM_TOKENS.mintBg : "transparent",
                             color: active ? CHARM_TOKENS.textHeading : CHARM_TOKENS.textMuted,
+                            fontVariantNumeric: "tabular-nums",
                           }}
                         >
                           {lvl}
                         </button>
                       );
                     })}
+                    <div className="cs-sr-only" role="status" aria-live="polite" aria-atomic="true">
+                      {padAnnouncement}
+                    </div>
                   </div>
                 }
                 doc={showcaseDoc}
@@ -419,6 +467,8 @@ export function HomeLauncher() {
 
             <div className="launcher-snippet">
               <pre
+                id="launcher-pad-snippet"
+                aria-live="polite"
                 className="cs-mono"
                 style={{
                   margin: 0,
@@ -434,6 +484,7 @@ export function HomeLauncher() {
                 <span style={{ color: CHARM_TOKENS.lilac }}>{"NewStyle"}</span>
                 <span>{"().\n    "}</span>
                 <span
+                  className="launcher-pad-badge"
                   style={{
                     display: "inline-block",
                     padding: "0px 6px",

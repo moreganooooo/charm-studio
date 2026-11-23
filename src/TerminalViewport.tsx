@@ -138,6 +138,16 @@ interface Props {
   onQuickInlineEdit?: (id: string, nextContent: string) => void;
   onRequestInspectData?: (id: string) => void;
   snapshotActionRef?: React.MutableRefObject<(() => void) | null>;
+  diagnosticOverlayNodeId?: string | null;
+  onOverflowBadgeClick?: (nodeId: string) => void;
+  diagnosticAnchorSlot?: (rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    containerW: number;
+    containerH: number;
+  }) => React.ReactNode;
 }
 
 const FONT_STACK = `"JetBrains Mono", "SF Mono", Menlo, monospace`;
@@ -181,6 +191,9 @@ export function TerminalViewport({
   onQuickInlineEdit,
   onRequestInspectData,
   snapshotActionRef,
+  diagnosticOverlayNodeId,
+  onOverflowBadgeClick,
+  diagnosticAnchorSlot,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const xtermHostRef = useRef<HTMLDivElement>(null);
@@ -824,15 +837,30 @@ export function TerminalViewport({
             ) : overflows.length > 0 ? (
               <Tooltip
                 title="Layout Overflow Detected"
-                content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to select and adjust Width or Collapse Below.`}
+                content={`${overflows.map((o) => `#${o.id}: ${o.overflowMsg ?? "exceeds terminal bounds"}`).join(" • ")} Click to inspect overflow diagnosis.`}
               >
-                <span
-                  onClick={() => onSelect(overflows[0].id)}
-                  style={{ cursor: "pointer", color: "#e11d48", background: "rgba(244, 63, 94, 0.14)", border: "1px solid rgba(244, 63, 94, 0.45)", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOverflowBadgeClick ? onOverflowBadgeClick(overflows[0].id) : onSelect(overflows[0].id)
+                  }
+                  style={{
+                    cursor: "pointer",
+                    color: "var(--cs-gold)",
+                    background: "rgba(255, 211, 122, 0.14)",
+                    border: "1px solid rgba(255, 211, 122, 0.45)",
+                    borderRadius: 999,
+                    padding: "1px 8px",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
                 >
                   <AlertTriangle size={11} />
                   <span>Overflow: {overflows.map((o) => `#${o.id}`).join(", ")}</span>
-                </span>
+                </button>
               </Tooltip>
             ) : (
               <Tooltip content="Every pane fits cleanly inside this terminal size with zero clipping.">
@@ -1036,7 +1064,74 @@ export function TerminalViewport({
                   </>
                 );
               })()}
+              {diagnosticOverlayNodeId &&
+                (() => {
+                  const diagTel = telemetry.find((t) => t.id === diagnosticOverlayNodeId);
+                  if (!diagTel) return null;
+                  const rect = boxRect(diagTel.border);
+                  return (
+                    <rect
+                      x={rect.x}
+                      y={rect.y}
+                      width={rect.width}
+                      height={rect.height}
+                      fill="rgba(255, 211, 122, 0.08)"
+                      stroke="#ffd37a"
+                      strokeWidth={1.75}
+                      strokeDasharray="4 3"
+                      rx={3}
+                    />
+                  );
+                })()}
             </svg>
+
+            {/* Optional Anchored Overflow Debug Tag + Inline Diagnostic Popover */}
+            {diagnosticOverlayNodeId &&
+              (() => {
+                const diagTel = telemetry.find((t) => t.id === diagnosticOverlayNodeId);
+                if (!diagTel) return null;
+                const rect = {
+                  left: 6 + diagTel.border.x * cellSize.w,
+                  top: 6 + diagTel.border.y * cellSize.h,
+                  width: Math.max(20, diagTel.border.w * cellSize.w),
+                  height: Math.max(16, diagTel.border.h * cellSize.h),
+                  containerW: Math.max(240, canvasPixelW + 12),
+                  containerH: Math.max(180, rows * cellSize.h + 12),
+                };
+                return (
+                  <>
+                    {(diagTel.overflowX || diagTel.overflowY) && onOverflowBadgeClick && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverflowBadgeClick(diagTel.id);
+                        }}
+                        className="cs-mono"
+                        style={{
+                          position: "absolute",
+                          left: Math.max(6, Math.min(rect.containerW - 110, rect.left + 4)),
+                          top: Math.max(4, rect.top - 9),
+                          zIndex: 22,
+                          padding: "1px 7px",
+                          borderRadius: 6,
+                          background: "var(--cs-bg-code)",
+                          border: "1px solid var(--cs-gold)",
+                          color: "var(--cs-gold)",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          whiteSpace: "nowrap",
+                          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.45)",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        Overflow · #{diagTel.id}
+                      </button>
+                    )}
+                    {diagnosticAnchorSlot?.(rect)}
+                  </>
+                );
+              })()}
 
             {/* Floating Padding(v, h) Pill Badge on Top-Right Corner of Selected Border */}
             {showHollowPaddingBand && selectedTel && selectedStyleObj && (

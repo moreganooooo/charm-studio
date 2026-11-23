@@ -70,7 +70,7 @@ func AllCharmV2Rules() []CharmV2Rule {
 			Title:    "Stage structural agent refactors in an isolated git worktree before merging",
 			AvoidV1:  "Mutating production Update() or wiring new Huh forms directly on the main working tree untested",
 			UseV2:    "Run agentic refactors inside the active Charm Studio git worktree, verify go build + live PTY output, then review diff before merge",
-			Notes:    "Always inspect inspect_node / get_layout_context for lockedProps and dynamicExprs before patching.",
+			Notes:    "Always run inspect_layout and validate_all_sizes before editing, and check explain_overflow / propose_padding_fix for locked properties.",
 		},
 	}
 }

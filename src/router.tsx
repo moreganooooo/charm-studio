@@ -90,16 +90,7 @@ function resolveInitialEntry(): { route: AppRoute; cleanedUrl: string | null } {
     return { route: pathRoute, cleanedUrl: null };
   }
 
-  // Priority 3: Returning visitor defaults directly into /studio
-  try {
-    if (localStorage.getItem(VISITED_KEY) === "true") {
-      return { route: "/studio", cleanedUrl: null };
-    }
-  } catch {
-    // Ignore storage errors
-  }
-
-  // Priority 4: First-time visitor lands on /
+  // Default: Launch page (/) is always the default entry
   return { route: "/", cleanedUrl: null };
 }
 

@@ -1,8 +1,6 @@
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, Loader2, Moon, Sun } from "lucide-react";
+import { ArrowRight, Moon, Sun } from "lucide-react";
 import { RouteLink, useRouter, type AppRoute } from "../router";
 import { useStudioStore } from "../store/studioStore";
-import { ensureEngineReady } from "../wasmEngine";
 import { CHARM_TOKENS, studioStyles } from "./studioStyles";
 
 const NAV_ITEMS: { to: AppRoute; label: string }[] = [
@@ -14,21 +12,6 @@ const NAV_ITEMS: { to: AppRoute; label: string }[] = [
 export function SiteNavBar() {
   const { route, navigate } = useRouter();
   const { appMode, setAppMode } = useStudioStore();
-  const [wasmReady, setWasmReady] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void ensureEngineReady()
-      .then(() => {
-        if (active) setWasmReady(true);
-      })
-      .catch(() => {
-        // Ignore WASM warmup errors in non-browser or restricted contexts
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const isHome = route === "/";
 
@@ -109,29 +92,8 @@ export function SiteNavBar() {
         })}
       </nav>
 
-      {/* Right: Glowing WASM Ready Pill + Theme Toggle + Studio CTA on subpages */}
+      {/* Right: Theme Toggle + Open Studio CTA */}
       <div className="site-nav-tools">
-        <span
-          className="site-nav-status cs-mono"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 999,
-            fontWeight: 700,
-            background: wasmReady
-              ? "linear-gradient(135deg, #6dffc2 0%, #52ebcc 100%)"
-              : CHARM_TOKENS.bgSurface,
-            border: `1px solid ${wasmReady ? "rgba(109, 255, 194, 0.85)" : CHARM_TOKENS.border}`,
-            color: wasmReady ? "#0f1c19" : CHARM_TOKENS.textMuted,
-            boxShadow: wasmReady ? "0 0 22px rgba(109, 255, 194, 0.34)" : "none",
-            transition: "background 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease",
-          }}
-        >
-          <span>{wasmReady ? "Go 1.26 WASM Ready" : "Warming Go WASM…"}</span>
-          {wasmReady ? <Check size={13} strokeWidth={2.8} /> : <Loader2 size={13} />}
-        </span>
-
         <button
           onClick={() => setAppMode((m) => (m === "dark" ? "light" : "dark"))}
           aria-label={appMode === "dark" ? "Switch to Light UI" : "Switch to Dark Aubergine UI"}
@@ -145,20 +107,13 @@ export function SiteNavBar() {
           {appMode === "dark" ? <Sun size={13} /> : <Moon size={13} />}
         </button>
 
-        {!isHome && (
-          <button
-            className="site-nav-studio"
-            onClick={() => navigate("/studio")}
-            style={{
-              ...studioStyles.primaryCta,
-              padding: "6px 13px",
-              borderRadius: 999,
-            }}
-          >
-            <span>Open Studio</span>
-            <ArrowRight size={13} />
-          </button>
-        )}
+        <button
+          className="site-nav-studio"
+          onClick={() => navigate("/studio")}
+        >
+          <span>Open Studio</span>
+          <ArrowRight size={13} strokeWidth={2.4} />
+        </button>
       </div>
     </header>
   );

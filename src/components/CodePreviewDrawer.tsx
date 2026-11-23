@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Code2, Copy, Download, GitCompare, Keyboard } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowRight, Check, ChevronDown, Code2, Copy, Download, GitCompare, Keyboard } from "lucide-react";
 import { computeAstDeltas, computeGoAstDiff, groupDeltasIntoBuckets } from "../astDiff";
 import {
   generateEntryMainGo,
@@ -22,9 +22,10 @@ import {
   type CodeSpanMap,
 } from "../codegen";
 import { applyInlineGoExpression, isEditableGoExpressionLine } from "../goInlineSync";
+import { formatOverflowCopyText } from "../overflowDiagnostics";
 import { applyPaletteTokens, useStudioStore } from "../store/studioStore";
 import { TEMPLATES } from "../templates";
-import type { IRDoc } from "../types";
+import type { IRDoc, OverflowDiagnosis } from "../types";
 import { buildZipBlob, triggerDownloadBlob } from "../zipExport";
 import { btnStyle, CHARM_TOKENS, inputStyle, pillStyle, segBtn } from "./studioStyles";
 
@@ -152,18 +153,23 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
     activeLens,
     codeDrawerRequest,
     setCodeDrawerRequest,
+    activeOverflowDiagnoses,
+    jumpToOverflowDiagnostic,
   } = useStudioStore();
 
   const [codeFile, setCodeFile] = useState<CodeFileTab>("theme_gen");
   const [drawerMode, setDrawerMode] = useState<"source" | "diff">("source");
   const [diffBase, setDiffBase] = useState<"previous" | "template">("previous");
   const [copied, setCopied] = useState(false);
+  const [diagCopied, setDiagCopied] = useState(false);
   const [runCmdCopied, setRunCmdCopied] = useState(false);
   const [zipStatus, setZipStatus] = useState<string | null>(null);
   const [editingLine, setEditingLine] = useState<{ lineNo: number; value: string } | null>(null);
   const [pulseActive, setPulseActive] = useState(false);
   const [moreFilesOpen, setMoreFilesOpen] = useState(false);
+  const [anchoredDiagnosis, setAnchoredDiagnosis] = useState<OverflowDiagnosis | null>(null);
   const moreFilesRef = useRef<HTMLDivElement>(null);
+  const anchoredLineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!moreFilesOpen) return;
@@ -178,10 +184,14 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
 
   useEffect(() => {
     if (!codeDrawerRequest) return;
+    const req = codeDrawerRequest;
     const t = setTimeout(() => {
-      const nextTab = codeDrawerRequest.tab === "raw" && !ir.importedGo ? "theme_gen" : codeDrawerRequest.tab;
+      const nextTab = req.tab === "raw" && !ir.importedGo ? "theme_gen" : req.tab;
       setCodeFile(nextTab);
       setDrawerMode("source");
+      if (req.diagnosis) {
+        setAnchoredDiagnosis(req.diagnosis);
+      }
       setCodeDrawerRequest(null);
     }, 0);
     return () => clearTimeout(t);
@@ -205,6 +215,41 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
 
   const activeTab: CodeFileTab = codeFile === "raw" && !ir.importedGo ? "theme_gen" : codeFile;
   const activeMoreTab = MORE_FILE_TABS.find((t) => t.id === activeTab) ?? null;
+
+  const liveMatchedDiagnosis = useMemo(() => {
+    const targetNodeId = highlightNodeId || selectedNode?.id || "";
+    const exactLive = activeOverflowDiagnoses.find(
+      (d) => d.nodeId === targetNodeId && d.goFile === activeTab
+    );
+    if (exactLive) return exactLive;
+    const anyLiveForNode = activeOverflowDiagnoses.find((d) => d.nodeId === targetNodeId);
+    if (anyLiveForNode && (activeTab === "layout_gen" || activeTab === "theme_gen")) {
+      return anyLiveForNode;
+    }
+    if (
+      anchoredDiagnosis &&
+      anchoredDiagnosis.nodeId === targetNodeId &&
+      anchoredDiagnosis.goFile === activeTab &&
+      activeOverflowDiagnoses.some((d) => d.nodeId === anchoredDiagnosis.nodeId)
+    ) {
+      return anchoredDiagnosis;
+    }
+    return null;
+  }, [highlightNodeId, selectedNode?.id, activeOverflowDiagnoses, activeTab, anchoredDiagnosis]);
+
+  useEffect(() => {
+    if (!liveMatchedDiagnosis && !codeDrawerRequest) return;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const t = setTimeout(() => {
+      anchoredLineRef.current?.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+    }, 45);
+    return () => clearTimeout(t);
+  }, [liveMatchedDiagnosis, codeDrawerRequest, activeTab]);
 
   const generatedResult = useMemo(
     () => renderFileForDoc(ir, activeTab, goModuleName, palette.label),
@@ -557,16 +602,45 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
                 ...(highlightStyleName && highlightStyleName !== targetKey ? generatedSpans[highlightStyleName] ?? [] : []),
                 ...(pulseActive && activeTab === "update" ? generatedSpans.keybinding ?? [] : []),
               ];
+              const desiredProp = liveMatchedDiagnosis
+                ? liveMatchedDiagnosis.failingProperty === "padding"
+                  ? "padding"
+                  : "size"
+                : activeProperty;
               const activeSpan =
-                spansForTarget.find((s) => (pulseActive ? s.property === "keybinding" : s.property === activeProperty)) ??
+                spansForTarget.find((s) => (pulseActive ? s.property === "keybinding" : s.property === desiredProp)) ??
+                spansForTarget.find((s) => s.property === activeProperty) ??
                 spansForTarget[0] ??
                 null;
 
-              return generatedOutput.split("\n").map((line, idx) => {
+              const linesArr = generatedOutput.split("\n");
+              let anchorLineNo = activeSpan?.highlightLine ?? activeSpan?.startLine ?? null;
+              if (liveMatchedDiagnosis && activeSpan) {
+                for (let ln = activeSpan.startLine; ln <= activeSpan.endLine; ln++) {
+                  const candidate = linesArr[ln - 1] ?? "";
+                  if (
+                    liveMatchedDiagnosis.failingProperty === "padding" &&
+                    candidate.includes("Padding(")
+                  ) {
+                    anchorLineNo = ln;
+                    break;
+                  }
+                  if (
+                    liveMatchedDiagnosis.failingProperty === "width" &&
+                    (candidate.includes("Width(") || candidate.includes(".Render("))
+                  ) {
+                    anchorLineNo = ln;
+                    break;
+                  }
+                }
+              }
+
+              return linesArr.map((line, idx) => {
                 const lineNo = idx + 1;
                 const inSpan = Boolean(activeSpan && lineNo >= activeSpan.startLine && lineNo <= activeSpan.endLine);
                 const isPulseHit = pulseActive && activeTab === "update" && inSpan;
-                const isHighlightLine = Boolean(activeSpan?.highlightLine === lineNo);
+                const isDiagAnchor = Boolean(liveMatchedDiagnosis && anchorLineNo === lineNo);
+                const isHighlightLine = Boolean(activeSpan?.highlightLine === lineNo) || isDiagAnchor;
                 const matchStyle = Boolean(highlightStyleName && line.toLowerCase().includes(highlightStyleName.toLowerCase()));
                 const matchNode = Boolean(highlightNodeId && line.includes(highlightNodeId));
                 const matchDirective = activeTab === "raw" && /@tui:(?:sync-disable|block-disable)/.test(line);
@@ -574,92 +648,181 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
                 const editable = isGoTab && isEditableGoExpressionLine(line);
                 const isEditingThis = editingLine?.lineNo === lineNo;
 
+                const renderedLine = isDiagAnchor
+                  ? renderHighlightedFragment(
+                      line,
+                      liveMatchedDiagnosis!.failingProperty === "padding"
+                        ? /Padding\([^)]*\)/
+                        : /Width\([^)]*\)/
+                    )
+                  : line;
+
                 return (
-                  <div
-                    key={idx}
-                    onClick={() => {
-                      if (editable && !isEditingThis) {
-                        setEditingLine({ lineNo, value: line.trim() });
-                      }
-                    }}
-                    title={editable ? "Click to edit Go expression directly" : undefined}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      minWidth: "100%",
-                      paddingRight: 18,
-                      background: isPulseHit
-                        ? "rgba(109, 255, 194, 0.16)"
-                        : isHighlightLine
-                        ? "rgba(255, 94, 174, 0.2)"
-                        : highlighted
-                        ? "rgba(255, 94, 174, 0.1)"
-                        : "transparent",
-                      cursor: editable ? "pointer" : "default",
-                    }}
-                  >
-                    <span
+                  <div key={idx} ref={isDiagAnchor ? anchoredLineRef : undefined}>
+                    <div
+                      onClick={() => {
+                        if (editable && !isEditingThis) {
+                          setEditingLine({ lineNo, value: line.trim() });
+                        }
+                      }}
+                      title={editable ? "Click to edit Go expression directly" : undefined}
                       style={{
-                        position: "sticky",
-                        left: 0,
-                        zIndex: 2,
-                        width: 44,
-                        flexShrink: 0,
-                        color: "var(--cs-text-dim)",
-                        background: "var(--cs-bg-code)",
-                        borderLeft: isPulseHit
-                          ? "3px solid #6dffc2"
-                          : isHighlightLine || highlighted
-                          ? "3px solid var(--cs-pink)"
-                          : "3px solid transparent",
-                        borderRight: "1px solid var(--cs-border-subtle)",
-                        userSelect: "none",
-                        textAlign: "right",
-                        paddingLeft: 6,
-                        paddingRight: 8,
-                        marginRight: 10,
-                        fontVariantNumeric: "tabular-nums",
+                        display: "flex",
+                        alignItems: "center",
+                        minWidth: "100%",
+                        paddingRight: 18,
+                        background: isPulseHit
+                          ? "rgba(109, 255, 194, 0.16)"
+                          : isDiagAnchor
+                          ? "rgba(255, 211, 122, 0.14)"
+                          : isHighlightLine
+                          ? "rgba(255, 94, 174, 0.2)"
+                          : highlighted
+                          ? "rgba(255, 94, 174, 0.1)"
+                          : "transparent",
+                        cursor: editable ? "pointer" : "default",
                       }}
                     >
-                      {lineNo}
-                    </span>
-                    {isEditingThis ? (
-                      <input
-                        autoFocus
-                        value={editingLine.value}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setEditingLine({ lineNo, value: e.target.value })}
-                        onBlur={() => setEditingLine(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            applyInlineGoExpression(editingLine.value, {
-                              doc: ir,
-                              targetNode: selectedNode,
-                              updateSelectedStyle,
-                              updateNode,
-                              setActiveProperty,
-                            });
-                            setEditingLine(null);
-                          } else if (e.key === "Escape") {
-                            setEditingLine(null);
-                          }
-                        }}
+                      <span
                         style={{
-                          minWidth: 260,
-                          flex: 1,
-                          background: "#150f1d",
-                          color: "#f4eaff",
-                          border: "1px solid #ff5eae",
-                          borderRadius: 4,
-                          padding: "1px 6px",
-                          fontFamily: "var(--cs-font-mono)",
-                          fontSize: 11.5,
-                          outline: "none",
+                          position: "sticky",
+                          left: 0,
+                          zIndex: 2,
+                          width: 44,
+                          flexShrink: 0,
+                          color: isDiagAnchor ? CHARM_TOKENS.gold : "var(--cs-text-dim)",
+                          background: "var(--cs-bg-code)",
+                          borderLeft: isPulseHit
+                            ? "3px solid #6dffc2"
+                            : isDiagAnchor
+                            ? `3px solid ${CHARM_TOKENS.gold}`
+                            : isHighlightLine || highlighted
+                            ? "3px solid var(--cs-pink)"
+                            : "3px solid transparent",
+                          borderRight: "1px solid var(--cs-border-subtle)",
+                          userSelect: "none",
+                          textAlign: "right",
+                          paddingLeft: 6,
+                          paddingRight: 8,
+                          marginRight: 10,
+                          fontVariantNumeric: "tabular-nums",
                         }}
-                      />
-                    ) : (
-                      <span style={{ whiteSpace: "pre" }}>{line}</span>
+                      >
+                        {lineNo}
+                      </span>
+                      {isEditingThis ? (
+                        <input
+                          autoFocus
+                          value={editingLine.value}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setEditingLine({ lineNo, value: e.target.value })}
+                          onBlur={() => setEditingLine(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              applyInlineGoExpression(editingLine.value, {
+                                doc: ir,
+                                targetNode: selectedNode,
+                                updateSelectedStyle,
+                                updateNode,
+                                setActiveProperty,
+                              });
+                              setEditingLine(null);
+                            } else if (e.key === "Escape") {
+                              setEditingLine(null);
+                            }
+                          }}
+                          style={{
+                            minWidth: 260,
+                            flex: 1,
+                            background: "#150f1d",
+                            color: "#f4eaff",
+                            border: "1px solid #ff5eae",
+                            borderRadius: 4,
+                            padding: "1px 6px",
+                            fontFamily: "var(--cs-font-mono)",
+                            fontSize: 11.5,
+                            outline: "none",
+                          }}
+                        />
+                      ) : (
+                        <span style={{ whiteSpace: "pre" }}>{renderedLine}</span>
+                      )}
+                    </div>
+
+                    {/* Anchored Marginal Overflow Diagnostic Note */}
+                    {isDiagAnchor && liveMatchedDiagnosis && (
+                      <div
+                        role="note"
+                        aria-label={`Overflow diagnostic for ${liveMatchedDiagnosis.nodeLabel}`}
+                        style={{
+                          margin: "4px 12px 6px 54px",
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          background: "var(--cs-bg-surface)",
+                          border: "1px solid rgba(255, 211, 122, 0.45)",
+                          fontFamily: "var(--cs-font-ui)",
+                          whiteSpace: "normal",
+                          maxWidth: 304,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, color: CHARM_TOKENS.gold }}>
+                            <AlertTriangle size={12} />
+                            <span>{liveMatchedDiagnosis.headline}</span>
+                          </span>
+                        </div>
+                        <div className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.text, lineHeight: 1.4, fontVariantNumeric: "tabular-nums" }}>
+                          {liveMatchedDiagnosis.causeRule}
+                        </div>
+                        <div className="cs-mono" style={{ fontSize: 10.5, color: CHARM_TOKENS.textMuted, fontVariantNumeric: "tabular-nums" }}>
+                          {liveMatchedDiagnosis.dimensionsText}
+                        </div>
+                        {liveMatchedDiagnosis.suggestion && (
+                          <div style={{ fontSize: 10.5, color: CHARM_TOKENS.mint }}>
+                            Suggestion: {liveMatchedDiagnosis.suggestion}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingTop: 2 }}>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await navigator.clipboard.writeText(formatOverflowCopyText(liveMatchedDiagnosis));
+                              setDiagCopied(true);
+                              setTimeout(() => setDiagCopied(false), 1600);
+                            }}
+                            style={{ ...btnStyle(diagCopied), padding: "3px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+                          >
+                            {diagCopied ? <Check size={11} /> : <Copy size={11} />}
+                            <span>{diagCopied ? "Copied" : "Copy"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              jumpToOverflowDiagnostic(liveMatchedDiagnosis, {
+                                destinationLens: "hybrid",
+                                focusProperty: liveMatchedDiagnosis.failingProperty,
+                              })
+                            }
+                            style={{
+                              ...btnStyle(false),
+                              padding: "3px 8px",
+                              fontSize: 11,
+                              borderColor: CHARM_TOKENS.mintBorder,
+                              color: CHARM_TOKENS.mint,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <span>Fix in Hybrid</span>
+                            <ArrowRight size={11} />
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
@@ -794,5 +957,29 @@ export function CodePreviewDrawer({ highlightNodeId, highlightStyleName }: CodeP
         </div>
       )}
     </div>
+  );
+}
+
+function renderHighlightedFragment(line: string, pattern: RegExp): ReactNode {
+  const m = pattern.exec(line);
+  if (!m || m.index === undefined) return line;
+  const start = m.index;
+  const end = start + m[0].length;
+  return (
+    <>
+      {line.slice(0, start)}
+      <mark
+        style={{
+          background: "rgba(255, 211, 122, 0.28)",
+          color: "var(--cs-text-heading)",
+          borderRadius: 4,
+          padding: "0 3px",
+          borderBottom: "1.5px solid var(--cs-gold)",
+        }}
+      >
+        {m[0]}
+      </mark>
+      {line.slice(end)}
+    </>
   );
 }

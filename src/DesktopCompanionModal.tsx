@@ -577,16 +577,13 @@ export function DesktopCompanionModal({
                 </ul>
               </div>
               <div style={card}>
-                <div style={sectionHeader}>MCP Tools</div>
+                <div style={sectionHeader}>MCP Builder Verbs</div>
                 <ul style={plainList}>
                   {(mcpStatus?.toolNames ?? [
-                    "get_layout_context",
-                    "inspect_node",
-                    "list_migration_rules",
-                    "parse_go_source",
-                    "patch_go_source",
-                    "compute_go_diff",
-                    "update_layout_ir",
+                    "inspect_layout",
+                    "propose_padding_fix",
+                    "validate_all_sizes",
+                    "explain_overflow",
                   ]).map((tool) => (
                     <li key={tool}>
                       <code style={codeTag}>{tool}</code>

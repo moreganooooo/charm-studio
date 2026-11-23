@@ -18,6 +18,7 @@ import {
   splitNode,
   unwrapContainer,
 } from "../treeOps";
+import { buildOverflowDiagnoses } from "../overflowDiagnostics";
 import {
   findNode,
   updateNodeInDoc,
@@ -28,6 +29,7 @@ import {
   type IRViewConfig,
   type KeyPulse,
   type MatrixFitStatus,
+  type OverflowDiagnosis,
   type OverlayAnchor,
   type StudioLens,
   type SyncPropertyKind,
@@ -170,6 +172,24 @@ export interface StudioStoreValue {
   lastKeyPulse: KeyPulse | null;
   triggerKeyPulse: (nodeId: string, key: string) => void;
   matrixFitStatus: MatrixFitStatus;
+  singleDiagnoses: OverflowDiagnosis[];
+  activeOverflowDiagnoses: OverflowDiagnosis[];
+  inspectorFocusRequest: { nodeId: string; property: "width" | "padding"; ts: number } | null;
+  clearInspectorFocusRequest: () => void;
+  visualDiagnosticPopover: { nodeId: string; cols: number; rows: number } | null;
+  setVisualDiagnosticPopover: (v: { nodeId: string; cols: number; rows: number } | null) => void;
+  visualDebugRect: boolean;
+  setVisualDebugRect: (v: boolean | ((prev: boolean) => boolean)) => void;
+  liveAnnouncement: string;
+  announce: (msg: string) => void;
+  jumpToOverflowDiagnostic: (
+    diag: OverflowDiagnosis,
+    opts?: {
+      destinationLens?: StudioLens;
+      focusProperty?: "width" | "padding";
+      openVisualPopover?: boolean;
+    }
+  ) => void;
 
   // Viewport Settings
   viewMode: "single" | "matrix";
@@ -197,8 +217,22 @@ export interface StudioStoreValue {
   clearCustomThemes: () => void;
   renderTick: number;
   bumpTick: () => void;
-  codeDrawerRequest: { tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw"; nodeId?: string; ts: number } | null;
-  setCodeDrawerRequest: (req: { tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw"; nodeId?: string; ts: number } | null) => void;
+  codeDrawerRequest: {
+    tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw";
+    nodeId?: string;
+    property?: "width" | "padding";
+    diagnosis?: OverflowDiagnosis;
+    ts: number;
+  } | null;
+  setCodeDrawerRequest: (
+    req: {
+      tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw";
+      nodeId?: string;
+      property?: "width" | "padding";
+      diagnosis?: OverflowDiagnosis;
+      ts: number;
+    } | null
+  ) => void;
   openCodeForSelection: (tab?: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw") => void;
 
   // Onboarding
@@ -333,6 +367,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [codeDrawerRequest, setCodeDrawerRequest] = useState<{
     tab: "theme_gen" | "layout_gen" | "model" | "update" | "view" | "fixtures_preview" | "raw";
     nodeId?: string;
+    property?: "width" | "padding";
+    diagnosis?: OverflowDiagnosis;
     ts: number;
   } | null>(null);
 
@@ -344,7 +380,20 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [matrixFitStatus, setMatrixFitStatus] = useState<MatrixFitStatus>({
     allFit: true,
     failingPresets: [],
+    diagnoses: [],
   });
+  const [inspectorFocusRequest, setInspectorFocusRequest] = useState<{
+    nodeId: string;
+    property: "width" | "padding";
+    ts: number;
+  } | null>(null);
+  const [visualDiagnosticPopover, setVisualDiagnosticPopover] = useState<{
+    nodeId: string;
+    cols: number;
+    rows: number;
+  } | null>(null);
+  const [visualDebugRect, setVisualDebugRect] = useState(false);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const [sharedCopied, setSharedCopied] = useState(false);
 
   const [onboarding, setOnboarding] = useState<OnboardingProgress>(() => {
@@ -454,19 +503,24 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       timer = setTimeout(() => {
         if (cancelled) return;
         const failingPresets: MatrixFitStatus["failingPresets"] = [];
+        const allDiagnoses: OverflowDiagnosis[] = [];
         for (const preset of MATRIX_PRESETS) {
           const frame = renderFrame(ir, preset.cols, preset.rows, paletteDarkBg, colorProfile);
           if (frame.error) continue;
-          const badIds = (frame.telemetry ?? [])
-            .filter((t) => t.overflowX || t.overflowY)
-            .map((t) => t.id);
-          if (badIds.length > 0) {
+          const presetDiagnoses = buildOverflowDiagnoses(ir, frame.telemetry ?? [], {
+            cols: preset.cols,
+            rows: preset.rows,
+            presetTitle: preset.title,
+          });
+          if (presetDiagnoses.length > 0) {
             failingPresets.push({
               title: preset.title,
               cols: preset.cols,
               rows: preset.rows,
-              nodeIds: badIds,
+              nodeIds: presetDiagnoses.map((d) => d.nodeId),
+              diagnoses: presetDiagnoses,
             });
+            allDiagnoses.push(...presetDiagnoses);
           }
         }
         // Re-render active single viewport dimensions so WASM hitTest compositor stays synced
@@ -475,6 +529,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
           setMatrixFitStatus({
             allFit: failingPresets.length === 0,
             failingPresets,
+            diagnoses: allDiagnoses,
           });
         }
       }, 150);
@@ -485,6 +540,16 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer);
     };
   }, [ir, paletteDarkBg, colorProfile, cols, rows]);
+
+  const singleDiagnoses = useMemo(
+    () => buildOverflowDiagnoses(ir, singleTel, { cols, rows, presetTitle: `${cols}×${rows}` }),
+    [ir, singleTel, cols, rows]
+  );
+
+  const activeOverflowDiagnoses = useMemo(() => {
+    if (singleDiagnoses.length > 0) return singleDiagnoses;
+    return matrixFitStatus.failingPresets[0]?.diagnoses ?? [];
+  }, [singleDiagnoses, matrixFitStatus]);
 
   const setDesktopBridgeUrl = useCallback((url: string) => {
     const clean = url.trim() || "http://127.0.0.1:43120";
@@ -692,6 +757,69 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setActiveLens("code");
     },
     [ir.importedGo, selectedId, setActiveLens]
+  );
+
+  const clearInspectorFocusRequest = useCallback(() => {
+    setInspectorFocusRequest(null);
+  }, []);
+
+  const announce = useCallback((msg: string) => {
+    setLiveAnnouncement(msg);
+  }, []);
+
+  const jumpToOverflowDiagnostic = useCallback(
+    (
+      diag: OverflowDiagnosis,
+      opts?: {
+        destinationLens?: StudioLens;
+        focusProperty?: "width" | "padding";
+        openVisualPopover?: boolean;
+      }
+    ) => {
+      // 1. Selection first (never mutates undo history or unrelated scroll)
+      setSelectedId(diag.nodeId);
+      // 2. Size second (snap terminal to failing dimensions)
+      setCols(diag.cols);
+      setRows(diag.rows);
+
+      const prop = opts?.focusProperty ?? diag.failingProperty;
+      setActiveProperty(prop === "padding" ? "padding-h" : "size");
+
+      const targetLens = opts?.destinationLens ?? activeLens;
+      if (opts?.destinationLens && opts.destinationLens !== activeLens) {
+        setActiveLens(opts.destinationLens);
+      }
+
+      if (targetLens === "visual") {
+        if (opts?.openVisualPopover !== false) {
+          setVisualDiagnosticPopover({ nodeId: diag.nodeId, cols: diag.cols, rows: diag.rows });
+          setVisualDebugRect(true);
+        }
+        setLiveAnnouncement(
+          `Selected ${diag.nodeLabel} at ${diag.cols} by ${diag.rows}. ${diag.headline}. Inline diagnostic opened.`
+        );
+      } else if (targetLens === "hybrid") {
+        setVisualDiagnosticPopover(null);
+        setInspectorFocusRequest({ nodeId: diag.nodeId, property: prop, ts: Date.now() });
+        setLiveAnnouncement(
+          `Selected ${diag.nodeLabel} at ${diag.cols} by ${diag.rows} in Hybrid. Focused ${prop} control.`
+        );
+      } else {
+        setVisualDiagnosticPopover(null);
+        const tab = prop === "padding" ? "theme_gen" : "layout_gen";
+        setCodeDrawerRequest({
+          tab,
+          nodeId: diag.nodeId,
+          property: prop,
+          diagnosis: diag,
+          ts: Date.now(),
+        });
+        setLiveAnnouncement(
+          `Selected ${diag.nodeLabel} at ${diag.cols} by ${diag.rows} in Code. Anchored to ui/${tab}.go.`
+        );
+      }
+    },
+    [activeLens, setActiveLens]
   );
 
   const selectedNode = useMemo(() => findNode(ir, selectedId), [ir, selectedId]);
@@ -1172,6 +1300,17 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     lastKeyPulse,
     triggerKeyPulse,
     matrixFitStatus,
+    singleDiagnoses,
+    activeOverflowDiagnoses,
+    inspectorFocusRequest,
+    clearInspectorFocusRequest,
+    visualDiagnosticPopover,
+    setVisualDiagnosticPopover,
+    visualDebugRect,
+    setVisualDebugRect,
+    liveAnnouncement,
+    announce,
+    jumpToOverflowDiagnostic,
     viewMode,
     setViewMode,
     matrixDense,

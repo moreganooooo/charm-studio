@@ -22,16 +22,46 @@ export interface KeyPulse {
   ts: number;
 }
 
+export interface OverflowDiagnosis {
+  nodeId: string;
+  nodeLabel: string;
+  styleName?: string;
+  presetTitle: string;
+  cols: number;
+  rows: number;
+  actualW: number;
+  actualH: number;
+  allocatedW: number;
+  allocatedH: number;
+  deltaW: number;
+  deltaH: number;
+  headline: string;
+  displayHeadline: string;
+  dimensionsText: string;
+  deltaSummary: string;
+  failingProperty: "width" | "padding";
+  causeRule: string;
+  goFile: "layout_gen" | "theme_gen";
+  goSymbol: string;
+  suggestion?: string;
+  canEnableTruncate: boolean;
+  canCollapseBelow: boolean;
+  canSwitchToFill: boolean;
+  canReducePadding: boolean;
+}
+
 export interface MatrixFitFailure {
   title: string;
   cols: number;
   rows: number;
   nodeIds: string[];
+  diagnoses: OverflowDiagnosis[];
 }
 
 export interface MatrixFitStatus {
   allFit: boolean;
   failingPresets: MatrixFitFailure[];
+  diagnoses: OverflowDiagnosis[];
 }
 export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
 export type MouseMode = "none" | "cell" | "all";

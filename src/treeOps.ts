@@ -98,8 +98,98 @@ export function addBoxWithPreset(
   preset?: WidgetPreset
 ): { doc: IRDoc; newId: string } {
   const next = structuredClone(doc);
-  const { node: fresh, styleName, style } = makeFreshBox(next, preset);
-  next.styles[styleName] = style;
+
+  if (preset?.insertKind === "overlay" && preset.overlayConfig) {
+    let i = 1;
+    while (next.overlays.some((o) => o.id === `overlay${i}`)) i++;
+    const overlayId = `overlay${i}`;
+    const nodeId = uniqueId(next, preset.overlayConfig.baseId);
+    const styleName = uniqueStyleName(next, `${preset.overlayConfig.baseId}Style`);
+    const fallbackBorder = doc.tokens.modalGlow
+      ? "$modalGlow"
+      : doc.tokens.accent
+      ? "$accent"
+      : doc.tokens.borderIdle
+      ? "$borderIdle"
+      : "";
+    const style: IRStyle = {
+      border: "rounded",
+      borderEdges: [true, true, true, true],
+      borderColor: fallbackBorder,
+      fg: doc.tokens.textMain ? "$textMain" : "",
+      bg: doc.tokens.surface ? "$surface" : undefined,
+      padding: [1, 2, 1, 2],
+      margin: [0, 0, 0, 0],
+      bold: true,
+      ...preset.stylePatch,
+    };
+    if (style.borderColor && style.borderColor.startsWith("$") && !next.tokens[style.borderColor.slice(1)]) {
+      style.borderColor = fallbackBorder;
+    }
+    if (style.bg && style.bg.startsWith("$") && !next.tokens[style.bg.slice(1)]) {
+      delete style.bg;
+    }
+    next.styles[styleName] = style;
+    next.overlays.push({
+      id: overlayId,
+      visible: true,
+      z: 10 + next.overlays.length * 5,
+      anchor: preset.overlayConfig.anchor,
+      node: {
+        id: nodeId,
+        kind: "Box",
+        style: styleName,
+        contentType: preset.contentType,
+        width: { mode: "fixed", value: preset.overlayConfig.width },
+        height: { mode: "fixed", value: preset.overlayConfig.height },
+        content: preset.overlayConfig.content,
+      },
+    });
+    return { doc: next, newId: nodeId };
+  }
+
+  let fresh: IRNode;
+  if (preset?.insertKind === "container" && preset.containerKind) {
+    const containerId = uniqueId(next, preset.baseId);
+    const firstBox = makeFreshBox(next, {
+      ...preset,
+      baseId: preset.containerKind === "JoinHorizontal" ? "leftPane" : "topPane",
+      content: preset.containerKind === "JoinHorizontal" ? "Pane A" : "Top Pane",
+    });
+    next.styles[firstBox.styleName] = firstBox.style;
+    firstBox.node.id = uniqueId(next, preset.containerKind === "JoinHorizontal" ? "leftPane" : "topPane");
+
+    // Reserve first ID on a temporary node lookup so the second sibling doesn't collide
+    const secondCandidateBase = preset.containerKind === "JoinHorizontal" ? "rightPane" : "bottomPane";
+    const usedIds = collectAllIds(next);
+    usedIds.add(containerId);
+    usedIds.add(firstBox.node.id);
+    let secondId = secondCandidateBase;
+    let suffix = 1;
+    while (usedIds.has(secondId)) {
+      secondId = `${secondCandidateBase}${suffix++}`;
+    }
+
+    const secondBox = makeFreshBox(next, {
+      ...preset,
+      baseId: secondCandidateBase,
+      content: preset.containerKind === "JoinHorizontal" ? "Pane B" : "Bottom Pane",
+    });
+    next.styles[secondBox.styleName] = secondBox.style;
+    secondBox.node.id = secondId;
+
+    fresh = {
+      id: containerId,
+      kind: preset.containerKind,
+      width: { mode: "fill", weight: 1 },
+      height: { mode: "fill", weight: 1 },
+      children: [firstBox.node, secondBox.node],
+    };
+  } else {
+    const box = makeFreshBox(next, preset);
+    next.styles[box.styleName] = box.style;
+    fresh = box.node;
+  }
 
   const target = findNode(next, targetId);
   if (target && target.kind !== "Box") {

@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   Code2,
+  Copy,
   FolderGit2,
   GitBranch,
   Sparkles,
@@ -40,13 +41,14 @@ import {
   type StudioProject,
 } from "./projectsStore";
 import { RouterProvider, useRouter } from "./router";
+import { formatOverflowCopyText, formatOverflowSummaryLabel } from "./overflowDiagnostics";
 import { SettingsModal } from "./SettingsModal";
 import { MATRIX_PRESETS, StudioProvider, useStudioStore } from "./store/studioStore";
 import { supabase } from "./supabaseClient";
 import { TerminalViewport } from "./TerminalViewport";
 import { TooltipProvider } from "./Tooltip";
-import { findNode, type ColorProfile, type IRNode, type MatrixFitStatus, type TelemetryNode } from "./types";
-import { WidgetPickerModal } from "./WidgetPickerModal";
+import { findNode, type ColorProfile, type IRNode, type OverflowDiagnosis } from "./types";
+import { WidgetPicker } from "./components/WidgetPicker";
 
 const COACH_KEY = "charmstudio:coachDismissed:v1";
 
@@ -139,7 +141,15 @@ function StudioShell() {
     activeProperty,
     setActiveProperty,
     lastKeyPulse,
-    matrixFitStatus,
+    singleDiagnoses,
+    activeOverflowDiagnoses,
+    inspectorFocusRequest,
+    visualDiagnosticPopover,
+    setVisualDiagnosticPopover,
+    visualDebugRect,
+    setVisualDebugRect,
+    liveAnnouncement,
+    jumpToOverflowDiagnostic,
     updateSelectedStyle,
     updateNode,
     loadTemplate,
@@ -167,6 +177,7 @@ function StudioShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [hybridEditLine, setHybridEditLine] = useState<{ lineNo: number; value: string } | null>(null);
   const [hybridPulseLive, setHybridPulseLive] = useState(false);
+  const [popoverCopied, setPopoverCopied] = useState(false);
 
   const openDesktopCompanion = (
     tab: "pty" | "mcp" | "worktrees" = "pty",
@@ -209,6 +220,7 @@ function StudioShell() {
   const [projectBusy, setProjectBusy] = useState(false);
 
   const inspectorScrollRef = useRef<HTMLDivElement>(null);
+  const hybridHighlightLineRef = useRef<HTMLDivElement>(null);
   const snapshotActionRef = useRef<(() => void) | null>(null);
 
   const allProjects = useMemo(() => {
@@ -242,6 +254,20 @@ function StudioShell() {
     [activeLens, ir, selectedNode, activeProperty, goModuleName, lastKeyPulse, hybridPulseLive]
   );
 
+  useEffect(() => {
+    if (activeLens !== "hybrid" || !inspectorFocusRequest) return;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const t = setTimeout(() => {
+      hybridHighlightLineRef.current?.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "nearest",
+      });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [activeLens, inspectorFocusRequest, linkedGoSlice?.file, linkedGoSlice?.highlightLine]);
+
   // Global keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -256,6 +282,7 @@ function StudioShell() {
         setDesktopOpen(false);
         setScenesOpen(false);
         setCommandPaletteOpen(false);
+        setVisualDiagnosticPopover(null);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -273,7 +300,7 @@ function StudioShell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
+  }, [undo, redo, setVisualDiagnosticPopover]);
 
   // Supabase Auth & OAuth callback lifecycle
   useEffect(() => {
@@ -387,14 +414,18 @@ function StudioShell() {
   const selectedTel = singleTel.find((t) => t.id === selectedId) ?? null;
   const primaryOverlay = ir.overlays[0] ?? null;
   const allocatedBoundsMap = useMemo(() => computeAllocatedBoundsMap(ir.root, cols, rows), [ir.root, cols, rows]);
-  const overflowingNodes = useMemo(
-    () => singleTel.filter((t) => t.overflowX || t.overflowY),
-    [singleTel]
-  );
   const activeWorktree = useMemo(
     () => worktrees.find((wt) => wt.id === activeWorktreeId || wt.activeInPty) ?? worktrees[0] ?? null,
     [worktrees, activeWorktreeId]
   );
+  const visualActiveDiagnosis = useMemo(() => {
+    if (activeLens !== "visual" || !visualDiagnosticPopover) return null;
+    return (
+      singleDiagnoses.find((d) => d.nodeId === visualDiagnosticPopover.nodeId) ??
+      activeOverflowDiagnoses.find((d) => d.nodeId === visualDiagnosticPopover.nodeId) ??
+      null
+    );
+  }, [activeLens, visualDiagnosticPopover, singleDiagnoses, activeOverflowDiagnoses]);
 
   const dismissCoach = () => {
     setCoachDismissed(true);
@@ -415,6 +446,9 @@ function StudioShell() {
   return (
     <TooltipProvider enabled={tooltipsEnabled}>
       <div style={studioStyles.shell}>
+        <div className="cs-sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {liveAnnouncement}
+        </div>
         {/* ZONE 1: 56px Three-Zone Progressive Disclosure Top Bar */}
         <LensTopBar
           projectsCount={allProjects.length}
@@ -705,11 +739,45 @@ function StudioShell() {
                     </button>
                   </div>
 
-                  <MatrixFitPill
-                    status={matrixFitStatus}
-                    onSelectOverflow={(nodeId) => setSelectedId(nodeId)}
+                  <MatrixFitChip
+                    diagnoses={activeOverflowDiagnoses}
+                    onJump={(diag) => jumpToOverflowDiagnostic(diag)}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Single Non-Blocking Overflow Status Chip + Optional Bounds Toggle in Visual Lens */}
+            {activeLens === "visual" && activeOverflowDiagnoses.length > 0 && (
+              <div
+                style={{
+                  width: "min(760px, 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <MatrixFitChip
+                  diagnoses={activeOverflowDiagnoses}
+                  showWhenClean={false}
+                  onJump={(diag) => jumpToOverflowDiagnostic(diag)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setVisualDebugRect((v) => !v)}
+                  aria-pressed={visualDebugRect}
+                  title="Toggle dashed debug rectangle around overflowing pane"
+                  className="cs-mono"
+                  style={{
+                    ...btnStyle(visualDebugRect),
+                    padding: "4px 9px",
+                    fontSize: 11,
+                  }}
+                >
+                  Debug rect
+                </button>
               </div>
             )}
 
@@ -745,9 +813,14 @@ function StudioShell() {
                   </select>
                 </div>
 
-                <MatrixFitPill
-                  status={matrixFitStatus}
-                  onSelectOverflow={(nodeId) => setSelectedId(nodeId)}
+                <MatrixFitChip
+                  diagnoses={activeOverflowDiagnoses}
+                  onJump={(diag) =>
+                    jumpToOverflowDiagnostic(diag, {
+                      destinationLens: "hybrid",
+                      focusProperty: diag.failingProperty,
+                    })
+                  }
                 />
               </div>
             )}
@@ -903,16 +976,142 @@ function StudioShell() {
                     setTimeout(() => inspectorScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 40);
                   }}
                   snapshotActionRef={snapshotActionRef}
+                  diagnosticOverlayNodeId={
+                    activeLens === "visual" && (visualDebugRect || Boolean(visualDiagnosticPopover))
+                      ? visualDiagnosticPopover?.nodeId ?? activeOverflowDiagnoses[0]?.nodeId ?? null
+                      : null
+                  }
+                  onOverflowBadgeClick={(nodeId) => {
+                    const hit =
+                      singleDiagnoses.find((d) => d.nodeId === nodeId) ??
+                      activeOverflowDiagnoses.find((d) => d.nodeId === nodeId) ??
+                      activeOverflowDiagnoses[0];
+                    if (hit) jumpToOverflowDiagnostic(hit);
+                  }}
+                  diagnosticAnchorSlot={
+                    visualActiveDiagnosis
+                      ? (rect) => {
+                          const popW = Math.min(312, Math.max(250, rect.containerW - 16));
+                          const left = Math.max(
+                            8,
+                            Math.min(rect.containerW - popW - 8, rect.left + Math.min(20, rect.width / 4))
+                          );
+                          const belowTop = rect.top + rect.height + 6;
+                          const aboveTop = Math.max(8, rect.top - 168);
+                          const top = belowTop + 150 <= rect.containerH ? belowTop : aboveTop;
+                          const adjustLabel =
+                            visualActiveDiagnosis.failingProperty === "padding"
+                              ? "Adjust padding"
+                              : "Adjust width";
+                          return (
+                            <div
+                              role="dialog"
+                              aria-label={`${visualActiveDiagnosis.headline} details`}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                position: "absolute",
+                                left,
+                                top,
+                                width: popW,
+                                zIndex: 28,
+                                background: CHARM_TOKENS.bgSurface,
+                                border: `1px solid ${CHARM_TOKENS.borderStrong}`,
+                                borderRadius: 11,
+                                padding: "10px 12px",
+                                boxShadow: "var(--cs-shadow)",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 7,
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.gold }}>
+                                  <AlertTriangle size={13} />
+                                  <span>{visualActiveDiagnosis.headline}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label="Close overflow diagnostic"
+                                  onClick={() => setVisualDiagnosticPopover(null)}
+                                  style={{ background: "none", border: "none", color: CHARM_TOKENS.textMuted, padding: 2, display: "inline-flex" }}
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                              <div className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.text, fontVariantNumeric: "tabular-nums" }}>
+                                {visualActiveDiagnosis.dimensionsText}
+                              </div>
+                              <div style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, lineHeight: 1.4 }}>
+                                {visualActiveDiagnosis.causeRule}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingTop: 2 }}>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(formatOverflowCopyText(visualActiveDiagnosis));
+                                    setPopoverCopied(true);
+                                    setTimeout(() => setPopoverCopied(false), 1600);
+                                  }}
+                                  style={{ ...studioStyles.secondaryBtn, padding: "4px 8px", fontSize: 11 }}
+                                >
+                                  {popoverCopied ? <Check size={11} /> : <Copy size={11} />}
+                                  <span>{popoverCopied ? "Copied" : "Copy"}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    jumpToOverflowDiagnostic(visualActiveDiagnosis, {
+                                      destinationLens: "hybrid",
+                                      focusProperty: visualActiveDiagnosis.failingProperty,
+                                    })
+                                  }
+                                  style={{
+                                    ...studioStyles.secondaryBtn,
+                                    padding: "4px 8px",
+                                    fontSize: 11,
+                                    borderColor: CHARM_TOKENS.mintBorder,
+                                    color: CHARM_TOKENS.mint,
+                                  }}
+                                >
+                                  <span>{adjustLabel}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    jumpToOverflowDiagnostic(visualActiveDiagnosis, {
+                                      destinationLens: "code",
+                                      focusProperty: visualActiveDiagnosis.failingProperty,
+                                    })
+                                  }
+                                  style={{ ...studioStyles.secondaryBtn, padding: "4px 8px", fontSize: 11 }}
+                                >
+                                  <Code2 size={11} />
+                                  <span>Explain in Code</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+                      : undefined
+                  }
                 />
 
-                {activeLens !== "visual" && overflowingNodes.length > 0 && (
+                {activeLens !== "visual" && activeOverflowDiagnoses.length > 0 && (
                   <OverflowDiagnosticsCard
-                    overflowingNodes={overflowingNodes}
-                    allocatedBoundsMap={allocatedBoundsMap}
-                    cols={cols}
-                    rows={rows}
+                    diagnoses={activeOverflowDiagnoses}
                     doc={ir}
-                    onSelectNode={setSelectedId}
+                    onJumpProperty={(diag) =>
+                      jumpToOverflowDiagnostic(diag, {
+                        destinationLens: "hybrid",
+                        focusProperty: diag.failingProperty,
+                      })
+                    }
+                    onExplainCode={(diag) =>
+                      jumpToOverflowDiagnostic(diag, {
+                        destinationLens: "code",
+                        focusProperty: diag.failingProperty,
+                      })
+                    }
                     onEnableTruncate={(nodeId) => {
                       const target = findNode(ir, nodeId);
                       if (!target?.style) return;
@@ -1105,6 +1304,7 @@ function StudioShell() {
                       return (
                         <div
                           key={item.lineNo}
+                          ref={item.isHighlighted ? hybridHighlightLineRef : undefined}
                           onClick={() => {
                             if (editable && !isEditing) {
                               setHybridEditLine({ lineNo: item.lineNo, value: item.text.trim() });
@@ -1327,9 +1527,12 @@ function StudioShell() {
           }}
         />
 
-        <WidgetPickerModal
+        <WidgetPicker
           open={widgetPickerOpen}
           targetLabel={selectedId}
+          palette={effectivePalette}
+          colorProfile={colorProfile}
+          fontFamily={fontFamily}
           onClose={() => setWidgetPickerOpen(false)}
           onSelectPreset={(preset) => addPreset(preset, selectedId)}
         />
@@ -1565,128 +1768,156 @@ function computeAllocatedBoundsMap(
 }
 
 function OverflowDiagnosticsCard({
-  overflowingNodes,
-  allocatedBoundsMap,
-  cols,
-  rows,
-  doc,
-  onSelectNode,
+  diagnoses,
+  onJumpProperty,
+  onExplainCode,
   onEnableTruncate,
   onCollapseBelow,
   onSwitchToFill,
 }: {
-  overflowingNodes: TelemetryNode[];
-  allocatedBoundsMap: Map<string, { w: number; h: number }>;
-  cols: number;
-  rows: number;
+  diagnoses: OverflowDiagnosis[];
   doc: ReturnType<typeof useStudioStore>["ir"];
-  onSelectNode: (id: string) => void;
+  onJumpProperty: (diag: OverflowDiagnosis) => void;
+  onExplainCode: (diag: OverflowDiagnosis) => void;
   onEnableTruncate: (id: string) => void;
   onCollapseBelow: (id: string, threshold: number) => void;
   onSwitchToFill: (id: string) => void;
 }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const first = diagnoses[0];
+  if (!first) return null;
+
   return (
     <div
       role="status"
-      aria-label="Box-model overflow diagnostics"
+      aria-label="Overflow diagnosis"
       style={{
         width: "min(760px, 100%)",
         padding: "10px 12px",
         borderRadius: 10,
         background: "rgba(255, 211, 122, 0.08)",
-        border: "1px solid rgba(255, 211, 122, 0.4)",
+        border: "1px solid rgba(255, 211, 122, 0.42)",
         display: "flex",
         flexDirection: "column",
         gap: 8,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: CHARM_TOKENS.gold }}>
-          <AlertTriangle size={13} />
-          <span>Box-Model Overflow Diagnostics</span>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: CHARM_TOKENS.gold }}>
+          <AlertTriangle size={14} />
+          <span>{first.headline}</span>
         </div>
         <span className="cs-mono" style={{ fontSize: 11, color: CHARM_TOKENS.textMuted, fontVariantNumeric: "tabular-nums" }}>
-          {overflowingNodes.length} pane{overflowingNodes.length === 1 ? "" : "s"} exceeding allocated cells ({cols}×{rows})
+          {diagnoses.length} pane{diagnoses.length === 1 ? "" : "s"} exceeding allocated cells ({first.cols}×{first.rows})
         </span>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {overflowingNodes.map((t) => {
-          const node = findNode(doc, t.id);
-          const alloc = allocatedBoundsMap.get(t.id);
-          const allocW = t.allocatedW ?? alloc?.w ?? cols;
-          const allocH = t.allocatedH ?? alloc?.h ?? rows;
-          const actualW = t.actualW ?? Math.max(t.margin.w, t.border.w);
-          const actualH = t.actualH ?? Math.max(t.margin.h, t.border.h);
-          const styleKey = node?.style;
-          const styleObj = styleKey ? doc.styles[styleKey] : undefined;
-          const styleLocked = Boolean(
-            styleKey && (doc.lockReasons?.[styleKey] === "sync-disabled" || doc.lockedProps?.[styleKey]?.includes("*"))
-          );
-          const nodeLocked = doc.lockReasons?.[`node:${t.id}`] === "sync-disabled";
-
-          const canTruncate = Boolean(styleObj && !styleObj.truncate && !styleLocked);
-          const canCollapse = Boolean(node && !nodeLocked && (node.width?.collapseBelow ?? 0) < 70 && t.id !== doc.root.id);
-          const canFillWidth = Boolean(node && !nodeLocked && node.width?.mode === "fixed" && t.id !== doc.root.id);
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {diagnoses.map((d) => {
+          const isCopied = copiedId === `${d.nodeId}:${d.cols}x${d.rows}`;
+          const jumpLabel =
+            d.failingProperty === "padding" ? "Jump to Padding" : "Jump to Width";
 
           return (
             <div
-              key={t.id}
+              key={`${d.nodeId}:${d.cols}x${d.rows}`}
               style={{
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: 8,
-                paddingTop: 6,
+                flexDirection: "column",
+                gap: 6,
+                paddingTop: 7,
                 borderTop: "1px solid rgba(255, 211, 122, 0.22)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
-                <button
-                  onClick={() => onSelectNode(t.id)}
-                  className="cs-mono"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: CHARM_TOKENS.textHeading,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
-                  #{t.id}
-                </button>
-                <span className="cs-mono" style={{ color: CHARM_TOKENS.gold, fontVariantNumeric: "tabular-nums" }}>
-                  actual {actualW}×{actualH} vs allocated {allocW}×{allocH}
-                </span>
-                {t.overflowMsg && (
-                  <span style={{ color: CHARM_TOKENS.textMuted }}>{t.overflowMsg}</span>
-                )}
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
+                  <button
+                    type="button"
+                    onClick={() => onJumpProperty(d)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      color: CHARM_TOKENS.textHeading,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {d.nodeLabel} (#{d.nodeId})
+                  </button>
+                  <span className="cs-mono" style={{ color: CHARM_TOKENS.gold, fontVariantNumeric: "tabular-nums" }}>
+                    {d.dimensionsText}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11.5, color: CHARM_TOKENS.textMuted }}>{d.causeRule}</span>
               </div>
 
+              {d.suggestion && (
+                <div style={{ fontSize: 11, color: CHARM_TOKENS.mint }}>
+                  Suggestion: {d.suggestion}
+                </div>
+              )}
+
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                {canTruncate && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(formatOverflowCopyText(d));
+                    const key = `${d.nodeId}:${d.cols}x${d.rows}`;
+                    setCopiedId(key);
+                    setTimeout(() => setCopiedId((cur) => (cur === key ? null : cur)), 1600);
+                  }}
+                  style={{ ...studioStyles.secondaryBtn, padding: "4px 9px", fontSize: 11 }}
+                >
+                  {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                  <span>{isCopied ? "Copied" : "Copy"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onJumpProperty(d)}
+                  style={{
+                    ...studioStyles.secondaryBtn,
+                    padding: "4px 9px",
+                    fontSize: 11,
+                    borderColor: CHARM_TOKENS.mintBorder,
+                    color: CHARM_TOKENS.mint,
+                  }}
+                >
+                  <span>{jumpLabel}</span>
+                  <ArrowRight size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onExplainCode(d)}
+                  style={{ ...studioStyles.secondaryBtn, padding: "4px 9px", fontSize: 11 }}
+                >
+                  <Code2 size={11} />
+                  <span>Explain in Code</span>
+                </button>
+                {d.canEnableTruncate && (
                   <button
-                    onClick={() => onEnableTruncate(t.id)}
-                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                    type="button"
+                    onClick={() => onEnableTruncate(d.nodeId)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "4px 8px", fontSize: 11 }}
                   >
                     Enable Truncate
                   </button>
                 )}
-                {canCollapse && (
+                {d.canCollapseBelow && (
                   <button
-                    onClick={() => onCollapseBelow(t.id, 70)}
-                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                    type="button"
+                    onClick={() => onCollapseBelow(d.nodeId, 70)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "4px 8px", fontSize: 11 }}
                   >
                     CollapseBelow 70 cols
                   </button>
                 )}
-                {canFillWidth && (
+                {d.canSwitchToFill && (
                   <button
-                    onClick={() => onSwitchToFill(t.id)}
-                    style={{ ...studioStyles.secondaryBtn, padding: "3px 8px", fontSize: 11 }}
+                    type="button"
+                    onClick={() => onSwitchToFill(d.nodeId)}
+                    style={{ ...studioStyles.secondaryBtn, padding: "4px 8px", fontSize: 11 }}
                   >
                     Switch to Fill Width
                   </button>
@@ -1700,14 +1931,17 @@ function OverflowDiagnosticsCard({
   );
 }
 
-function MatrixFitPill({
-  status,
-  onSelectOverflow,
+function MatrixFitChip({
+  diagnoses,
+  showWhenClean = true,
+  onJump,
 }: {
-  status: MatrixFitStatus;
-  onSelectOverflow: (nodeId: string) => void;
+  diagnoses: OverflowDiagnosis[];
+  showWhenClean?: boolean;
+  onJump: (diag: OverflowDiagnosis) => void;
 }) {
-  if (status.allFit || status.failingPresets.length === 0) {
+  if (diagnoses.length === 0) {
+    if (!showWhenClean) return null;
     return (
       <span
         className="cs-mono"
@@ -1729,21 +1963,19 @@ function MatrixFitPill({
     );
   }
 
-  const first = status.failingPresets[0];
-  const shortLabel = first.title.split(" ")[0] || first.title;
-  const targetNode = first.nodeIds[0];
+  const first = diagnoses[0];
+  const label = formatOverflowSummaryLabel(diagnoses);
 
   return (
     <button
-      onClick={() => {
-        if (targetNode) onSelectOverflow(targetNode);
-      }}
-      title={`Click to select overflowing pane #${targetNode} (${first.nodeIds.map((id) => `#${id}`).join(", ")})`}
+      type="button"
+      onClick={() => onJump(first)}
+      title={`${diagnoses.map((d) => d.headline).join(" · ")} — click to jump to failing pane`}
       className="cs-mono"
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 5,
+        gap: 6,
         padding: "4px 10px",
         borderRadius: 7,
         background: "rgba(255, 211, 122, 0.14)",
@@ -1756,9 +1988,7 @@ function MatrixFitPill({
       }}
     >
       <AlertTriangle size={12} />
-      <span>
-        Overflow on {shortLabel} ({first.cols}×{first.rows})
-      </span>
+      <span>{label}</span>
     </button>
   );
 }

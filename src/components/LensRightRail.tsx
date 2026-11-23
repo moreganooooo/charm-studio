@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Code2, Minus, Plus, SlidersHorizontal } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
 import {
@@ -62,10 +62,45 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
     updateNode,
     updateSelectedStyle,
     updateToken,
+    inspectorFocusRequest,
+    clearInspectorFocusRequest,
   } = useStudioStore();
 
   const [hybridTab, setHybridTab] = useState<"inspector" | "full">("inspector");
   const [showGoHovered, setShowGoHovered] = useState(false);
+  const [paddingBurst, setPaddingBurst] = useState(false);
+  const paddingStepperRef = useRef<HTMLDivElement>(null);
+  const paddingDecBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (activeLens !== "hybrid" || !inspectorFocusRequest) return;
+    if (inspectorFocusRequest.property === "width") {
+      if (hybridTab !== "full") {
+        const t = setTimeout(() => setHybridTab("full"), 0);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
+    if (inspectorFocusRequest.property === "padding" && hybridTab === "inspector") {
+      const reducedMotion =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const t = setTimeout(() => {
+        paddingStepperRef.current?.scrollIntoView({
+          behavior: reducedMotion ? "auto" : "smooth",
+          block: "nearest",
+        });
+        paddingDecBtnRef.current?.focus();
+        setPaddingBurst(true);
+        clearInspectorFocusRequest();
+      }, 24);
+      const tEnd = setTimeout(() => setPaddingBurst(false), 260);
+      return () => {
+        clearTimeout(t);
+        clearTimeout(tEnd);
+      };
+    }
+  }, [activeLens, inspectorFocusRequest, hybridTab, clearInspectorFocusRequest]);
 
   const padV = selectedStyle?.padding[0] ?? 0;
   const padH = selectedStyle?.padding[1] ?? 0;
@@ -695,6 +730,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
 
                 {/* Paired Vocabulary Controls */}
                 <div
+                  ref={paddingStepperRef}
                   onMouseEnter={() => setHoveredProperty("padding")}
                   onMouseLeave={() => setHoveredProperty(null)}
                   style={{ display: "flex", flexDirection: "column", gap: 10 }}
@@ -713,6 +749,8 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                   <StepperRow
                     label="Left & Right"
                     value={padH}
+                    burst={paddingBurst}
+                    decBtnRef={paddingDecBtnRef}
                     onDec={() => setSymmetricPadding("h", padH - 1)}
                     onInc={() => setSymmetricPadding("h", padH + 1)}
                     onHover={(h) => setHoveredProperty(h ? "padding-h" : "padding")}
@@ -860,18 +898,23 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
 function StepperRow({
   label,
   value,
+  burst = false,
+  decBtnRef,
   onDec,
   onInc,
   onHover,
 }: {
   label: string;
   value: number;
+  burst?: boolean;
+  decBtnRef?: React.RefObject<HTMLButtonElement | null>;
   onDec: () => void;
   onInc: () => void;
   onHover?: (hovered: boolean) => void;
 }) {
   return (
     <div
+      className={burst ? "cs-focus-burst" : undefined}
       onMouseEnter={() => onHover?.(true)}
       onMouseLeave={() => onHover?.(false)}
       style={{
@@ -881,15 +924,15 @@ function StepperRow({
         padding: "6px 10px",
         borderRadius: 10,
         background: "var(--cs-input)",
-        border: `1px solid ${CHARM_TOKENS.border}`,
+        border: `1px solid ${burst ? CHARM_TOKENS.mint : CHARM_TOKENS.border}`,
       }}
     >
       <span style={{ fontSize: 12.5, color: CHARM_TOKENS.text }}>{label}</span>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <button onClick={onDec} style={studioStyles.stepBtn} aria-label={`Decrease ${label}`}>
+        <button ref={decBtnRef} onClick={onDec} style={studioStyles.stepBtn} aria-label={`Decrease ${label}`}>
           <Minus size={12} />
         </button>
-        <span className="cs-mono" style={{ minWidth: 20, textAlign: "center", fontSize: 13, fontWeight: 700, color: CHARM_TOKENS.textHeading }}>
+        <span className="cs-mono" style={{ minWidth: 20, textAlign: "center", fontSize: 13, fontWeight: 700, color: CHARM_TOKENS.textHeading, fontVariantNumeric: "tabular-nums" }}>
           {value}
         </span>
         <button onClick={onInc} style={studioStyles.stepBtn} aria-label={`Increase ${label}`}>

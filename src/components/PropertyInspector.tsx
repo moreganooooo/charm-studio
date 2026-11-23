@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Code2, Lock, Moon, RotateCcw, Sun, Unlock } from "lucide-react";
 import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
@@ -47,17 +47,56 @@ export function PropertyInspector({ scrollRef }: Props) {
     addToken,
     updateToken,
     markStep,
+    inspectorFocusRequest,
+    clearInspectorFocusRequest,
   } = useStudioStore();
 
   const [prevSelectedId, setPrevSelectedId] = useState(selectedId);
   const [renameDraft, setRenameDraft] = useState(selectedId);
   const [newTokenName, setNewTokenName] = useState("");
   const [pruneNote, setPruneNote] = useState<string | null>(null);
+  const [focusBurstProp, setFocusBurstProp] = useState<"width" | "padding" | null>(null);
+
+  const widthModeRef = useRef<HTMLSelectElement>(null);
+  const widthValueRef = useRef<HTMLInputElement>(null);
+  const paddingRightRef = useRef<HTMLInputElement>(null);
+  const paddingSectionRef = useRef<HTMLDivElement>(null);
 
   if (prevSelectedId !== selectedId) {
     setPrevSelectedId(selectedId);
     setRenameDraft(selectedId);
   }
+
+  useEffect(() => {
+    if (!inspectorFocusRequest) return;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const targetProp = inspectorFocusRequest.property;
+    const t = setTimeout(() => {
+      if (targetProp === "width") {
+        const el =
+          widthValueRef.current && !widthValueRef.current.disabled
+            ? widthValueRef.current
+            : widthModeRef.current;
+        el?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+        el?.focus();
+      } else {
+        paddingSectionRef.current?.scrollIntoView({
+          behavior: reducedMotion ? "auto" : "smooth",
+          block: "center",
+        });
+        paddingRightRef.current?.focus();
+      }
+      setFocusBurstProp(targetProp);
+      clearInspectorFocusRequest();
+    }, 30);
+    const tEnd = setTimeout(() => setFocusBurstProp(null), 260);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(tEnd);
+    };
+  }, [inspectorFocusRequest, clearInspectorFocusRequest]);
 
   const tokenKeys = Object.keys(ir.tokens);
   const styleKeys = Object.keys(ir.styles);
@@ -458,6 +497,8 @@ export function PropertyInspector({ scrollRef }: Props) {
                   />
                 </span>
                 <select
+                  ref={widthModeRef}
+                  className={focusBurstProp === "width" && selectedNode.width?.mode !== "fixed" ? "cs-focus-burst" : undefined}
                   value={selectedNode.width?.mode ?? "fill"}
                   disabled={isNodePropLocked("width")}
                   onChange={(e) =>
@@ -478,6 +519,8 @@ export function PropertyInspector({ scrollRef }: Props) {
                 <label style={{ ...labelCol, opacity: isNodePropLocked("width") ? 0.65 : 1 }}>
                   <FieldLockLabel text="Width (Cols)" locked={isNodePropLocked("width")} />
                   <input
+                    ref={widthValueRef}
+                    className={focusBurstProp === "width" ? "cs-focus-burst" : undefined}
                     type="number"
                     min={4}
                     max={120}
@@ -899,7 +942,11 @@ export function PropertyInspector({ scrollRef }: Props) {
               </div>
             </div>
 
-            <div style={{ marginTop: 14, opacity: isPropLocked("padding") ? 0.65 : 1 }}>
+            <div
+              ref={paddingSectionRef}
+              className={focusBurstProp === "padding" ? "cs-focus-burst" : undefined}
+              style={{ marginTop: 14, opacity: isPropLocked("padding") ? 0.65 : 1, borderRadius: 8, padding: focusBurstProp === "padding" ? 4 : 0 }}
+            >
               <div style={{ ...microTag, display: "flex", alignItems: "center", gap: 6 }}>
                 {isProUI && <span style={dot("#4ade80")} />} INNER PADDING
                 {isPropLocked("padding") && <Lock size={10} color="#fbbf24" />}
@@ -908,7 +955,16 @@ export function PropertyInspector({ scrollRef }: Props) {
                 {QUAD_LABELS.map((lbl, i) => (
                   <label key={lbl} style={labelCol}>
                     <span style={{ fontSize: 10.5, color: "var(--cs-text-dim)" }}>{lbl}</span>
-                    <input type="number" min={0} max={10} disabled={isPropLocked("padding")} value={selectedStyle.padding[i]} onChange={(e) => updateQuad("padding", i, +e.target.value)} style={inputStyle} />
+                    <input
+                      ref={i === 1 ? paddingRightRef : undefined}
+                      type="number"
+                      min={0}
+                      max={10}
+                      disabled={isPropLocked("padding")}
+                      value={selectedStyle.padding[i]}
+                      onChange={(e) => updateQuad("padding", i, +e.target.value)}
+                      style={inputStyle}
+                    />
                   </label>
                 ))}
               </div>
