@@ -576,7 +576,9 @@ export function TerminalViewport({
     const handled = dispatchKey(selectedId, e.key, e.shiftKey);
     if (handled) {
       e.preventDefault();
-      triggerKeyPulse(selectedId, e.key);
+      const echo = selectedNode?.widgetData?.inputEchoMode;
+      const concealKey = selectedNode?.contentType === "bubble:textinput" && (echo === "password" || echo === "none");
+      triggerKeyPulse(selectedId, concealKey && [...e.key].length === 1 ? "text input" : e.key);
       onInteract();
       return;
     }

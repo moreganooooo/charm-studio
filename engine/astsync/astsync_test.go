@@ -262,3 +262,50 @@ var Sidebar = lipgloss.NewStyle().Border(lipgloss.HiddenBorder()).BorderLeft(fal
 		t.Fatalf("dynamic strikethrough was not preserved: %+v", preserved)
 	}
 }
+
+func TestTextInputSettingsRoundTrip(t *testing.T) {
+	const src = `package ui
+import "charm.land/bubbles/v2/textinput"
+func buildWidgets() {
+	// @tui:id=search
+	searchModel := textinput.New()
+	searchModel.Prompt = "> "
+	searchModel.Placeholder = "Search"
+	searchModel.Focus()
+}
+func RenderApp(w, h int, st Theme) string {
+	// @tui:id=search
+	search := st.Panel.Width(w).Height(h).Render("")
+	return search
+}`
+	limit, blank := 3, ""
+	data := &IRWidgetData{InputPrompt: &blank, InputPlaceholder: &blank, InputEchoMode: "password", InputCharLimit: &limit}
+	doc := IRDoc{Root: IRNode{ID: "search", Kind: "Box", ContentType: "bubble:textinput", WidgetData: data}}
+
+	updated := SyncGoSource(src, doc)
+	if updated.Error != "" {
+		t.Fatal(updated.Error)
+	}
+	parsed := ParseGoSource(updated.UpdatedGo)
+	if parsed.Error != "" || parsed.Root == nil || parsed.Root.WidgetData == nil {
+		t.Fatalf("text input missing after import: %+v", parsed)
+	}
+	got := parsed.Root.WidgetData
+	if got.InputEchoMode != "password" || got.InputCharLimit == nil || *got.InputCharLimit != limit ||
+		got.InputPrompt == nil || *got.InputPrompt != "" || got.InputPlaceholder == nil || *got.InputPlaceholder != "" {
+		t.Fatalf("settings changed on import: %+v", got)
+	}
+	limit = 0
+	data.InputEchoMode = "none"
+	again := SyncGoSource(updated.UpdatedGo, doc)
+	if again.Error != "" || strings.Count(again.UpdatedGo, ".EchoMode =") != 1 ||
+		!strings.Contains(again.UpdatedGo, "textinput.EchoNone") || !strings.Contains(again.UpdatedGo, ".CharLimit = 0") {
+		t.Fatalf("settings did not update in place: %+v", again)
+	}
+	dynamic := strings.ReplaceAll(strings.ReplaceAll(again.UpdatedGo, "textinput.EchoNone", "userEcho()"), ".CharLimit = 0", ".CharLimit = userLimit()")
+	preserved := SyncGoSource(dynamic, doc)
+	if preserved.Error != "" || !strings.Contains(preserved.UpdatedGo, ".EchoMode = userEcho()") ||
+		!strings.Contains(preserved.UpdatedGo, ".CharLimit = userLimit()") {
+		t.Fatalf("dynamic text input settings were overwritten: %+v", preserved)
+	}
+}

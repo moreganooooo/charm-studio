@@ -53,9 +53,25 @@ type IRWidgetData struct {
 	ListItems        []IRListItem    `json:"listItems,omitempty"`
 	TableColumns     []IRTableColumn `json:"tableColumns,omitempty"`
 	TableRows        [][]string      `json:"tableRows,omitempty"`
-	InputPrompt      string          `json:"inputPrompt,omitempty"`
-	InputPlaceholder string          `json:"inputPlaceholder,omitempty"`
+	InputPrompt      *string          `json:"inputPrompt,omitempty"`
+	InputPlaceholder *string          `json:"inputPlaceholder,omitempty"`
+	InputEchoMode    string          `json:"inputEchoMode,omitempty"`
+	InputCharLimit   *int            `json:"inputCharLimit,omitempty"`
 	HuhFields        []IRHuhField    `json:"huhFields,omitempty"`
+}
+
+// TextInputLabels resolves omitted labels while retaining explicitly empty ones.
+func (d *IRWidgetData) TextInputLabels() (prompt, placeholder string) {
+	prompt, placeholder = "> ", "Filter services or type a command..."
+	if d != nil {
+		if d.InputPrompt != nil {
+			prompt = *d.InputPrompt
+		}
+		if d.InputPlaceholder != nil {
+			placeholder = *d.InputPlaceholder
+		}
+	}
+	return
 }
 
 type IRNode struct {

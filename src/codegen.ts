@@ -520,13 +520,6 @@ export function generateFixturesPreviewGo(doc: IRDoc): string {
         `\t\treturn ${JSON.stringify(vpText)}`,
         `\t}`
       );
-    } else if (ct === "bubble:textinput") {
-      const placeholder = wd.inputPlaceholder ?? "Type a command...";
-      initLines.push(
-        `\tpreview${pascalBase}Placeholder = func() string {`,
-        `\t\treturn ${JSON.stringify(placeholder)}`,
-        `\t}`
-      );
     } else if (ct === "huh:form") {
       const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
       let selectIdx = 0;
@@ -638,13 +631,16 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       );
     } else if (ct === "bubble:textinput") {
       fieldDecls.push(`\t${varBase} textinput.Model // @tui:id=${node.id}`);
-      fixtureHookVars.push(`\tpreview${pascalBase}Placeholder = func() string { return "" }`);
+      const placeholder = wd.inputPlaceholder ?? defaultWidgetData("bubble:textinput").inputPlaceholder!;
+      const echo = wd.inputEchoMode === "password" ? "EchoPassword" : wd.inputEchoMode === "none" ? "EchoNone" : "EchoNormal";
       const prompt = wd.inputPrompt ?? "> ";
       initLines.push(
         `\t// @tui:id=${node.id}`,
         `\t${varBase}Model := textinput.New()`,
         `\t${varBase}Model.Prompt = ${JSON.stringify(prompt)}`,
-        `\t${varBase}Model.Placeholder = preview${pascalBase}Placeholder()`,
+        `\t${varBase}Model.Placeholder = ${JSON.stringify(placeholder)}`,
+        `\t${varBase}Model.EchoMode = textinput.${echo}`,
+        `\t${varBase}Model.CharLimit = ${wd.inputCharLimit ?? 0}`,
         `\t${varBase}Model.Focus()`
       );
     } else if (ct === "huh:form") {

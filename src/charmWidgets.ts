@@ -10,7 +10,7 @@ export const CHARM_WIDGET_TYPES = new Set<ContentType>([
 
 export function isCustomHydratedWidget(node: IRNode): boolean {
   const ct = node.contentType;
-  if (!ct) return false;
+  if (!ct || ct === "bubble:textinput") return false;
   if (CHARM_WIDGET_TYPES.has(ct)) return true;
   if (ct === "bubble:viewport" && Boolean((node.content ?? "").trim())) return true;
   if (ct.startsWith("bubble:") && Boolean(node.widgetData)) return true;
@@ -174,10 +174,6 @@ interface CustomTableState {
   cursor: number;
 }
 
-interface CustomInputState {
-  value: string;
-}
-
 const huhStates = new Map<string, HuhState>();
 const glamourStates = new Map<string, GlamourState>();
 const gumChooseStates = new Map<string, GumChooseState>();
@@ -185,10 +181,8 @@ const gumConfirmStates = new Map<string, GumConfirmState>();
 const wishStates = new Map<string, WishState>();
 const customListStates = new Map<string, CustomListState>();
 const customTableStates = new Map<string, CustomTableState>();
-const customInputStates = new Map<string, CustomInputState>();
 const viewportStates = new Map<string, GlamourState>();
 
-const nodeTypeRegistry = new Map<string, ContentType>();
 const huhFieldsRegistry = new Map<string, IRHuhField[]>();
 const gumFilteredCache = new Map<string, number[]>();
 const listFilteredCache = new Map<string, number[]>();
@@ -293,15 +287,6 @@ function getCustomTableState(id: string): CustomTableState {
   return s;
 }
 
-function getCustomInputState(id: string): CustomInputState {
-  let s = customInputStates.get(id);
-  if (!s) {
-    s = { value: "" };
-    customInputStates.set(id, s);
-  }
-  return s;
-}
-
 function getGumChooseState(id: string): GumChooseState {
   let s = gumChooseStates.get(id);
   if (!s) {
@@ -346,9 +331,8 @@ function parseGumChooseContent(raw: string | undefined): { prompt: string; items
   return { prompt: "Choose targets:", items: lines };
 }
 
-export function dispatchCharmWidgetKey(nodeId: string, key: string): boolean {
-  const ct = nodeTypeRegistry.get(nodeId);
-  if (!ct) return false;
+export function dispatchCharmWidgetKey(nodeId: string, key: string, ct?: ContentType): boolean {
+  if (!ct || ct === "bubble:textinput") return false;
 
   if (ct === "bubble:list") {
     const s = getCustomListState(nodeId);
@@ -427,23 +411,6 @@ export function dispatchCharmWidgetKey(nodeId: string, key: string): boolean {
     }
     if (key === "PageUp") {
       s.scroll = Math.max(0, s.scroll - 5);
-      return true;
-    }
-    return false;
-  }
-
-  if (ct === "bubble:textinput") {
-    const s = getCustomInputState(nodeId);
-    if (key === "Backspace") {
-      s.value = s.value.slice(0, -1);
-      return true;
-    }
-    if (key === "Escape") {
-      s.value = "";
-      return true;
-    }
-    if (key.length === 1 && s.value.length < 64) {
-      s.value += key;
       return true;
     }
     return false;
@@ -732,23 +699,6 @@ function renderCustomViewport(node: IRNode, doc: IRDoc, innerW: number, innerH: 
   return wrapped.slice(s.scroll, s.scroll + Math.max(1, innerH)).map((l) => clipVisible(l, w)).join("\n");
 }
 
-function renderCustomTextInput(node: IRNode, doc: IRDoc, innerW: number, _innerH: number, darkBG: boolean): string {
-  const s = getCustomInputState(node.id);
-  const data = node.widgetData ?? defaultWidgetData("bubble:textinput");
-  const prompt = data.inputPrompt ?? "> ";
-  const placeholder = data.inputPlaceholder ?? "Type something...";
-
-  const accent = resolveToken(doc.tokens, "accent", darkBG, darkBG ? "#7aa2f7" : "#2e7de9");
-  const glow = resolveToken(doc.tokens, "modalGlow", darkBG, darkBG ? "#bb9af7" : "#9854f1");
-  const muted = resolveToken(doc.tokens, "borderIdle", darkBG, darkBG ? "#414868" : "#9aa5ce");
-  const textMain = resolveToken(doc.tokens, "textMain", darkBG, darkBG ? "#c0caf5" : "#3760bf");
-
-  const body = s.value
-    ? fg(textMain, s.value) + fg(glow, "█")
-    : fg(glow, "█") + faint(fg(muted, placeholder));
-  return clipVisible(fg(accent, prompt) + body, Math.max(8, innerW));
-}
-
 function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG: boolean): string {
   const fields = node.widgetData?.huhFields?.length
     ? node.widgetData.huhFields
@@ -1028,7 +978,6 @@ export function renderCharmWidgetContent(
   cols: number,
   rows: number
 ): string {
-  nodeTypeRegistry.set(node.id, node.contentType ?? "text");
   switch (node.contentType) {
     case "bubble:list":
       return renderCustomList(node, doc, innerW, innerH, darkBG);
@@ -1036,8 +985,6 @@ export function renderCharmWidgetContent(
       return renderCustomTable(node, doc, innerW, innerH, darkBG);
     case "bubble:viewport":
       return renderCustomViewport(node, doc, innerW, innerH, darkBG);
-    case "bubble:textinput":
-      return renderCustomTextInput(node, doc, innerW, innerH, darkBG);
     case "huh:form":
       return renderHuhForm(node, doc, innerW, innerH, darkBG);
     case "glamour:markdown":

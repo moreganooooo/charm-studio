@@ -1104,14 +1104,24 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 					if recv, ok := sel.X.(*dst.Ident); ok {
 						wid := guessID(recv.Name, nil)
 						if w, ok := out[wid]; ok {
+							if w.contentType == "bubble:textinput" {
+								switch sel.Sel.Name {
+								case "EchoMode":
+									w.widgetData.InputEchoMode = inputEchoMode(rhs)
+								case "CharLimit":
+									if limit, ok := intLitVal(rhs); ok {
+										w.widgetData.InputCharLimit = &limit
+									}
+								}
+							}
 							if s, ok := unquoteLit(rhs); ok {
 								switch sel.Sel.Name {
 								case "Title":
 									w.widgetData.ListTitle = s
 								case "Prompt":
-									w.widgetData.InputPrompt = s
+									w.widgetData.InputPrompt = &s
 								case "Placeholder":
-									w.widgetData.InputPlaceholder = s
+									w.widgetData.InputPlaceholder = &s
 								}
 							}
 						}
@@ -1159,6 +1169,26 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 	})
 
 	return out
+}
+
+func inputEchoMode(expr dst.Expr) string {
+	sel, ok := expr.(*dst.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	pkg, ok := sel.X.(*dst.Ident)
+	if !ok || pkg.Name != "textinput" {
+		return ""
+	}
+	switch sel.Sel.Name {
+	case "EchoPassword":
+		return "password"
+	case "EchoNone":
+		return "none"
+	case "EchoNormal":
+		return "normal"
+	}
+	return ""
 }
 
 func isPkgCall(e dst.Expr, pkg, fn string) bool {
@@ -1484,7 +1514,8 @@ func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo
 			}
 			if w.widgetData.ListTitle != "" || len(w.widgetData.ListItems) > 0 ||
 				len(w.widgetData.TableColumns) > 0 || len(w.widgetData.TableRows) > 0 ||
-				w.widgetData.InputPrompt != "" || w.widgetData.InputPlaceholder != "" ||
+				w.widgetData.InputPrompt != nil || w.widgetData.InputPlaceholder != nil ||
+				w.widgetData.InputEchoMode != "" || w.widgetData.InputCharLimit != nil ||
 				len(w.widgetData.HuhFields) > 0 {
 				wd := w.widgetData
 				n.WidgetData = &wd

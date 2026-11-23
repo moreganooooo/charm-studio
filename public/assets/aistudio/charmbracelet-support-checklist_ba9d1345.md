@@ -10,7 +10,7 @@ Use this checklist to track library and component support as you build out your 
 - [ ] **Layout Compositors:** `JoinHorizontal` (rows/columns) and `JoinVertical` (stacks) to build split panes, headers, and grids.
 
 ## Phase 2: Core UI Components (`bubbles`)
-- [ ] **Text Input (`textinput`):** Single-line input with placeholder, prompt character, echo mode (normal/password), and character limit.
+- [x] **Text Input (`textinput`):** Single-line input with placeholder, prompt character, echo mode (normal/password/none), and character limit.
 - [ ] **Text Area (`textarea`):** Multi-line editor with line numbers, cursor styling, and soft-wrapping.
 - [ ] **Table (`table`):** Columns, rows, selectable row highlight styles, and header/border styling.
 - [ ] **List (`list`):** Filterable item list with title, pagination, status bar, and custom item delegates.

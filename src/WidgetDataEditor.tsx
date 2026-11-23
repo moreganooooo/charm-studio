@@ -233,8 +233,36 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
         <label style={labelCol}>
           <span>Placeholder</span>
           <input
-            value={data.inputPlaceholder ?? "Type a command..."}
+            value={data.inputPlaceholder ?? defaultWidgetData("bubble:textinput").inputPlaceholder}
             onChange={(e) => onChangeWidgetData({ ...data, inputPlaceholder: e.target.value })}
+            style={inputStyle}
+          />
+        </label>
+        <label style={labelCol}>
+          <span>Echo mode</span>
+          <select
+            value={data.inputEchoMode ?? "normal"}
+            onChange={(e) => onChangeWidgetData({ ...data, inputEchoMode: e.target.value as IRWidgetData["inputEchoMode"] })}
+            style={inputStyle}
+          >
+            <option value="normal">Normal</option>
+            <option value="password">Password (masked)</option>
+            <option value="none">None (hidden)</option>
+          </select>
+        </label>
+        <label style={labelCol}>
+          <span>Character limit</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            max={2147483647}
+            value={data.inputCharLimit || ""}
+            placeholder="Unlimited"
+            onChange={(e) => {
+              const limit = e.currentTarget.valueAsNumber;
+              onChangeWidgetData({ ...data, inputCharLimit: Number.isFinite(limit) ? Math.max(0, Math.min(2147483647, Math.trunc(limit))) : 0 });
+            }}
             style={inputStyle}
           />
         </label>

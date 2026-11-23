@@ -195,11 +195,8 @@ func sampleNodeText(node astsync.IRNode, spec astsync.IRStyle, innerW, innerH in
 			body = "[18:01:02] INFO Booting viewport\n[18:01:03] INFO Press up/down to scroll"
 		}
 	case "bubble:textinput":
-		if node.WidgetData != nil && node.WidgetData.InputPrompt != "" {
-			body = node.WidgetData.InputPrompt + node.WidgetData.InputPlaceholder
-		} else if body == "" {
-			body = "> Filter services..."
-		}
+		prompt, placeholder := node.WidgetData.TextInputLabels()
+		body = prompt + placeholder
 	case "huh:form":
 		if node.WidgetData != nil && len(node.WidgetData.HuhFields) > 0 {
 			lines := make([]string, 0, len(node.WidgetData.HuhFields)*2)

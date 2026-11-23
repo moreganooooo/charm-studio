@@ -141,6 +141,8 @@ export interface IRWidgetData {
   tableRows?: string[][];
   inputPrompt?: string;
   inputPlaceholder?: string;
+  inputEchoMode?: "normal" | "password" | "none";
+  inputCharLimit?: number;
   huhFields?: IRHuhField[];
 }
 

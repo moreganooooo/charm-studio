@@ -222,10 +222,17 @@ export class WasmTransport implements PreviewTransport {
     return this.bootPromise;
   }
 
+  private hydratedTypes = new Map<string, ContentType>();
+
   private hasCustomHydratedWidgets(doc: IRDoc): boolean {
     let found = false;
     const walk = (n: IRNode) => {
-      if (isCustomHydratedWidget(n)) found = true;
+      if (n.contentType && isCustomHydratedWidget(n)) {
+        this.hydratedTypes.set(n.id, n.contentType);
+        found = true;
+      } else {
+        this.hydratedTypes.delete(n.id);
+      }
       n.children?.forEach(walk);
     };
     walk(doc.root);
@@ -311,7 +318,7 @@ export class WasmTransport implements PreviewTransport {
 
   sendKey(targetId: string, key: string, opts?: PreviewKeyOptions): boolean {
     const normalizedKey = opts?.shiftKey && key === "Tab" ? "Shift+Tab" : key;
-    if (dispatchCharmWidgetKey(targetId, normalizedKey)) return true;
+    if (dispatchCharmWidgetKey(targetId, normalizedKey, this.hydratedTypes.get(targetId))) return true;
     if (!window.dispatchStudioKey) return false;
     return window.dispatchStudioKey(targetId, normalizedKey);
   }
