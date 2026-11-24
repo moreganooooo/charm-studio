@@ -63,7 +63,7 @@ export interface MatrixFitStatus {
   failingPresets: MatrixFitFailure[];
   diagnoses: OverflowDiagnosis[];
 }
-export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right";
+export type OverlayAnchor = "center" | "top-right" | "bottom-bar" | "bottom-right" | "place";
 export type MouseMode = "none" | "cell" | "all";
 
 export type ViewCursorMode = "auto" | "none" | "manual";
@@ -79,14 +79,28 @@ export interface IRViewConfig {
   cursorY?: number;
 }
 
+export interface IRCustomBorder {
+  top: string;
+  bottom: string;
+  left: string;
+  right: string;
+  topLeft: string;
+  topRight: string;
+  bottomLeft: string;
+  bottomRight: string;
+}
+
 export interface IRStyle {
-  border: "rounded" | "normal" | "thick" | "double" | "hidden" | "none";
+  border: "rounded" | "normal" | "thick" | "double" | "hidden" | "custom" | "none";
   borderEdges?: [boolean, boolean, boolean, boolean];
+  customBorder?: IRCustomBorder;
   borderColor: string;
   fg: string;
   bg?: string;
   padding: [number, number, number, number];
   margin: [number, number, number, number];
+  maxWidth?: number;
+  maxHeight?: number;
   bold: boolean;
   italic?: boolean;
   faint?: boolean;
@@ -94,6 +108,8 @@ export interface IRStyle {
   strikethrough?: boolean;
   alignH?: "left" | "center" | "right";
   alignV?: "top" | "center" | "bottom";
+  placeH?: "left" | "center" | "right";
+  placeV?: "top" | "center" | "bottom";
   truncate?: boolean;
 }
 
@@ -106,15 +122,26 @@ export interface IRSize {
 
 export type ContentType =
   | "text"
+  | "lipgloss:divider"
   | "bubble:list"
   | "bubble:table"
   | "bubble:viewport"
   | "bubble:textinput"
+  | "bubble:textarea"
+  | "bubble:progress"
+  | "bubble:spinner"
+  | "bubble:filepicker"
+  | "bubble:paginator"
+  | "bubble:help"
+  | "bubble:timer"
+  | "bubble:stopwatch"
   | "huh:form"
   | "glamour:markdown"
   | "gum:choose"
   | "gum:confirm"
-  | "wish:ssh";
+  | "wish:ssh"
+  | "uv:screen"
+  | "cellbuf:canvas";
 
 export interface IRListItem {
   title: string;
@@ -126,25 +153,149 @@ export interface IRTableColumn {
   width: number;
 }
 
+export type HuhValidationRule = "none" | "required" | "minLength" | "email" | "regex";
+
 export interface IRHuhField {
   id: string;
-  kind: "input" | "select" | "confirm" | "note";
+  kind: "input" | "text" | "select" | "multiselect" | "confirm" | "note";
   description?: string;
   label: string;
   placeholder?: string;
   options?: string[];
+  validation?: HuhValidationRule;
+  validationParam?: string;
+  errorMessage?: string;
+  charLimit?: number;
+  lineLimit?: number;
+  filterable?: boolean;
+  minSelect?: number;
+  maxSelect?: number;
+  group?: number;
+}
+
+export type SpinnerPresetType =
+  | "line"
+  | "dot"
+  | "mini-dot"
+  | "jump"
+  | "pulse"
+  | "points"
+  | "globe"
+  | "moon"
+  | "monkey";
+
+export type GlamourThemeName = "dark" | "light" | "dracula" | "tokyo-night" | "pink";
+export type HuhThemeName = "charm" | "dracula" | "catppuccin" | "base16";
+
+export interface IRHelpBinding {
+  key: string;
+  desc: string;
+}
+
+export interface IRUvCommand {
+  id: string;
+  op: "setCell" | "drawText" | "fillRect";
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+  text?: string;
+  fg?: string;
+  bg?: string;
+  bold?: boolean;
+}
+
+export interface IRCellbufLayer {
+  id: string;
+  name: string;
+  shape: "box" | "line" | "text" | "checker";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text?: string;
+  fg?: string;
+  bg?: string;
+  borderChar?: string;
+}
+
+export interface IRHarmonicaConfig {
+  enabled: boolean;
+  frequency: number;
+  damping: number;
 }
 
 export interface IRWidgetData {
+  // List
   listTitle?: string;
   listItems?: IRListItem[];
+  listShowPagination?: boolean;
+  listShowStatusBar?: boolean;
+  listDelegateMode?: "default" | "compact" | "accent";
+  // Table
   tableColumns?: IRTableColumn[];
   tableRows?: string[][];
+  tableHeaderFg?: string;
+  tableHeaderBg?: string;
+  tableSelectedFg?: string;
+  tableSelectedBg?: string;
+  tableBorderStyle?: "normal" | "rounded" | "thick" | "none";
+  // TextInput
   inputPrompt?: string;
   inputPlaceholder?: string;
   inputEchoMode?: "normal" | "password" | "none";
   inputCharLimit?: number;
+  // TextArea
+  textareaPlaceholder?: string;
+  textareaShowLineNumbers?: boolean;
+  textareaSoftWrap?: boolean;
+  textareaCharLimit?: number;
+  textareaCursorStyle?: "block" | "underline" | "bar";
+  // Progress & Harmonica
+  progressPercent?: number;
+  progressMode?: "solid" | "gradient";
+  progressStartColor?: string;
+  progressEndColor?: string;
+  progressShowPercent?: boolean;
+  harmonica?: IRHarmonicaConfig;
+  // Spinner
+  spinnerType?: SpinnerPresetType;
+  spinnerLabel?: string;
+  spinnerColor?: string;
+  // FilePicker
+  fpCurrentDir?: string;
+  fpAllowedExts?: string[];
+  fpShowPermissions?: boolean;
+  fpShowSize?: boolean;
+  // Paginator
+  paginatorType?: "dots" | "arabic";
+  paginatorPage?: number;
+  paginatorTotalPages?: number;
+  paginatorPerPage?: number;
+  // Help
+  helpShowAll?: boolean;
+  helpBindings?: IRHelpBinding[];
+  // Timer & Stopwatch
+  timerDurationSec?: number;
+  timerFormat?: "mm:ss" | "hh:mm:ss" | "ss.ms";
+  timerAutoStart?: boolean;
+  // Huh Form
   huhFields?: IRHuhField[];
+  huhTheme?: HuhThemeName;
+  huhGroupNames?: string[];
+  // Glamour Markdown
+  glamourTheme?: GlamourThemeName;
+  // Lip Gloss Divider
+  dividerOrientation?: "horizontal" | "vertical";
+  dividerChar?: string;
+  dividerLabel?: string;
+  // Ultraviolet Screen Primitives
+  uvCommands?: IRUvCommand[];
+  uvCursorX?: number;
+  uvCursorY?: number;
+  uvShowCursor?: boolean;
+  // x/cellbuf 2D Cell Buffer
+  cellbufLayers?: IRCellbufLayer[];
 }
 
 export interface IRNode {
@@ -165,6 +316,11 @@ export interface IROverlay {
   visible: boolean;
   z: number;
   anchor?: OverlayAnchor;
+  placeX?: number;
+  placeY?: number;
+  placeH?: "left" | "center" | "right";
+  placeV?: "top" | "center" | "bottom";
+  harmonica?: IRHarmonicaConfig;
   node: IRNode;
 }
 
@@ -222,9 +378,18 @@ export function sanitizeGoId(raw: string, fallback = "pane"): string {
 
 export function defaultWidgetData(ct?: ContentType): IRWidgetData {
   switch (ct) {
+    case "lipgloss:divider":
+      return {
+        dividerOrientation: "horizontal",
+        dividerChar: "─",
+        dividerLabel: "Section",
+      };
     case "bubble:list":
       return {
         listTitle: "Navigation",
+        listShowPagination: true,
+        listShowStatusBar: true,
+        listDelegateMode: "default",
         listItems: [
           { title: "Overview", desc: "Cluster health & metrics" },
           { title: "Deployments", desc: "14 active workloads" },
@@ -235,6 +400,11 @@ export function defaultWidgetData(ct?: ContentType): IRWidgetData {
       };
     case "bubble:table":
       return {
+        tableHeaderFg: "$textMain",
+        tableHeaderBg: "",
+        tableSelectedFg: "#11111b",
+        tableSelectedBg: "$accent",
+        tableBorderStyle: "normal",
         tableColumns: [
           { title: "Service", width: 14 },
           { title: "Status", width: 10 },
@@ -255,12 +425,124 @@ export function defaultWidgetData(ct?: ContentType): IRWidgetData {
         inputPrompt: "> ",
         inputPlaceholder: "Filter services or type a command...",
       };
+    case "bubble:textarea":
+      return {
+        textareaPlaceholder: "Write notes, SQL, or commit message...",
+        textareaShowLineNumbers: true,
+        textareaSoftWrap: true,
+        textareaCharLimit: 500,
+        textareaCursorStyle: "block",
+      };
+    case "bubble:progress":
+      return {
+        progressPercent: 68,
+        progressMode: "gradient",
+        progressStartColor: "#ff5eae",
+        progressEndColor: "#6dffc2",
+        progressShowPercent: true,
+        harmonica: { enabled: true, frequency: 6.0, damping: 0.7 },
+      };
+    case "bubble:spinner":
+      return {
+        spinnerType: "dot",
+        spinnerLabel: "Syncing cluster state...",
+        spinnerColor: "$accent",
+      };
+    case "bubble:filepicker":
+      return {
+        fpCurrentDir: "/workspace/charm-app",
+        fpAllowedExts: [".go", ".md", ".json"],
+        fpShowPermissions: true,
+        fpShowSize: true,
+      };
+    case "bubble:paginator":
+      return {
+        paginatorType: "dots",
+        paginatorPage: 1,
+        paginatorTotalPages: 5,
+        paginatorPerPage: 10,
+      };
+    case "bubble:help":
+      return {
+        helpShowAll: false,
+        helpBindings: [
+          { key: "↑/k", desc: "up" },
+          { key: "↓/j", desc: "down" },
+          { key: "/", desc: "filter" },
+          { key: "enter", desc: "select" },
+          { key: "?", desc: "toggle help" },
+          { key: "q", desc: "quit" },
+        ],
+      };
+    case "bubble:timer":
+      return {
+        timerDurationSec: 90,
+        timerFormat: "mm:ss",
+        timerAutoStart: true,
+      };
+    case "bubble:stopwatch":
+      return {
+        timerDurationSec: 0,
+        timerFormat: "ss.ms",
+        timerAutoStart: true,
+      };
     case "huh:form":
       return {
+        huhTheme: "charm",
+        huhGroupNames: ["Project Setup", "Options"],
         huhFields: [
-          { id: "projectName", kind: "input", label: "Project Name", placeholder: "charm-cli-app" },
-          { id: "stack", kind: "select", label: "Charm Stack", options: ["Lip Gloss + Bubbles", "Huh Forms", "Glamour + Glow", "Wish SSH TUI"] },
-          { id: "enableSSH", kind: "confirm", label: "Serve via Wish SSH?" },
+          {
+            id: "projectName",
+            kind: "input",
+            label: "Project Name",
+            placeholder: "charm-cli-app",
+            validation: "required",
+            errorMessage: "Project name is required",
+            group: 0,
+          },
+          {
+            id: "stack",
+            kind: "select",
+            label: "Charm Stack",
+            options: ["Lip Gloss + Bubbles", "Huh Forms", "Glamour + Glow", "Wish SSH TUI"],
+            filterable: true,
+            group: 0,
+          },
+          {
+            id: "features",
+            kind: "multiselect",
+            label: "Included Modules",
+            options: ["Harmonica Springs", "Glamour Docs", "Wish SSH", "VHS Demo"],
+            minSelect: 1,
+            maxSelect: 3,
+            group: 1,
+          },
+          { id: "enableSSH", kind: "confirm", label: "Serve via Wish SSH?", group: 1 },
+        ],
+      };
+    case "glamour:markdown":
+      return {
+        glamourTheme: "dark",
+      };
+    case "uv:screen":
+      return {
+        uvCursorX: 14,
+        uvCursorY: 4,
+        uvShowCursor: true,
+        uvCommands: [
+          { id: "bg", op: "fillRect", x: 1, y: 1, w: 28, h: 6, text: "·", fg: "#565f89", bg: "#1a1b26" },
+          { id: "title", op: "drawText", x: 3, y: 2, text: "ULTRAVIOLET CELL SCREEN", fg: "#6dffc2", bold: true },
+          { id: "sub", op: "drawText", x: 3, y: 4, text: "Cursor @ (14, 4)", fg: "#ff5eae" },
+          { id: "mark", op: "setCell", x: 26, y: 2, text: "✦", fg: "#ffd37a", bold: true },
+        ],
+      };
+    case "cellbuf:canvas":
+      return {
+        cellbufLayers: [
+          { id: "grid", name: "Backdrop Grid", shape: "checker", x: 0, y: 0, w: 30, h: 7, fg: "#414868", borderChar: "░" },
+          { id: "frame", name: "Window Layer", shape: "box", x: 2, y: 1, w: 24, h: 5, fg: "#b9a2ff", bg: "#1f2335", borderChar: "─" },
+          { id: "rule", name: "Divider Line", shape: "line", x: 3, y: 3, w: 22, h: 1, fg: "#ff5eae", borderChar: "━" },
+          { id: "lbl", name: "Title Overlay", shape: "text", x: 4, y: 2, w: 20, h: 1, text: "x/cellbuf 2D Buffer", fg: "#6dffc2" },
         ],
       };
     default:
@@ -342,6 +624,8 @@ export function getFriendlyNodeName(node: IRNode | null | undefined): string {
   if (idLower.includes("modal")) return "Help modal";
 
   switch (node.contentType) {
+    case "lipgloss:divider":
+      return "Divider";
     case "bubble:list":
       return node.widgetData?.listTitle || "Navigation list";
     case "bubble:table":
@@ -350,6 +634,22 @@ export function getFriendlyNodeName(node: IRNode | null | undefined): string {
       return "Scrollable view";
     case "bubble:textinput":
       return "Text input";
+    case "bubble:textarea":
+      return "Text area";
+    case "bubble:progress":
+      return "Progress bar";
+    case "bubble:spinner":
+      return "Spinner";
+    case "bubble:filepicker":
+      return "File picker";
+    case "bubble:paginator":
+      return "Paginator";
+    case "bubble:help":
+      return "Help legend";
+    case "bubble:timer":
+      return "Countdown timer";
+    case "bubble:stopwatch":
+      return "Stopwatch";
     case "huh:form":
       return "Interactive form";
     case "glamour:markdown":
@@ -360,6 +660,10 @@ export function getFriendlyNodeName(node: IRNode | null | undefined): string {
       return "Confirm prompt";
     case "wish:ssh":
       return "SSH server card";
+    case "uv:screen":
+      return "Ultraviolet screen";
+    case "cellbuf:canvas":
+      return "Cellbuf 2D buffer";
     default: {
       const spaced = node.id
         .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -375,6 +679,8 @@ export function getCharmGoTypeLabel(node: IRNode | null | undefined): string {
   if (node.kind === "JoinHorizontal") return "JoinHorizontal";
   if (node.kind === "JoinVertical") return "JoinVertical";
   switch (node.contentType) {
+    case "lipgloss:divider":
+      return "lipgloss.Divider";
     case "bubble:list":
       return "list.Model";
     case "bubble:table":
@@ -383,6 +689,22 @@ export function getCharmGoTypeLabel(node: IRNode | null | undefined): string {
       return "viewport.Model";
     case "bubble:textinput":
       return "textinput.Model";
+    case "bubble:textarea":
+      return "textarea.Model";
+    case "bubble:progress":
+      return "progress.Model";
+    case "bubble:spinner":
+      return "spinner.Model";
+    case "bubble:filepicker":
+      return "filepicker.Model";
+    case "bubble:paginator":
+      return "paginator.Model";
+    case "bubble:help":
+      return "help.Model";
+    case "bubble:timer":
+      return "timer.Model";
+    case "bubble:stopwatch":
+      return "stopwatch.Model";
     case "huh:form":
       return "huh.Form";
     case "glamour:markdown":
@@ -393,6 +715,10 @@ export function getCharmGoTypeLabel(node: IRNode | null | undefined): string {
       return "gum confirm";
     case "wish:ssh":
       return "wish.Server";
+    case "uv:screen":
+      return "uv.Screen";
+    case "cellbuf:canvas":
+      return "cellbuf.Buffer";
     default:
       return "lipgloss.Style";
   }

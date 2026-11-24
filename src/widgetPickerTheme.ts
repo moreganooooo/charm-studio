@@ -48,6 +48,9 @@ export const DEFAULT_WIDGET_PICKER_THEME: WidgetPickerTheme = {
         gum: "Gum",
         wish: "Wish",
         overlay: "Overlay Layer",
+        harmonica: "Harmonica",
+        ultraviolet: "Ultraviolet",
+        cellbuf: "Cellbuf",
       },
       accents: {
         layout: "var(--cs-mint)",
@@ -58,6 +61,9 @@ export const DEFAULT_WIDGET_PICKER_THEME: WidgetPickerTheme = {
         gum: "var(--cs-gold)",
         wish: "var(--cs-lilac-text)",
         overlay: "var(--cs-lavender-text)",
+        harmonica: "var(--cs-pink)",
+        ultraviolet: "var(--cs-lavender)",
+        cellbuf: "var(--cs-gold)",
       },
     },
     preview: {

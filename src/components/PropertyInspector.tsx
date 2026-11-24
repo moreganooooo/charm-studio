@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, Code2, Lock, Moon, RotateCcw, Sun, Unlock } fro
 import { useStudioStore } from "../store/studioStore";
 import { STYLE_PRESETS } from "../stylePresets";
 import { HelpDot, Tooltip } from "../Tooltip";
-import { defaultWidgetData, type ContentType, type IRStyle, type MouseMode, type OverlayAnchor, type ViewCursorMode } from "../types";
+import { defaultWidgetData, type ContentType, type IRCustomBorder, type IRStyle, type MouseMode, type OverlayAnchor, type ViewCursorMode } from "../types";
 import { isAnsiIndex } from "../ansiColor";
 import { ColorSwatchPicker } from "./ColorSwatchPicker";
 import { WidgetDataEditor } from "../WidgetDataEditor";
@@ -45,6 +45,7 @@ export function PropertyInspector({ scrollRef }: Props) {
     updateQuad,
     toggleBorderEdge,
     setOverlayAnchor,
+    updateOverlay,
     forkStyle,
     pruneStyles,
     addToken,
@@ -126,11 +127,23 @@ export function PropertyInspector({ scrollRef }: Props) {
   const isNodePropLocked = (prop: string) => isAllNodeLocked || nodeLocks.includes(prop);
 
   const hasWidgetDataUI =
+    selectedNode?.contentType === "lipgloss:divider" ||
     selectedNode?.contentType === "bubble:list" ||
     selectedNode?.contentType === "bubble:table" ||
     selectedNode?.contentType === "bubble:textinput" ||
+    selectedNode?.contentType === "bubble:textarea" ||
+    selectedNode?.contentType === "bubble:progress" ||
+    selectedNode?.contentType === "bubble:spinner" ||
+    selectedNode?.contentType === "bubble:filepicker" ||
+    selectedNode?.contentType === "bubble:paginator" ||
+    selectedNode?.contentType === "bubble:help" ||
+    selectedNode?.contentType === "bubble:timer" ||
+    selectedNode?.contentType === "bubble:stopwatch" ||
     selectedNode?.contentType === "bubble:viewport" ||
-    selectedNode?.contentType === "huh:form";
+    selectedNode?.contentType === "huh:form" ||
+    selectedNode?.contentType === "glamour:markdown" ||
+    selectedNode?.contentType === "uv:screen" ||
+    selectedNode?.contentType === "cellbuf:canvas";
 
   const commitRename = () => {
     if (!selectedNode || fileSyncDisabled || nodeSyncDisabled) return;
@@ -450,15 +463,24 @@ export function PropertyInspector({ scrollRef }: Props) {
               >
                 <optgroup label="Lip Gloss">
                   <option value="text">Plain Text (editable below)</option>
+                  <option value="lipgloss:divider">Lip Gloss: Divider / Rule</option>
                 </optgroup>
                 <optgroup label="Bubbles (bubbles/v2)">
-                  <option value="bubble:list">Bubbles: List (interactive ↑/↓, /)</option>
-                  <option value="bubble:table">Bubbles: Table (interactive ↑/↓, j/k)</option>
-                  <option value="bubble:viewport">Bubbles: Viewport (scrollable ↑/↓)</option>
+                  <option value="bubble:list">Bubbles: List (↑/↓, /)</option>
+                  <option value="bubble:table">Bubbles: Table (↑/↓, j/k)</option>
+                  <option value="bubble:viewport">Bubbles: Viewport (↑/↓ scroll)</option>
                   <option value="bubble:textinput">Bubbles: TextInput (type live!)</option>
+                  <option value="bubble:textarea">Bubbles: TextArea (multi-line)</option>
+                  <option value="bubble:progress">Bubbles: Progress Bar</option>
+                  <option value="bubble:spinner">Bubbles: Spinner (animated)</option>
+                  <option value="bubble:filepicker">Bubbles: FilePicker (↑/↓, Enter)</option>
+                  <option value="bubble:paginator">Bubbles: Paginator (←/→)</option>
+                  <option value="bubble:help">Bubbles: Help Footer (? toggle)</option>
+                  <option value="bubble:timer">Bubbles: Timer (Space/r)</option>
+                  <option value="bubble:stopwatch">Bubbles: Stopwatch (Space/r)</option>
                 </optgroup>
                 <optgroup label="Huh (charmbracelet/huh)">
-                  <option value="huh:form">Huh: Interactive Form (Tab, type, ←/→)</option>
+                  <option value="huh:form">Huh: Interactive Form (Tab, ←/→)</option>
                 </optgroup>
                 <optgroup label="Glamour &amp; Glow">
                   <option value="glamour:markdown">Glamour: Styled Markdown (↑/↓ scroll)</option>
@@ -470,23 +492,119 @@ export function PropertyInspector({ scrollRef }: Props) {
                 <optgroup label="Wish (charmbracelet/wish)">
                   <option value="wish:ssh">Wish: SSH Session Header (r to cycle)</option>
                 </optgroup>
+                <optgroup label="Low-Level Primitives">
+                  <option value="uv:screen">Ultraviolet: Raw Screen Buffer</option>
+                  <option value="cellbuf:canvas">Cellbuf: 2D Cell Canvas</option>
+                </optgroup>
               </select>
             </label>
 
             {selectedOverlay && (
-              <label style={{ ...labelCol, marginBottom: 10 }}>
-                <span>Floating Layer Position</span>
-                <select
-                  value={selectedOverlay.anchor ?? "center"}
-                  onChange={(e) => setOverlayAnchor(selectedOverlay.id, e.target.value as OverlayAnchor)}
-                  style={inputStyle}
-                >
-                  <option value="center">Center Modal</option>
-                  <option value="top-right">Top-Right Toast</option>
-                  <option value="bottom-bar">Bottom Command Bar</option>
-                  <option value="bottom-right">Bottom-Right Notification</option>
-                </select>
-              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                <label style={labelCol}>
+                  <span>Floating Layer Position</span>
+                  <select
+                    value={selectedOverlay.anchor ?? "center"}
+                    onChange={(e) => setOverlayAnchor(selectedOverlay.id, e.target.value as OverlayAnchor)}
+                    style={inputStyle}
+                  >
+                    <option value="center">Center Modal</option>
+                    <option value="top-right">Top-Right Toast</option>
+                    <option value="bottom-bar">Bottom Command Bar</option>
+                    <option value="bottom-right">Bottom-Right Notification</option>
+                    <option value="place">Custom Place(X, Y)</option>
+                  </select>
+                </label>
+
+                {selectedOverlay.anchor === "place" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <label style={labelCol}>
+                      <span>Place X (col)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={200}
+                        value={selectedOverlay.placeX ?? 4}
+                        onChange={(e) => updateOverlay(selectedOverlay.id, { placeX: Math.max(0, +e.target.value || 0) })}
+                        style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </label>
+                    <label style={labelCol}>
+                      <span>Place Y (row)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={80}
+                        value={selectedOverlay.placeY ?? 2}
+                        onChange={(e) => updateOverlay(selectedOverlay.id, { placeY: Math.max(0, +e.target.value || 0) })}
+                        style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 4 }}>
+                  <label style={checkLbl}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedOverlay.harmonica?.enabled)}
+                      onChange={(e) =>
+                        updateOverlay(selectedOverlay.id, {
+                          harmonica: {
+                            enabled: e.target.checked,
+                            frequency: selectedOverlay.harmonica?.frequency ?? 6.5,
+                            damping: selectedOverlay.harmonica?.damping ?? 0.72,
+                          },
+                        })
+                      }
+                      style={chkAcc}
+                    />
+                    Harmonica Spring Slide-In
+                  </label>
+                  {selectedOverlay.harmonica?.enabled && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <label style={labelCol}>
+                        <span>Frequency (Hz)</span>
+                        <input
+                          type="number"
+                          min={0.5}
+                          max={30}
+                          step={0.5}
+                          value={selectedOverlay.harmonica.frequency}
+                          onChange={(e) =>
+                            updateOverlay(selectedOverlay.id, {
+                              harmonica: {
+                                ...selectedOverlay.harmonica!,
+                                frequency: Math.max(0.5, +e.target.value || 6.5),
+                              },
+                            })
+                          }
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                      <label style={labelCol}>
+                        <span>Damping</span>
+                        <input
+                          type="number"
+                          min={0.05}
+                          max={2}
+                          step={0.05}
+                          value={selectedOverlay.harmonica.damping}
+                          onChange={(e) =>
+                            updateOverlay(selectedOverlay.id, {
+                              harmonica: {
+                                ...selectedOverlay.harmonica!,
+                                damping: Math.max(0.05, +e.target.value || 0.72),
+                              },
+                            })
+                          }
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -613,6 +731,40 @@ export function PropertyInspector({ scrollRef }: Props) {
                   Auto-fills column
                 </div>
               )}
+
+              <label style={{ ...labelCol, opacity: isAllStyleLocked ? 0.65 : 1 }}>
+                <span>Max Width (cols)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={200}
+                  placeholder="Unlimited"
+                  disabled={isAllStyleLocked}
+                  value={selectedStyle.maxWidth || ""}
+                  onChange={(e) => {
+                    const val = Math.max(0, Math.trunc(+e.target.value || 0));
+                    updateSelectedStyle({ maxWidth: val > 0 ? val : undefined });
+                  }}
+                  style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                />
+              </label>
+
+              <label style={{ ...labelCol, opacity: isAllStyleLocked ? 0.65 : 1 }}>
+                <span>Max Height (rows)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="Unlimited"
+                  disabled={isAllStyleLocked}
+                  value={selectedStyle.maxHeight || ""}
+                  onChange={(e) => {
+                    const val = Math.max(0, Math.trunc(+e.target.value || 0));
+                    updateSelectedStyle({ maxHeight: val > 0 ? val : undefined });
+                  }}
+                  style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                />
+              </label>
             </div>
 
             {nodeDynamicExprs.width && (
@@ -826,6 +978,7 @@ export function PropertyInspector({ scrollRef }: Props) {
                     <option value="thick">ThickBorder (┏━┓)</option>
                     <option value="double">DoubleBorder (╔═╗)</option>
                     <option value="hidden">Hidden (reserves border space)</option>
+                    <option value="custom">CustomBorder (custom glyphs)</option>
                     <option value="none">None</option>
                   </select>
                 </label>
@@ -838,6 +991,46 @@ export function PropertyInspector({ scrollRef }: Props) {
                   />
                 )}
               </div>
+
+              {selectedStyle.border === "custom" && (() => {
+                const cb: IRCustomBorder = selectedStyle.customBorder ?? {
+                  top: "─", bottom: "─", left: "│", right: "│",
+                  topLeft: "┌", topRight: "┐", bottomLeft: "└", bottomRight: "┘",
+                };
+                const setChar = (key: keyof IRCustomBorder, v: string) =>
+                  updateSelectedStyle({ customBorder: { ...cb, [key]: Array.from(v)[0] ?? " " } });
+                const applyBorderPreset = (preset: IRCustomBorder) => updateSelectedStyle({ customBorder: preset });
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 8, borderRadius: 7, background: "var(--cs-panel)", border: "1px solid var(--cs-border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--cs-text-dim)", textTransform: "uppercase" }}>Custom Glyphs</span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button type="button" style={miniBtn} onClick={() => applyBorderPreset({ top: "-", bottom: "-", left: "|", right: "|", topLeft: "+", topRight: "+", bottomLeft: "+", bottomRight: "+" })}>ASCII</button>
+                        <button type="button" style={miniBtn} onClick={() => applyBorderPreset({ top: "┈", bottom: "┈", left: "┊", right: "┊", topLeft: "┌", topRight: "┐", bottomLeft: "└", bottomRight: "┘" })}>Dotted</button>
+                        <button type="button" style={miniBtn} onClick={() => applyBorderPreset({ top: "▀", bottom: "▄", left: "▌", right: "▐", topLeft: "▛", topRight: "▜", bottomLeft: "▙", bottomRight: "▟" })}>Block</button>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 5 }}>
+                      {([
+                        ["topLeft", "TL"], ["top", "Top"], ["topRight", "TR"], ["left", "Left"],
+                        ["right", "Right"], ["bottomLeft", "BL"], ["bottom", "Bot"], ["bottomRight", "BR"],
+                      ] as const).map(([key, lbl]) => (
+                        <label key={key} style={labelCol}>
+                          <span style={{ fontSize: 10, color: "var(--cs-text-dim)" }}>{lbl}</span>
+                          <input
+                            value={cb[key]}
+                            maxLength={2}
+                            disabled={isPropLocked("border")}
+                            onChange={(e) => setChar(key, e.target.value)}
+                            className="cs-mono"
+                            style={{ ...inputStyle, textAlign: "center", padding: "3px 4px" }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {isProUI && selectedStyle.border !== "none" && (
                 <div style={{ opacity: isPropLocked("border") ? 0.65 : 1 }}>
@@ -905,6 +1098,34 @@ export function PropertyInspector({ scrollRef }: Props) {
                 <label style={{ ...labelCol, opacity: isPropLocked("alignV") ? 0.65 : 1 }}>
                   <FieldLockLabel text="Align V" locked={isPropLocked("alignV")} />
                   <select value={selectedStyle.alignV ?? "top"} disabled={isPropLocked("alignV")} onChange={(e) => updateSelectedStyle({ alignV: e.target.value as IRStyle["alignV"] })} style={inputStyle}>
+                    <option value="top">Top</option>
+                    <option value="center">Center</option>
+                    <option value="bottom">Bottom</option>
+                  </select>
+                </label>
+                <label style={{ ...labelCol, opacity: isAllStyleLocked ? 0.65 : 1 }}>
+                  <span>Place H (Box)</span>
+                  <select
+                    value={selectedStyle.placeH ?? ""}
+                    disabled={isAllStyleLocked}
+                    onChange={(e) => updateSelectedStyle({ placeH: (e.target.value || undefined) as IRStyle["placeH"] })}
+                    style={inputStyle}
+                  >
+                    <option value="">Default (None)</option>
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </select>
+                </label>
+                <label style={{ ...labelCol, opacity: isAllStyleLocked ? 0.65 : 1 }}>
+                  <span>Place V (Box)</span>
+                  <select
+                    value={selectedStyle.placeV ?? ""}
+                    disabled={isAllStyleLocked}
+                    onChange={(e) => updateSelectedStyle({ placeV: (e.target.value || undefined) as IRStyle["placeV"] })}
+                    style={inputStyle}
+                  >
+                    <option value="">Default (None)</option>
                     <option value="top">Top</option>
                     <option value="center">Center</option>
                     <option value="bottom">Bottom</option>

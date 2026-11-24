@@ -19,11 +19,26 @@ interface Props {
 
 const WIDGET_OPTIONS: { value: ContentType; label: string }[] = [
   { value: "text", label: "Plain Text" },
+  { value: "lipgloss:divider", label: "Divider / Rule" },
   { value: "bubble:list", label: "Navigation List" },
   { value: "bubble:table", label: "Data Table" },
   { value: "bubble:viewport", label: "Scrollable Log" },
   { value: "bubble:textinput", label: "Text Input" },
+  { value: "bubble:textarea", label: "Text Area" },
+  { value: "bubble:progress", label: "Progress Bar" },
+  { value: "bubble:spinner", label: "Spinner" },
+  { value: "bubble:filepicker", label: "File Picker" },
+  { value: "bubble:paginator", label: "Paginator" },
+  { value: "bubble:help", label: "Help Keymap" },
+  { value: "bubble:timer", label: "Timer" },
+  { value: "bubble:stopwatch", label: "Stopwatch" },
   { value: "huh:form", label: "Interactive Form" },
+  { value: "glamour:markdown", label: "Markdown" },
+  { value: "gum:choose", label: "Gum Choose" },
+  { value: "gum:confirm", label: "Gum Confirm" },
+  { value: "wish:ssh", label: "Wish SSH" },
+  { value: "uv:screen", label: "Ultraviolet Screen" },
+  { value: "cellbuf:canvas", label: "Cellbuf 2D Buffer" },
 ];
 
 const VISUAL_BORDERS: { id: IRStyle["border"]; label: string; glyph: string }[] = [
@@ -787,6 +802,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                     <option value="thick">Thick (lipgloss.ThickBorder())</option>
                     <option value="double">Double (lipgloss.DoubleBorder())</option>
                     <option value="hidden">Hidden (reserves border space)</option>
+                    <option value="custom">Custom (lipgloss.Border{"{...}"})</option>
                     <option value="none">None</option>
                   </select>
                 </div>

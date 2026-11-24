@@ -361,6 +361,46 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 							matched = true
 						}
 					}
+				} else if comp, ok := call.Args[0].(*dst.CompositeLit); ok {
+					cb := IRCustomBorder{
+						Top: "-", Bottom: "-", Left: "|", Right: "|",
+						TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
+					}
+					for _, elt := range comp.Elts {
+						kv, ok := elt.(*dst.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						k, ok := kv.Key.(*dst.Ident)
+						if !ok {
+							continue
+						}
+						val, ok := unquoteLit(kv.Value)
+						if !ok {
+							continue
+						}
+						switch k.Name {
+						case "Top":
+							cb.Top = val
+						case "Bottom":
+							cb.Bottom = val
+						case "Left":
+							cb.Left = val
+						case "Right":
+							cb.Right = val
+						case "TopLeft":
+							cb.TopLeft = val
+						case "TopRight":
+							cb.TopRight = val
+						case "BottomLeft":
+							cb.BottomLeft = val
+						case "BottomRight":
+							cb.BottomRight = val
+						}
+					}
+					st.Border = "custom"
+					st.CustomBorder = &cb
+					matched = true
 				}
 			}
 			if !matched {
@@ -563,6 +603,22 @@ func parseStyleChainWithLocks(e dst.Expr, resolveArg func(dst.Expr) (string, boo
 					recordDyn("alignV", rawExprText(call.Args[0]))
 				}
 			}
+		case "MaxWidth":
+			if len(call.Args) == 1 {
+				if v, ok := intLitVal(call.Args[0]); ok {
+					st.MaxWidth = max(0, v)
+				} else {
+					recordDyn("maxWidth", rawExprText(call.Args[0]))
+				}
+			}
+		case "MaxHeight":
+			if len(call.Args) == 1 {
+				if v, ok := intLitVal(call.Args[0]); ok {
+					st.MaxHeight = max(0, v)
+				} else {
+					recordDyn("maxHeight", rawExprText(call.Args[0]))
+				}
+			}
 		}
 	}
 	if st.Border != "none" && st.BorderColor == "" {
@@ -616,12 +672,32 @@ func ParseGoSource(src string) GoParseResult {
 			bubbleSet["bubble:viewport"] = true
 		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/textinput"):
 			bubbleSet["bubble:textinput"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/textarea"):
+			bubbleSet["bubble:textarea"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/progress"):
+			bubbleSet["bubble:progress"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/spinner"):
+			bubbleSet["bubble:spinner"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/filepicker"):
+			bubbleSet["bubble:filepicker"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/paginator"):
+			bubbleSet["bubble:paginator"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/help"):
+			bubbleSet["bubble:help"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/timer"):
+			bubbleSet["bubble:timer"] = true
+		case strings.Contains(p, "bubbles") && strings.HasSuffix(p, "/stopwatch"):
+			bubbleSet["bubble:stopwatch"] = true
 		case strings.Contains(p, "charmbracelet/huh") || strings.Contains(p, "charm.land/huh"):
 			bubbleSet["huh:form"] = true
 		case strings.Contains(p, "charmbracelet/glamour") || strings.Contains(p, "charm.land/glamour"):
 			bubbleSet["glamour:markdown"] = true
 		case strings.Contains(p, "charmbracelet/wish") || strings.Contains(p, "charm.land/wish"):
 			bubbleSet["wish:ssh"] = true
+		case strings.Contains(p, "charmbracelet/ultraviolet"):
+			bubbleSet["uv:screen"] = true
+		case strings.Contains(p, "charmbracelet/x/cellbuf"):
+			bubbleSet["cellbuf:canvas"] = true
 		}
 	}
 	for k := range bubbleSet {
@@ -1113,6 +1189,30 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 					case isPkgCall(rhs, "textinput", "New"):
 						ensureWidget(wid, "bubble:textinput")
 						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "textarea", "New"):
+						ensureWidget(wid, "bubble:textarea")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "progress", "New"):
+						ensureWidget(wid, "bubble:progress")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "spinner", "New"):
+						ensureWidget(wid, "bubble:spinner")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "filepicker", "New"):
+						ensureWidget(wid, "bubble:filepicker")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "paginator", "New"):
+						ensureWidget(wid, "bubble:paginator")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "help", "New"):
+						ensureWidget(wid, "bubble:help")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "timer", "New"), isPkgCall(rhs, "timer", "NewWithInterval"):
+						ensureWidget(wid, "bubble:timer")
+						varToID[ident.Name] = wid
+					case isPkgCall(rhs, "stopwatch", "New"), isPkgCall(rhs, "stopwatch", "NewWithInterval"):
+						ensureWidget(wid, "bubble:stopwatch")
+						varToID[ident.Name] = wid
 					case hasChainCall(rhs, "huh", "NewForm"):
 						w := ensureWidget(wid, "huh:form")
 						varToID[ident.Name] = wid
@@ -1460,8 +1560,12 @@ func parseHuhFieldChain(e dst.Expr, idx int) IRHuhField {
 		switch name {
 		case "NewInput":
 			out.Kind = "input"
+		case "NewText":
+			out.Kind = "text"
 		case "NewSelect":
 			out.Kind = "select"
+		case "NewMultiSelect":
+			out.Kind = "multiselect"
 		case "NewNote":
 			out.Kind = "note"
 		case "Description":
@@ -1470,6 +1574,30 @@ func parseHuhFieldChain(e dst.Expr, idx int) IRHuhField {
 			}
 		case "NewConfirm":
 			out.Kind = "confirm"
+		case "Filtering":
+			if len(call.Args) == 1 {
+				if b, ok := boolIdentVal(call.Args[0]); ok {
+					out.Filterable = b
+				}
+			}
+		case "CharLimit":
+			if len(call.Args) == 1 {
+				if v, ok := intLitVal(call.Args[0]); ok {
+					out.CharLimit = v
+				}
+			}
+		case "Lines":
+			if len(call.Args) == 1 {
+				if v, ok := intLitVal(call.Args[0]); ok {
+					out.LineLimit = v
+				}
+			}
+		case "Limit":
+			if len(call.Args) == 1 {
+				if v, ok := intLitVal(call.Args[0]); ok {
+					out.MaxSelect = v
+				}
+			}
 		case "Title":
 			if len(call.Args) >= 1 {
 				if s, ok := unquoteLit(call.Args[0]); ok {

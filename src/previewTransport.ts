@@ -1,7 +1,13 @@
 import { Call, Events } from "@wailsio/runtime";
-import { dispatchCharmWidgetKey, isCustomHydratedWidget, renderCharmWidgetContent } from "./charmWidgets";
+import {
+  dispatchCharmWidgetKey,
+  getOverlayHarmonicaOffset,
+  isCustomHydratedWidget,
+  renderCharmWidgetContent,
+} from "./charmWidgets";
+import { clipVisible, fg, padRightVisible, resolveColorRef, visibleLen } from "./charmWidgetsExtra";
 import type { AstDelta, DiffLine } from "./astDiff";
-import type { ColorProfile, ContentType, IRDoc, IRNode, IROverlay, IRStyle, Rect, TelemetryNode, TokenPair } from "./types";
+import type { ColorProfile, ContentType, IRCustomBorder, IRDoc, IRNode, IROverlay, IRStyle, Rect, TelemetryNode, TokenPair } from "./types";
 
 declare global {
   interface Window {
@@ -224,6 +230,17 @@ export class WasmTransport implements PreviewTransport {
 
   private hydratedTypes = new Map<string, ContentType>();
 
+  private styleNeedsPreTransform(st?: IRStyle): boolean {
+    if (!st) return false;
+    return Boolean(
+      st.border === "custom" ||
+      (st.maxWidth && st.maxWidth > 0) ||
+      (st.maxHeight && st.maxHeight > 0) ||
+      st.placeH ||
+      st.placeV
+    );
+  }
+
   private hasCustomHydratedWidgets(doc: IRDoc): boolean {
     let found = false;
     const walk = (n: IRNode) => {
@@ -233,11 +250,152 @@ export class WasmTransport implements PreviewTransport {
       } else {
         this.hydratedTypes.delete(n.id);
       }
+      if (n.style && this.styleNeedsPreTransform(doc.styles[n.style])) {
+        found = true;
+      }
       n.children?.forEach(walk);
     };
     walk(doc.root);
-    doc.overlays.forEach((o) => walk(o.node));
+    doc.overlays.forEach((o) => {
+      walk(o.node);
+      if (o.visible && (o.anchor === "place" || o.harmonica?.enabled)) found = true;
+    });
     return found;
+  }
+
+  private renderCustomBorderBox(
+    content: string,
+    st: IRStyle,
+    tokens: Record<string, TokenPair>,
+    darkBG: boolean,
+    boxW: number,
+    boxH: number
+  ): string {
+    const b: IRCustomBorder = st.customBorder ?? {
+      top: "─",
+      bottom: "─",
+      left: "│",
+      right: "│",
+      topLeft: "┌",
+      topRight: "┐",
+      bottomLeft: "└",
+      bottomRight: "┘",
+    };
+    const [eTop, eRight, eBottom, eLeft] = st.borderEdges ?? [true, true, true, true];
+    const [pTop, pRight, pBottom, pLeft] = st.padding ?? [0, 0, 0, 0];
+    const borderHex = resolveColorRef(tokens, st.borderColor, darkBG, darkBG ? "#b9a2ff" : "#5b37f0");
+    const paint = (s: string) => (borderHex ? fg(borderHex, s) : s);
+
+    const rawLines = (content || "").split("\n");
+    const maxLineW = rawLines.reduce((m, l) => Math.max(m, visibleLen(l)), 0);
+    const borderW = (eLeft ? 1 : 0) + (eRight ? 1 : 0);
+    const borderH = (eTop ? 1 : 0) + (eBottom ? 1 : 0);
+
+    const totalW = Math.max(borderW + pLeft + pRight + 1, boxW || maxLineW + pLeft + pRight + borderW);
+    const innerContentW = Math.max(1, totalW - borderW - pLeft - pRight);
+    const innerContentH = Math.max(1, boxH ? boxH - borderH - pTop - pBottom : rawLines.length);
+
+    const out: string[] = [];
+    const topBarChar = Array.from(b.top || "─")[0] ?? "─";
+    const botBarChar = Array.from(b.bottom || "─")[0] ?? "─";
+    const leftBarChar = Array.from(b.left || "│")[0] ?? "│";
+    const rightBarChar = Array.from(b.right || "│")[0] ?? "│";
+
+    if (eTop) {
+      const tl = eLeft ? (b.topLeft || "+") : "";
+      const tr = eRight ? (b.topRight || "+") : "";
+      const span = Math.max(0, totalW - Array.from(tl).length - Array.from(tr).length);
+      out.push(paint(`${tl}${topBarChar.repeat(span)}${tr}`));
+    }
+
+    const paddedBody: string[] = [];
+    for (let i = 0; i < pTop; i++) paddedBody.push(" ".repeat(innerContentW));
+    const clipped = rawLines.slice(0, innerContentH).map((l) => {
+      const line = clipVisible(l, innerContentW);
+      if (st.alignH === "center") {
+        const pad = Math.max(0, innerContentW - visibleLen(line));
+        const left = Math.floor(pad / 2);
+        return " ".repeat(left) + line + " ".repeat(pad - left);
+      }
+      if (st.alignH === "right") {
+        const pad = Math.max(0, innerContentW - visibleLen(line));
+        return " ".repeat(pad) + line;
+      }
+      return padRightVisible(line, innerContentW);
+    });
+    while (clipped.length < innerContentH) clipped.push(" ".repeat(innerContentW));
+    paddedBody.push(...clipped);
+    for (let i = 0; i < pBottom; i++) paddedBody.push(" ".repeat(innerContentW));
+
+    const lEdge = eLeft ? paint(leftBarChar) : "";
+    const rEdge = eRight ? paint(rightBarChar) : "";
+    for (const row of paddedBody) {
+      out.push(`${lEdge}${" ".repeat(pLeft)}${row}${" ".repeat(pRight)}${rEdge}`);
+    }
+
+    if (eBottom) {
+      const bl = eLeft ? (b.bottomLeft || "+") : "";
+      const br = eRight ? (b.bottomRight || "+") : "";
+      const span = Math.max(0, totalW - Array.from(bl).length - Array.from(br).length);
+      out.push(paint(`${bl}${botBarChar.repeat(span)}${br}`));
+    }
+
+    return out.join("\n");
+  }
+
+  private applyPlaceAndMaxBounds(
+    raw: string,
+    st: IRStyle | undefined,
+    boxW: number,
+    boxH: number
+  ): string {
+    if (!st) return raw;
+    const [pTop, pRight, pBottom, pLeft] = st.padding ?? [0, 0, 0, 0];
+    const hasB = st.border !== "none" && st.border !== "custom";
+    const [eTop, eRight, eBottom, eLeft] = st.borderEdges ?? [true, true, true, true];
+    const frameW = pLeft + pRight + (hasB && eLeft ? 1 : 0) + (hasB && eRight ? 1 : 0);
+    const frameH = pTop + pBottom + (hasB && eTop ? 1 : 0) + (hasB && eBottom ? 1 : 0);
+
+    let maxW = boxW;
+    if (st.maxWidth && st.maxWidth > 0) {
+      maxW = Math.min(maxW || st.maxWidth, Math.max(1, st.maxWidth - frameW));
+    }
+    let maxH = boxH;
+    if (st.maxHeight && st.maxHeight > 0) {
+      maxH = Math.min(maxH || st.maxHeight, Math.max(1, st.maxHeight - frameH));
+    }
+
+    let lines = raw.split("\n");
+    if (st.maxHeight && st.maxHeight > 0 && lines.length > maxH) {
+      lines = lines.slice(0, maxH);
+    }
+    if (st.maxWidth && st.maxWidth > 0) {
+      lines = lines.map((l) => (visibleLen(l) > maxW ? clipVisible(l, maxW) : l));
+    }
+
+    if ((st.placeH || st.placeV) && boxW > 0 && boxH > 0) {
+      const targetW = Math.max(1, maxW);
+      const targetH = Math.max(1, maxH);
+      lines = lines.map((l) => {
+        const vLen = visibleLen(l);
+        if (vLen >= targetW) return clipVisible(l, targetW);
+        if (st.placeH === "center") {
+          const left = Math.floor((targetW - vLen) / 2);
+          return " ".repeat(left) + l + " ".repeat(targetW - vLen - left);
+        }
+        if (st.placeH === "right") {
+          return " ".repeat(targetW - vLen) + l;
+        }
+        return l;
+      });
+      if (lines.length < targetH && st.placeV && st.placeV !== "top") {
+        const extra = targetH - lines.length;
+        const topBlank = st.placeV === "center" ? Math.floor(extra / 2) : extra;
+        lines = [...Array.from({ length: topBlank }, () => ""), ...lines];
+      }
+    }
+
+    return lines.join("\n");
   }
 
   private hydrateWidgetsForWasm(
@@ -248,23 +406,171 @@ export class WasmTransport implements PreviewTransport {
     telMap?: Map<string, { w: number; h: number }>
   ): IRDoc {
     const next = structuredClone(doc);
+    const customBorderCloned = new Set<string>();
+
     const walk = (n: IRNode) => {
+      const origStyle = n.style ? doc.styles[n.style] : undefined;
+      const cacheKey = `${cols}x${rows}:${n.id}`;
+      const fallbackW = n.width?.mode === "fixed" ? Math.max(8, (n.width.value ?? 30) - 2) : Math.max(20, Math.floor(cols / 2) - 4);
+      const fallbackH = n.height?.mode === "fixed" ? Math.max(2, (n.height.value ?? 6) - 2) : Math.max(6, rows - 6);
+      const telSize = telMap?.get(n.id) ?? this.boxSizeCache.get(cacheKey);
+      let effW = telSize?.w ?? fallbackW;
+      let effH = telSize?.h ?? fallbackH;
+
+      if (origStyle?.maxWidth && origStyle.maxWidth > 0) {
+        if (n.width?.mode === "fixed") {
+          n.width = { ...n.width, value: Math.min(n.width.value ?? origStyle.maxWidth, origStyle.maxWidth) };
+        }
+        effW = Math.min(effW, Math.max(4, origStyle.maxWidth - 2));
+      }
+      if (origStyle?.maxHeight && origStyle.maxHeight > 0) {
+        if (n.height?.mode === "fixed") {
+          n.height = { ...n.height, value: Math.min(n.height.value ?? origStyle.maxHeight, origStyle.maxHeight) };
+        }
+        effH = Math.min(effH, Math.max(1, origStyle.maxHeight - 2));
+      }
+
       if (isCustomHydratedWidget(n)) {
-        const cacheKey = `${cols}x${rows}:${n.id}`;
-        const size = telMap?.get(n.id) ?? this.boxSizeCache.get(cacheKey) ?? {
-          w: n.width?.mode === "fixed" ? Math.max(8, (n.width.value ?? 30) - 4) : Math.max(20, Math.floor(cols / 2) - 4),
-          h: n.height?.mode === "fixed" ? Math.max(2, (n.height.value ?? 6) - 2) : Math.max(6, rows - 6),
-        };
-        n.content = renderCharmWidgetContent(n, next, size.w, size.h, darkBG, cols, rows);
+        n.content = renderCharmWidgetContent(n, next, effW, effH, darkBG, cols, rows);
         if (n.contentType?.startsWith("bubble:") || n.contentType === "huh:form") {
           n.contentType = "text";
         }
       }
+
+      if (origStyle) {
+        n.content = this.applyPlaceAndMaxBounds(n.content ?? "", origStyle, effW, effH);
+        if (origStyle.border === "custom" && n.style) {
+          const outerW = telSize
+            ? telSize.w + (origStyle.padding?.[1] ?? 0) + (origStyle.padding?.[3] ?? 0) + ((origStyle.borderEdges?.[1] ?? true) ? 1 : 0) + ((origStyle.borderEdges?.[3] ?? true) ? 1 : 0)
+            : (n.width?.mode === "fixed" ? (n.width.value ?? 30) : effW + 2);
+          const outerH = telSize
+            ? telSize.h + (origStyle.padding?.[0] ?? 0) + (origStyle.padding?.[2] ?? 0) + ((origStyle.borderEdges?.[0] ?? true) ? 1 : 0) + ((origStyle.borderEdges?.[2] ?? true) ? 1 : 0)
+            : (n.height?.mode === "fixed" ? (n.height.value ?? 6) : effH + 2);
+          n.content = this.renderCustomBorderBox(n.content, origStyle, next.tokens, darkBG, outerW, outerH);
+          customBorderCloned.add(n.style);
+        }
+      }
+
       n.children?.forEach(walk);
     };
+
     walk(next.root);
     next.overlays.forEach((o) => walk(o.node));
+
+    for (const styleKey of customBorderCloned) {
+      if (next.styles[styleKey]) {
+        next.styles[styleKey] = {
+          ...next.styles[styleKey],
+          border: "none",
+          padding: [0, 0, 0, 0],
+        };
+      }
+    }
+
     return next;
+  }
+
+  private compositeCustomOverlays(
+    doc: IRDoc,
+    hydratedDoc: IRDoc,
+    baseFrame: StudioFrame,
+    cols: number,
+    rows: number,
+    runPass: (d: IRDoc, w?: number, h?: number) => StudioFrame
+  ): StudioFrame {
+    const customOverlays = hydratedDoc.overlays.filter(
+      (o) => o.visible && (o.anchor === "place" || Boolean(o.harmonica?.enabled))
+    );
+    if (customOverlays.length === 0) return baseFrame;
+
+    const cells = [...baseFrame.cells];
+    const telemetry = [...baseFrame.telemetry];
+    const origMap = new Map(doc.overlays.map((o) => [o.id, o]));
+
+    for (const ov of customOverlays) {
+      const origOv = origMap.get(ov.id) ?? ov;
+      let ovW = Math.max(10, origOv.node.width?.value ?? 44);
+      const ovH = Math.max(3, origOv.node.height?.value ?? 9);
+      const anchor = origOv.anchor ?? "center";
+
+      let ox = Math.max(0, Math.floor((cols - ovW) / 2));
+      let oy = Math.max(0, Math.floor((rows - ovH) / 2));
+      if (anchor === "top-right") {
+        ox = Math.max(0, cols - ovW - 1);
+        oy = 1;
+      } else if (anchor === "bottom-right") {
+        ox = Math.max(0, cols - ovW - 1);
+        oy = Math.max(0, rows - ovH - 1);
+      } else if (anchor === "bottom-bar") {
+        ovW = Math.max(20, cols - 4);
+        ox = Math.max(0, Math.floor((cols - ovW) / 2));
+        oy = Math.max(0, rows - ovH - 1);
+      } else if (anchor === "place") {
+        if (typeof origOv.placeX === "number") {
+          ox = origOv.placeX;
+        } else if (origOv.placeH === "right") {
+          ox = Math.max(0, cols - ovW);
+        } else if (origOv.placeH === "center") {
+          ox = Math.max(0, Math.floor((cols - ovW) / 2));
+        } else {
+          ox = 0;
+        }
+        if (typeof origOv.placeY === "number") {
+          oy = origOv.placeY;
+        } else if (origOv.placeV === "bottom") {
+          oy = Math.max(0, rows - ovH);
+        } else if (origOv.placeV === "center") {
+          oy = Math.max(0, Math.floor((rows - ovH) / 2));
+        } else {
+          oy = 0;
+        }
+      }
+
+      if (origOv.harmonica?.enabled) {
+        const dy = getOverlayHarmonicaOffset(origOv.id, origOv.visible, true);
+        oy += dy;
+      }
+
+      const ovDoc: IRDoc = {
+        tokens: hydratedDoc.tokens,
+        styles: hydratedDoc.styles,
+        root: {
+          ...ov.node,
+          width: { mode: "fixed", value: ovW },
+          height: { mode: "fixed", value: ovH },
+        },
+        overlays: [],
+      };
+      const ovFrame = runPass(ovDoc, ovW, ovH);
+      if (ovFrame.error) continue;
+
+      for (let r = 0; r < ovH; r++) {
+        const dstY = oy + r;
+        if (dstY < 0 || dstY >= rows) continue;
+        for (let c = 0; c < ovW; c++) {
+          const dstX = ox + c;
+          if (dstX < 0 || dstX >= cols) continue;
+          const srcCell = ovFrame.cells[r * ovW + c];
+          if (!srcCell) continue;
+          if (!srcCell.c && !srcCell.b && !srcCell.f) continue;
+          cells[dstY * cols + dstX] = srcCell;
+        }
+      }
+
+      const ovTel = ovFrame.telemetry.find((t) => t.id === ov.node.id);
+      if (ovTel) {
+        const shiftRect = (rect: Rect): Rect => ({ ...rect, x: rect.x + ox, y: rect.y + oy });
+        telemetry.push({
+          ...ovTel,
+          margin: shiftRect(ovTel.margin),
+          border: shiftRect(ovTel.border),
+          padding: shiftRect(ovTel.padding),
+          content: shiftRect(ovTel.content),
+        });
+      }
+    }
+
+    return { cells, telemetry };
   }
 
   render(
@@ -283,13 +589,23 @@ export class WasmTransport implements PreviewTransport {
       return { cells: [], telemetry: [], error: "WASM engine not ready" };
     }
 
-    const runPass = (targetDoc: IRDoc): StudioFrame => {
-      const raw = window.renderStudio!(JSON.stringify(targetDoc), cols, rows, darkBG, colorProfile);
+    const runPass = (targetDoc: IRDoc, passCols = cols, passRows = rows): StudioFrame => {
+      const stripped: IRDoc = {
+        ...targetDoc,
+        overlays: targetDoc.overlays.map((o) =>
+          o.visible && (o.anchor === "place" || Boolean(o.harmonica?.enabled))
+            ? { ...o, visible: false }
+            : o
+        ),
+      };
+      const raw = window.renderStudio!(JSON.stringify(stripped), passCols, passRows, darkBG, colorProfile);
       return JSON.parse(raw) as StudioFrame;
     };
 
     if (!this.hasCustomHydratedWidgets(doc)) {
-      return runPass(doc);
+      const frame = runPass(doc);
+      if (frame.error) return frame;
+      return this.compositeCustomOverlays(doc, doc, frame, cols, rows, runPass);
     }
 
     const firstDoc = this.hydrateWidgetsForWasm(doc, cols, rows, darkBG);
@@ -310,10 +626,10 @@ export class WasmTransport implements PreviewTransport {
       }
     }
 
-    if (!needsRefit) return firstFrame;
-
-    const fittedDoc = this.hydrateWidgetsForWasm(doc, cols, rows, darkBG, telMap);
-    return runPass(fittedDoc);
+    const finalDoc = needsRefit ? this.hydrateWidgetsForWasm(doc, cols, rows, darkBG, telMap) : firstDoc;
+    const finalFrame = needsRefit ? runPass(finalDoc) : firstFrame;
+    if (finalFrame.error) return finalFrame;
+    return this.compositeCustomOverlays(doc, finalDoc, finalFrame, cols, rows, runPass);
   }
 
   sendKey(targetId: string, key: string, opts?: PreviewKeyOptions): boolean {

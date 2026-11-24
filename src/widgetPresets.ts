@@ -1,6 +1,6 @@
 import { defaultWidgetData, type ContentType, type IRDoc, type IRSize, type IRStyle, type OverlayAnchor, type TokenPair } from "./types";
 
-export type WidgetCategory = "Layout" | "Text" | "Input" | "Data" | "Feedback" | "Containers";
+export type WidgetCategory = "Layout" | "Text" | "Input" | "Data" | "Feedback" | "Containers" | "Primitives";
 
 export type WidgetGroupKey =
   | "layout"
@@ -10,7 +10,10 @@ export type WidgetGroupKey =
   | "glamour"
   | "gum"
   | "wish"
-  | "overlay";
+  | "overlay"
+  | "harmonica"
+  | "ultraviolet"
+  | "cellbuf";
 
 export type WidgetInsertKind = "box" | "container" | "overlay";
 
@@ -57,6 +60,7 @@ export const WIDGET_CATEGORIES: WidgetCategory[] = [
   "Data",
   "Feedback",
   "Containers",
+  "Primitives",
 ];
 
 function previewTokens(palette: PreviewPaletteSeed): Record<string, TokenPair> {
@@ -830,5 +834,297 @@ export const WIDGET_PRESETS: WidgetPreset[] = [
       },
       overlays: [],
     }),
+  },
+  {
+    id: "lipgloss-divider",
+    category: "Layout",
+    groupKey: "lipgloss",
+    packageName: "charm.land/lipgloss/v2#Divider",
+    title: "Lip Gloss Divider",
+    subtitle: "Horizontal or vertical styled rule separator with optional label.",
+    contentType: "lipgloss:divider",
+    baseId: "divider",
+    insertKind: "box",
+    keysHint: "Glyph · Color · Label",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 1 },
+    content: "Section",
+    stylePatch: { border: "none", borderColor: "$borderIdle", fg: "$accent", padding: [0, 0, 0, 0] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "lipgloss-divider",
+        "lipgloss:divider",
+        "Section",
+        { border: "none", borderColor: "$borderIdle", fg: "$accent", padding: [0, 1, 0, 1] },
+        palette,
+        { height: { mode: "fixed", value: 3 } }
+      ),
+  },
+  {
+    id: "bubbles-textarea",
+    category: "Input",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/textarea",
+    title: "Bubbles Textarea",
+    subtitle: "Multi-line code/notes editor with optional line numbers (bubbles/v2/textarea).",
+    contentType: "bubble:textarea",
+    baseId: "notesArea",
+    insertKind: "box",
+    keysHint: "Type · Enter · Backspace",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 8 },
+    content: "",
+    stylePatch: { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-textarea",
+        "bubble:textarea",
+        "",
+        { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+        palette
+      ),
+  },
+  {
+    id: "bubbles-progress",
+    category: "Feedback",
+    groupKey: "harmonica",
+    packageName: "charm.land/bubbles/v2/progress",
+    title: "Progress Bar",
+    subtitle: "Solid or gradient meter with Harmonica spring smoothing & % label.",
+    contentType: "bubble:progress",
+    baseId: "progressBar",
+    insertKind: "box",
+    keysHint: "←/→  +/-  Harmonica",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 3 },
+    content: "Deploy Progress",
+    stylePatch: { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-progress",
+        "bubble:progress",
+        "Deploy",
+        { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+        palette,
+        { height: { mode: "fixed", value: 4 } }
+      ),
+  },
+  {
+    id: "bubbles-spinner",
+    category: "Feedback",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/spinner",
+    title: "Bubbles Spinner",
+    subtitle: "Animated status indicator supporting all 9 preset frame styles.",
+    contentType: "bubble:spinner",
+    baseId: "spinner",
+    insertKind: "box",
+    keysHint: "9 presets · Space toggle",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 3 },
+    content: "Syncing modules...",
+    stylePatch: { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-spinner",
+        "bubble:spinner",
+        "Syncing packages...",
+        { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+        palette,
+        { height: { mode: "fixed", value: 3 } }
+      ),
+  },
+  {
+    id: "bubbles-filepicker",
+    category: "Data",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/filepicker",
+    title: "Bubbles File Picker",
+    subtitle: "Interactive directory navigator with extension filters and sizes.",
+    contentType: "bubble:filepicker",
+    baseId: "filePicker",
+    insertKind: "box",
+    keysHint: "↑/↓  Enter  Backspace",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fill", weight: 1 },
+    content: "",
+    stylePatch: { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-filepicker",
+        "bubble:filepicker",
+        "",
+        { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+        palette
+      ),
+  },
+  {
+    id: "bubbles-paginator",
+    category: "Data",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/paginator",
+    title: "Bubbles Paginator",
+    subtitle: "Dots or Arabic page stepper indicator for multi-page views.",
+    contentType: "bubble:paginator",
+    baseId: "pager",
+    insertKind: "box",
+    keysHint: "←/→  h/l",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 3 },
+    content: "",
+    stylePatch: { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1], alignH: "center" },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-paginator",
+        "bubble:paginator",
+        "",
+        { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1], alignH: "center" },
+        palette,
+        { height: { mode: "fixed", value: 3 } }
+      ),
+  },
+  {
+    id: "bubbles-help",
+    category: "Layout",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/help",
+    title: "Bubbles Help Bar",
+    subtitle: "Keymap bar with short inline mode and expandable multi-column view.",
+    contentType: "bubble:help",
+    baseId: "helpBar",
+    insertKind: "box",
+    keysHint: "? toggle full/short",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 4 },
+    content: "",
+    stylePatch: { border: "normal", borderEdges: [true, false, false, false], borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-help",
+        "bubble:help",
+        "",
+        { border: "normal", borderEdges: [true, false, false, false], borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+        palette
+      ),
+  },
+  {
+    id: "bubbles-timer",
+    category: "Feedback",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/timer",
+    title: "Bubbles Timer",
+    subtitle: "Countdown clock with start, pause, and reset controls.",
+    contentType: "bubble:timer",
+    baseId: "countdown",
+    insertKind: "box",
+    keysHint: "Space  r reset",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 3 },
+    content: "",
+    stylePatch: { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-timer",
+        "bubble:timer",
+        "",
+        { border: "rounded", borderColor: "$accent", padding: [0, 1, 0, 1] },
+        palette,
+        { height: { mode: "fixed", value: 3 } }
+      ),
+  },
+  {
+    id: "bubbles-stopwatch",
+    category: "Feedback",
+    groupKey: "bubbles",
+    packageName: "charm.land/bubbles/v2/stopwatch",
+    title: "Bubbles Stopwatch",
+    subtitle: "Elapsed time counter with live tick progression and reset.",
+    contentType: "bubble:stopwatch",
+    baseId: "stopwatch",
+    insertKind: "box",
+    keysHint: "Space  r reset",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fixed", value: 3 },
+    content: "",
+    stylePatch: { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "bubbles-stopwatch",
+        "bubble:stopwatch",
+        "",
+        { border: "rounded", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+        palette,
+        { height: { mode: "fixed", value: 3 } }
+      ),
+  },
+  {
+    id: "uv-screen",
+    category: "Primitives",
+    groupKey: "ultraviolet",
+    packageName: "github.com/charmbracelet/ultraviolet",
+    title: "Ultraviolet Screen",
+    subtitle: "Low-level uv.Screen cell grid with cursor & coordinate commands.",
+    contentType: "uv:screen",
+    baseId: "uvScreen",
+    insertKind: "box",
+    keysHint: "x,y,char · cursor",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fill", weight: 1 },
+    content: "",
+    stylePatch: { border: "normal", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "uv-screen",
+        "uv:screen",
+        "",
+        { border: "normal", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+        palette
+      ),
+  },
+  {
+    id: "cellbuf-canvas",
+    category: "Primitives",
+    groupKey: "cellbuf",
+    packageName: "github.com/charmbracelet/x/cellbuf",
+    title: "Cellbuf 2D Canvas",
+    subtitle: "Direct 2D cellbuf layer composing rects, boxes, lines & labels.",
+    contentType: "cellbuf:canvas",
+    baseId: "cellbufCanvas",
+    insertKind: "box",
+    keysHint: "Shapes · Z-layers",
+    width: { mode: "fill", weight: 1 },
+    height: { mode: "fill", weight: 1 },
+    content: "",
+    stylePatch: { border: "normal", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+    previewCols: 34,
+    previewRows: 7,
+    buildPreviewDoc: (palette) =>
+      singleBoxPreviewDoc(
+        "cellbuf-canvas",
+        "cellbuf:canvas",
+        "",
+        { border: "normal", borderColor: "$borderIdle", padding: [0, 1, 0, 1] },
+        palette
+      ),
   },
 ];

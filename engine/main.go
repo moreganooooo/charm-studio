@@ -11,15 +11,24 @@ import (
 
     "charmstudio/engine/astsync"
 
+    "charm.land/bubbles/v2/help"
+    "charm.land/bubbles/v2/key"
     "charm.land/bubbles/v2/list"
+    "charm.land/bubbles/v2/paginator"
+    "charm.land/bubbles/v2/progress"
+    "charm.land/bubbles/v2/spinner"
+    "charm.land/bubbles/v2/stopwatch"
     "charm.land/bubbles/v2/table"
+    "charm.land/bubbles/v2/textarea"
     "charm.land/bubbles/v2/textinput"
+    "charm.land/bubbles/v2/timer"
     "charm.land/bubbles/v2/viewport"
     tea "charm.land/bubbletea/v2"
     "charm.land/huh/v2"
     "charm.land/lipgloss/v2"
     "github.com/charmbracelet/colorprofile"
     uv "github.com/charmbracelet/ultraviolet"
+    "time"
 )
 
 // --- Layout IR ---
@@ -37,21 +46,26 @@ type TokenPair struct {
 }
 
 type IRStyle struct {
-    Border      string   `json:"border"`
-    BorderEdges *[4]bool `json:"borderEdges,omitempty"` // [top, right, bottom, left]
-    BorderColor string   `json:"borderColor"`
-    Fg          string   `json:"fg"`
-    Bg          string   `json:"bg"`
-    Padding     [4]int   `json:"padding"`
-    Margin      [4]int   `json:"margin"`
-    Bold        bool     `json:"bold"`
-    Italic      bool     `json:"italic,omitempty"`
-    Faint       bool     `json:"faint,omitempty"`
-    Underline   bool     `json:"underline,omitempty"`
-    Strikethrough bool     `json:"strikethrough,omitempty"`
-    AlignH      string   `json:"alignH,omitempty"` // "left", "center", "right"
-    AlignV      string   `json:"alignV,omitempty"` // "top", "center", "bottom"
-    Truncate    bool     `json:"truncate,omitempty"`
+    Border        string                  `json:"border"`
+    BorderEdges   *[4]bool                `json:"borderEdges,omitempty"` // [top, right, bottom, left]
+    CustomBorder  *astsync.IRCustomBorder `json:"customBorder,omitempty"`
+    BorderColor   string                  `json:"borderColor"`
+    Fg            string                  `json:"fg"`
+    Bg            string                  `json:"bg"`
+    Padding       [4]int                  `json:"padding"`
+    Margin        [4]int                  `json:"margin"`
+    MaxWidth      int                     `json:"maxWidth,omitempty"`
+    MaxHeight     int                     `json:"maxHeight,omitempty"`
+    Bold          bool                    `json:"bold"`
+    Italic        bool                    `json:"italic,omitempty"`
+    Faint         bool                    `json:"faint,omitempty"`
+    Underline     bool                    `json:"underline,omitempty"`
+    Strikethrough bool                    `json:"strikethrough,omitempty"`
+    AlignH        string                  `json:"alignH,omitempty"` // "left", "center", "right"
+    AlignV        string                  `json:"alignV,omitempty"` // "top", "center", "bottom"
+    PlaceH        string                  `json:"placeH,omitempty"`
+    PlaceV        string                  `json:"placeV,omitempty"`
+    Truncate      bool                    `json:"truncate,omitempty"`
 }
 
 type IRSize struct {
@@ -62,24 +76,29 @@ type IRSize struct {
 }
 
 type IRNode struct {
-    ID          string   `json:"id"`
-    Kind        string   `json:"kind"`
-    Style       string   `json:"style"`
-    ContentType string   `json:"contentType"`
-    JoinAlign   string   `json:"joinAlign,omitempty"` // "start", "center", "end"
-    Width       IRSize   `json:"width"`
-    Height      IRSize   `json:"height"`
-    Content     string   `json:"content"`
+    ID          string                `json:"id"`
+    Kind        string                `json:"kind"`
+    Style       string                `json:"style"`
+    ContentType string                `json:"contentType"`
+    JoinAlign   string                `json:"joinAlign,omitempty"` // "start", "center", "end"
+    Width       IRSize                `json:"width"`
+    Height      IRSize                `json:"height"`
+    Content     string                `json:"content"`
     WidgetData  *astsync.IRWidgetData `json:"widgetData,omitempty"`
-    Children    []IRNode `json:"children"`
+    Children    []IRNode              `json:"children"`
 }
 
 type IROverlay struct {
-    ID      string `json:"id"`
-    Visible bool   `json:"visible"`
-    Z       int    `json:"z"`
-    Anchor  string `json:"anchor,omitempty"`
-    Node    IRNode `json:"node"`
+    ID        string                     `json:"id"`
+    Visible   bool                       `json:"visible"`
+    Z         int                        `json:"z"`
+    Anchor    string                     `json:"anchor,omitempty"`
+    PlaceX    *int                       `json:"placeX,omitempty"`
+    PlaceY    *int                       `json:"placeY,omitempty"`
+    PlaceH    string                     `json:"placeH,omitempty"`
+    PlaceV    string                     `json:"placeV,omitempty"`
+    Harmonica *astsync.IRHarmonicaConfig `json:"harmonica,omitempty"`
+    Node      IRNode                     `json:"node"`
 }
 
 // --- Frame & Telemetry Output ---
@@ -137,13 +156,29 @@ func (i listItem) Title() string       { return i.title }
 func (i listItem) Description() string { return i.desc }
 func (i listItem) FilterValue() string { return i.title }
 
+type studioHelpMap struct {
+    bindings []key.Binding
+}
+
+func (k studioHelpMap) ShortHelp() []key.Binding  { return k.bindings }
+func (k studioHelpMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.bindings} }
+
 type bubbleEntry struct {
-    kind  string
-    list  list.Model
-    table table.Model
-    vp    viewport.Model
-    input textinput.Model
-    form  *huh.Form
+    kind      string
+    list      list.Model
+    table     table.Model
+    vp        viewport.Model
+    input     textinput.Model
+    textarea  textarea.Model
+    progress  progress.Model
+    pct       float64
+    spinner   spinner.Model
+    paginator paginator.Model
+    help      help.Model
+    helpKeys  studioHelpMap
+    timer     timer.Model
+    stopwatch stopwatch.Model
+    form      *huh.Form
 }
 
 var (
@@ -229,6 +264,47 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
             ti.SetVirtualCursor(true)
             ti.Focus()
             entry.input = ti
+
+        case "bubble:textarea":
+            ta := textarea.New()
+            ta.Placeholder = "Write notes, SQL, or commit message..."
+            ta.ShowLineNumbers = true
+            ta.SetWidth(max(12, w))
+            ta.SetHeight(max(3, h))
+            ta.Focus()
+            entry.textarea = ta
+
+        case "bubble:progress":
+            entry.progress = progress.New(progress.WithDefaultGradient())
+            entry.pct = 0.68
+
+        case "bubble:spinner":
+            sp := spinner.New()
+            sp.Spinner = spinner.Dot
+            entry.spinner = sp
+
+        case "bubble:paginator":
+            pg := paginator.New()
+            pg.Type = paginator.Dots
+            pg.TotalPages = 5
+            pg.PerPage = 10
+            entry.paginator = pg
+
+        case "bubble:help":
+            hp := help.New()
+            entry.help = hp
+            entry.helpKeys = studioHelpMap{bindings: []key.Binding{
+                key.NewBinding(key.WithKeys("↑/k"), key.WithHelp("↑/k", "up")),
+                key.NewBinding(key.WithKeys("↓/j"), key.WithHelp("↓/j", "down")),
+                key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+                key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+            }}
+
+        case "bubble:timer":
+            entry.timer = timer.NewWithInterval(90*time.Second, time.Second)
+
+        case "bubble:stopwatch":
+            entry.stopwatch = stopwatch.NewWithInterval(100 * time.Millisecond)
 
         case "huh:form":
             f := huh.NewForm(
@@ -326,6 +402,36 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
         }
         input.SetStyles(styles)
         input.SetWidth(max(1, w-lipgloss.Width(input.Prompt)-1))
+    case "bubble:textarea":
+        entry.textarea.SetWidth(max(10, w))
+        entry.textarea.SetHeight(max(3, h))
+        if node.WidgetData != nil && node.WidgetData.TextareaShowLineNumbers != nil {
+            entry.textarea.ShowLineNumbers = *node.WidgetData.TextareaShowLineNumbers
+        }
+    case "bubble:progress":
+        entry.progress.SetWidth(max(8, w))
+        if node.WidgetData != nil && node.WidgetData.ProgressPercent > 0 {
+            entry.pct = node.WidgetData.ProgressPercent / 100.0
+        }
+    case "bubble:paginator":
+        if node.WidgetData != nil {
+            if node.WidgetData.PaginatorType == "arabic" {
+                entry.paginator.Type = paginator.Arabic
+            } else {
+                entry.paginator.Type = paginator.Dots
+            }
+            if node.WidgetData.PaginatorTotalPages > 0 {
+                entry.paginator.TotalPages = node.WidgetData.PaginatorTotalPages
+            }
+            if node.WidgetData.PaginatorPage > 0 {
+                entry.paginator.Page = max(0, node.WidgetData.PaginatorPage-1)
+            }
+        }
+    case "bubble:help":
+        entry.help.SetWidth(max(12, w))
+        if node.WidgetData != nil && node.WidgetData.HelpShowAll != nil {
+            entry.help.ShowAll = *node.WidgetData.HelpShowAll
+        }
     case "huh:form":
         if entry.form != nil {
             entry.form.WithTheme(huh.ThemeFunc(huh.ThemeCharm))
@@ -365,6 +471,20 @@ func renderNodeContent(node IRNode, spec IRStyle, innerW, innerH int, hasDarkBG 
             return b.vp.View()
         case "bubble:textinput":
             return b.input.View()
+        case "bubble:textarea":
+            return b.textarea.View()
+        case "bubble:progress":
+            return b.progress.ViewAs(b.pct)
+        case "bubble:spinner":
+            return b.spinner.View() + " " + node.Content
+        case "bubble:paginator":
+            return b.paginator.View()
+        case "bubble:help":
+            return b.help.View(b.helpKeys)
+        case "bubble:timer":
+            return b.timer.View()
+        case "bubble:stopwatch":
+            return b.stopwatch.View()
         case "huh:form":
             if b.form != nil {
                 return b.form.View()
@@ -444,6 +564,21 @@ func dispatchStudioKey(_ js.Value, args []js.Value) any {
         default:
             entry.input, _ = entry.input.Update(msg)
         }
+    case "bubble:textarea":
+        if keyStr == "Tab" || keyStr == "Shift+Tab" {
+            return false
+        }
+        entry.textarea, _ = entry.textarea.Update(msg)
+    case "bubble:paginator":
+        entry.paginator, _ = entry.paginator.Update(msg)
+    case "bubble:help":
+        if keyStr == "?" {
+            entry.help.ShowAll = !entry.help.ShowAll
+        }
+    case "bubble:timer":
+        entry.timer, _ = entry.timer.Update(msg)
+    case "bubble:stopwatch":
+        entry.stopwatch, _ = entry.stopwatch.Update(msg)
     case "huh:form":
         if entry.form != nil {
             m, _ := entry.form.Update(msg)
@@ -586,6 +721,19 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
             s = s.Border(lipgloss.DoubleBorder())
         case "hidden":
             s = s.Border(lipgloss.HiddenBorder())
+        case "custom":
+            if spec.CustomBorder != nil {
+                s = s.Border(lipgloss.Border{
+                    Top:         spec.CustomBorder.Top,
+                    Bottom:      spec.CustomBorder.Bottom,
+                    Left:        spec.CustomBorder.Left,
+                    Right:       spec.CustomBorder.Right,
+                    TopLeft:     spec.CustomBorder.TopLeft,
+                    TopRight:    spec.CustomBorder.TopRight,
+                    BottomLeft:  spec.CustomBorder.BottomLeft,
+                    BottomRight: spec.CustomBorder.BottomRight,
+                })
+            }
         }
 
         if spec.Border != "" && spec.Border != "none" && spec.BorderEdges != nil {
@@ -609,6 +757,12 @@ func buildStyles(doc IRDoc, hasDarkBG bool) map[string]lipgloss.Style {
         }
         if spec.Bg != "" {
             s = s.Background(lipgloss.Color(resolveColor(spec.Bg, doc.Tokens, hasDarkBG)))
+        }
+        if spec.MaxWidth > 0 {
+            s = s.MaxWidth(spec.MaxWidth)
+        }
+        if spec.MaxHeight > 0 {
+            s = s.MaxHeight(spec.MaxHeight)
         }
         if spec.AlignH != "" {
             s = s.AlignHorizontal(toLipPos(spec.AlignH, lipgloss.Left))
@@ -724,6 +878,15 @@ func evalNode(node IRNode, x, y, availW, availH, viewW int, hasDarkBG bool, doc 
         bodyStr := renderNodeContent(node, spec, innerW, innerH, hasDarkBG, doc.Tokens)
 
         rendered := s.Render(bodyStr)
+        if spec.PlaceH != "" || spec.PlaceV != "" {
+            rendered = lipgloss.Place(
+                max(1, targetW),
+                max(1, targetH),
+                toLipPos(spec.PlaceH, lipgloss.Left),
+                toLipPos(spec.PlaceV, lipgloss.Top),
+                rendered,
+            )
+        }
         actualW, actualH := lipgloss.Size(rendered)
 
         mRect := Rect{X: x, Y: y, W: actualW, H: actualH}
@@ -820,6 +983,28 @@ func renderStudio(_ js.Value, args []js.Value) any {
             ovW = max(20, cols-4)
             ox = max(0, (cols-ovW)/2)
             oy = max(0, rows-ovH-1)
+        case "place":
+            if ov.PlaceX != nil || ov.PlaceY != nil {
+                if ov.PlaceX != nil {
+                    ox = max(0, min(cols-ovW, *ov.PlaceX))
+                }
+                if ov.PlaceY != nil {
+                    oy = max(0, min(rows-ovH, *ov.PlaceY))
+                }
+            } else {
+                switch ov.PlaceH {
+                case "left":
+                    ox = 0
+                case "right":
+                    ox = max(0, cols-ovW)
+                }
+                switch ov.PlaceV {
+                case "top":
+                    oy = 0
+                case "bottom":
+                    oy = max(0, rows-ovH)
+                }
+            }
         }
         ovStr := evalNode(ov.Node, ox, oy, ovW, ovH, cols, hasDarkBG, doc, styles, &tel)
         layers = append(layers, lipgloss.NewLayer(ovStr).X(ox).Y(oy).Z(ov.Z).ID(ov.Node.ID))

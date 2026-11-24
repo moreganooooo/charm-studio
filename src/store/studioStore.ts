@@ -25,6 +25,7 @@ import {
   type ColorProfile,
   type IRDoc,
   type IRNode,
+  type IROverlay,
   type IRStyle,
   type IRViewConfig,
   type KeyPulse,
@@ -256,6 +257,7 @@ export interface StudioStoreValue {
   pruneStyles: () => number;
   toggleOverlay: (overlayId: string) => void;
   setOverlayAnchor: (overlayId: string, anchor: OverlayAnchor) => void;
+  updateOverlay: (overlayId: string, patch: Partial<IROverlay>) => void;
   addOverlay: () => string;
   removeOverlay: (overlayId: string) => void;
   updateNode: (nodeId: string, updater: (n: IRNode) => IRNode) => void;
@@ -992,6 +994,17 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     [commitIr, markStep]
   );
 
+  const updateOverlay = useCallback(
+    (overlayId: string, patch: Partial<IROverlay>) => {
+      commitIr((prev) => ({
+        ...prev,
+        overlays: prev.overlays.map((o) => (o.id === overlayId ? { ...o, ...patch } : o)),
+      }));
+      markStep("styledOrInteracted");
+    },
+    [commitIr, markStep]
+  );
+
   const addOverlay = useCallback(() => {
     const { doc: next, nodeId } = addOverlayToDoc(ir);
     commitIr(next);
@@ -1357,6 +1370,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     pruneStyles,
     toggleOverlay,
     setOverlayAnchor,
+    updateOverlay,
     addOverlay,
     removeOverlay,
     updateNode,

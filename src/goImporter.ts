@@ -179,7 +179,7 @@ function extractGoSyncMetadata(src: string): GoSyncMetadata {
       if (!args && (method === "Border" || method.startsWith("Padding") || method.startsWith("Margin"))) continue;
 
       if (method === "Border") {
-        if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)/.test(args)) {
+        if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)|lipgloss\.Border\s*\{/.test(args)) {
           recordDynamic(styleName, "border", args);
         }
       } else if (method === "BorderTop" || method === "BorderRight" || method === "BorderBottom" || method === "BorderLeft") {
@@ -452,6 +452,7 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
     else if (/HiddenBorder\(\)/.test(chain)) st.border = "hidden";
     else if (/DoubleBorder\(\)/.test(chain)) st.border = "double";
     else if (/NormalBorder\(\)/.test(chain)) st.border = "normal";
+    else if (/lipgloss\.Border\s*\{/.test(chain)) st.border = "custom";
 
     const callRe = /\.\s*(\w+)\(/g;
     for (const cm of chain.matchAll(callRe)) {
@@ -460,7 +461,25 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
       const trimmedArgs = args.trim();
 
       if (method === "Border") {
-        if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)/.test(trimmedArgs)) {
+        const customMatch = trimmedArgs.match(/lipgloss\.Border\s*\{([\s\S]*)\}/);
+        if (customMatch) {
+          const body = customMatch[1];
+          const pick = (field: string, fb: string) => {
+            const fm = body.match(new RegExp(`\\b${field}\\s*:\\s*"([^"]*)"`));
+            return fm ? fm[1] : fb;
+          };
+          st.border = "custom";
+          st.customBorder = {
+            top: pick("Top", "-"),
+            bottom: pick("Bottom", "-"),
+            left: pick("Left", "|"),
+            right: pick("Right", "|"),
+            topLeft: pick("TopLeft", "+"),
+            topRight: pick("TopRight", "+"),
+            bottomLeft: pick("BottomLeft", "+"),
+            bottomRight: pick("BottomRight", "+"),
+          };
+        } else if (!/(?:Rounded|Thick|Double|Normal|Hidden)Border\(\)/.test(trimmedArgs)) {
           addLockedProp(lockedProps, styleName, "border");
           lockedSymbolsSet.add(styleName);
         }
@@ -564,6 +583,10 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
           addLockedProp(lockedProps, styleName, "alignV");
           lockedSymbolsSet.add(styleName);
         }
+      } else if (method === "MaxWidth") {
+        if (/^\d+$/.test(trimmedArgs)) st.maxWidth = parseNums(args)[0] ?? 0;
+      } else if (method === "MaxHeight") {
+        if (/^\d+$/.test(trimmedArgs)) st.maxHeight = parseNums(args)[0] ?? 0;
       }
     }
 
@@ -628,9 +651,19 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
   if (/bubbles(?:\/v2)?\/table/.test(combinedGo)) detectedBubbles.push("bubble:table");
   if (/bubbles(?:\/v2)?\/viewport/.test(combinedGo)) detectedBubbles.push("bubble:viewport");
   if (/bubbles(?:\/v2)?\/textinput/.test(combinedGo)) detectedBubbles.push("bubble:textinput");
+  if (/bubbles(?:\/v2)?\/textarea/.test(combinedGo)) detectedBubbles.push("bubble:textarea");
+  if (/bubbles(?:\/v2)?\/progress/.test(combinedGo)) detectedBubbles.push("bubble:progress");
+  if (/bubbles(?:\/v2)?\/spinner/.test(combinedGo)) detectedBubbles.push("bubble:spinner");
+  if (/bubbles(?:\/v2)?\/filepicker/.test(combinedGo)) detectedBubbles.push("bubble:filepicker");
+  if (/bubbles(?:\/v2)?\/paginator/.test(combinedGo)) detectedBubbles.push("bubble:paginator");
+  if (/bubbles(?:\/v2)?\/help/.test(combinedGo)) detectedBubbles.push("bubble:help");
+  if (/bubbles(?:\/v2)?\/timer/.test(combinedGo)) detectedBubbles.push("bubble:timer");
+  if (/bubbles(?:\/v2)?\/stopwatch/.test(combinedGo)) detectedBubbles.push("bubble:stopwatch");
   if (/charmbracelet\/huh|charm\.land\/huh/.test(combinedGo)) detectedBubbles.push("huh:form");
   if (/charmbracelet\/glamour|charm\.land\/glamour/.test(combinedGo)) detectedBubbles.push("glamour:markdown");
   if (/charmbracelet\/wish|charm\.land\/wish/.test(combinedGo)) detectedBubbles.push("wish:ssh");
+  if (/charmbracelet\/ultraviolet/.test(combinedGo)) detectedBubbles.push("uv:screen");
+  if (/charmbracelet\/x\/cellbuf/.test(combinedGo)) detectedBubbles.push("cellbuf:canvas");
 
   return mergeSyncMetadata(
     {

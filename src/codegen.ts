@@ -50,13 +50,26 @@ function formatQuad(method: string, q: [number, number, number, number]): string
   return `.${method}(${t}, ${r}, ${b}, ${l})`;
 }
 
-function borderExpr(border: IRStyle["border"]): string | null {
-  switch (border) {
+function borderExpr(st: IRStyle): string | null {
+  switch (st.border) {
     case "rounded": return ".Border(lipgloss.RoundedBorder())";
     case "normal":  return ".Border(lipgloss.NormalBorder())";
     case "thick":   return ".Border(lipgloss.ThickBorder())";
     case "hidden":  return ".Border(lipgloss.HiddenBorder())";
     case "double":  return ".Border(lipgloss.DoubleBorder())";
+    case "custom": {
+      const cb = st.customBorder ?? {
+        top: "-",
+        bottom: "-",
+        left: "|",
+        right: "|",
+        topLeft: "+",
+        topRight: "+",
+        bottomLeft: "+",
+        bottomRight: "+",
+      };
+      return `.Border(lipgloss.Border{Top: ${JSON.stringify(cb.top)}, Bottom: ${JSON.stringify(cb.bottom)}, Left: ${JSON.stringify(cb.left)}, Right: ${JSON.stringify(cb.right)}, TopLeft: ${JSON.stringify(cb.topLeft)}, TopRight: ${JSON.stringify(cb.topRight)}, BottomLeft: ${JSON.stringify(cb.bottomLeft)}, BottomRight: ${JSON.stringify(cb.bottomRight)}})`;
+    }
     default:        return null;
   }
 }
@@ -104,7 +117,7 @@ export function generateStylesGo(doc: IRDoc): string {
     .join("\n");
 
   const usedColors = new Set(styleEntries.flatMap(([, style]) =>
-    [style.fg, style.bg, borderExpr(style.border) ? style.borderColor : undefined]
+    [style.fg, style.bg, borderExpr(style) ? style.borderColor : undefined]
   ));
   const tokenDecls = tokenEntries.map(([name, pair]) => {
     const variable = toCamel(name);
@@ -115,7 +128,7 @@ export function generateStylesGo(doc: IRDoc): string {
   const styleInits = styleEntries
     .map(([name, st]) => {
       const chains: string[] = [];
-      const b = borderExpr(st.border);
+      const b = borderExpr(st);
       if (b) {
         chains.push(b);
         if (st.borderEdges && st.borderEdges.some((e) => !e)) {
@@ -133,6 +146,8 @@ export function generateStylesGo(doc: IRDoc): string {
       if (pad) chains.push(pad);
       const mar = formatQuad("Margin", st.margin);
       if (mar) chains.push(mar);
+      if (st.maxWidth && st.maxWidth > 0) chains.push(`.MaxWidth(${st.maxWidth})`);
+      if (st.maxHeight && st.maxHeight > 0) chains.push(`.MaxHeight(${st.maxHeight})`);
       if (st.bold) chains.push(".Bold(true)");
       if (st.italic) chains.push(".Italic(true)");
       if (st.faint) chains.push(".Faint(true)");
@@ -206,7 +221,14 @@ export function generateLayoutGo(doc: IRDoc): string {
         contentArg = `truncate(${contentArg}, max(1, ${wExpr}-${stRef}.GetHorizontalFrameSize()))`;
       }
       lines.push(`${indent}// @tui:id=${node.id}`);
-      lines.push(`${indent}${v} := ${stRef}${chain}.Render(${contentArg})`);
+      if (stObj?.placeH || stObj?.placeV) {
+        lines.push(`${indent}${v}Inner := ${stRef}${chain}.Render(${contentArg})`);
+        lines.push(
+          `${indent}${v} := lipgloss.Place(max(1, ${wExpr}-${stRef}.GetHorizontalMargins()), max(1, ${hExpr}-${stRef}.GetVerticalMargins()), ${lipPos(stObj.placeH, "h")}, ${lipPos(stObj.placeV, "v")}, ${v}Inner)`
+        );
+      } else {
+        lines.push(`${indent}${v} := ${stRef}${chain}.Render(${contentArg})`);
+      }
       return v;
     }
 
@@ -293,9 +315,20 @@ export function generateLayoutGo(doc: IRDoc): string {
         wCode = `max(20, w-4)`;
         xExpr = `max(0, (w-${wCode})/2)`;
         yExpr = `max(0, h-${oh}-1)`;
+      } else if (anchor === "place") {
+        if (ov.placeX !== undefined || ov.placeY !== undefined) {
+          xExpr = `max(0, min(w-${ow}, ${ov.placeX ?? 4}))`;
+          yExpr = `max(0, min(h-${oh}, ${ov.placeY ?? 2}))`;
+        } else {
+          xExpr = ov.placeH === "right" ? `max(0, w-${ow})` : ov.placeH === "left" ? `0` : `max(0, (w-${ow})/2)`;
+          yExpr = ov.placeV === "bottom" ? `max(0, h-${oh})` : ov.placeV === "top" ? `0` : `max(0, (h-${oh})/2)`;
+        }
       }
 
       lines.push(`\t// @tui:id=${ov.node.id}`);
+      if (ov.harmonica?.enabled) {
+        lines.push(`\t// Harmonica spring animation: frequency=${ov.harmonica.frequency.toFixed(1)}, damping=${ov.harmonica.damping.toFixed(2)}`);
+      }
       lines.push(`\t${ovVar} := ${stRef}.Width(${wCode} - ${stRef}.GetHorizontalMargins()).Height(${oh} - ${stRef}.GetVerticalMargins()).Render(${toCamel(ov.node.id)}Content)`);
       lines.push(`\tlayers = append(layers, lipgloss.NewLayer(${ovVar}).X(${xExpr}).Y(${yExpr}).Z(${ov.z}).ID(${JSON.stringify(ov.node.id)}))`);
     }
@@ -343,15 +376,36 @@ function inspectDocCapabilities(doc: IRDoc, rawModuleName = "github.com/charm-us
   const usesTable = usedTypes.has("bubble:table");
   const usesViewport = usedTypes.has("bubble:viewport");
   const usesInput = usedTypes.has("bubble:textinput");
+  const usesTextarea = usedTypes.has("bubble:textarea");
+  const usesProgress = usedTypes.has("bubble:progress");
+  const usesSpinner = usedTypes.has("bubble:spinner");
+  const usesFilepicker = usedTypes.has("bubble:filepicker");
+  const usesPaginator = usedTypes.has("bubble:paginator");
+  const usesHelp = usedTypes.has("bubble:help");
+  const usesTimer = usedTypes.has("bubble:timer");
+  const usesStopwatch = usedTypes.has("bubble:stopwatch");
+  const usesDivider = usedTypes.has("lipgloss:divider");
   const usesGlamour = usedTypes.has("glamour:markdown");
   const usesHuh = usedTypes.has("huh:form");
   const usesWish = usedTypes.has("wish:ssh");
+  const usesUv = usedTypes.has("uv:screen");
+  const usesCellbuf = usedTypes.has("cellbuf:canvas");
+  const usesHarmonica =
+    allBoxes.some((b) => b.contentType === "bubble:progress" && (b.widgetData?.harmonica?.enabled ?? true)) ||
+    doc.overlays.some((o) => o.visible && o.harmonica?.enabled);
 
   const interactiveWidgets = allBoxes.filter((n) =>
     n.contentType === "bubble:list" ||
     n.contentType === "bubble:table" ||
     n.contentType === "bubble:viewport" ||
     n.contentType === "bubble:textinput" ||
+    n.contentType === "bubble:textarea" ||
+    n.contentType === "bubble:progress" ||
+    n.contentType === "bubble:filepicker" ||
+    n.contentType === "bubble:paginator" ||
+    n.contentType === "bubble:help" ||
+    n.contentType === "bubble:timer" ||
+    n.contentType === "bubble:stopwatch" ||
     n.contentType === "huh:form"
   );
 
@@ -364,9 +418,21 @@ function inspectDocCapabilities(doc: IRDoc, rawModuleName = "github.com/charm-us
     usesTable,
     usesViewport,
     usesInput,
+    usesTextarea,
+    usesProgress,
+    usesSpinner,
+    usesFilepicker,
+    usesPaginator,
+    usesHelp,
+    usesTimer,
+    usesStopwatch,
+    usesDivider,
     usesGlamour,
     usesHuh,
     usesWish,
+    usesUv,
+    usesCellbuf,
+    usesHarmonica,
     interactiveWidgets,
   };
 }
@@ -526,7 +592,7 @@ export function generateFixturesPreviewGo(doc: IRDoc): string {
       const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
       let selectIdx = 0;
       for (const f of fields) {
-        if (f.kind !== "select") continue;
+        if (f.kind !== "select" && f.kind !== "multiselect") continue;
         const suffix = selectIdx === 0 ? "Options" : `Select${selectIdx + 1}Options`;
         selectIdx++;
         const opts = f.options?.length ? f.options : ["Option A", "Option B"];
@@ -556,6 +622,49 @@ package main
 ${importBlock}${initBody}`;
 }
 
+function mapSpinnerTypeExpr(t?: string): string {
+  switch (t) {
+    case "line": return "spinner.Line";
+    case "mini-dot": return "spinner.MiniDot";
+    case "jump": return "spinner.Jump";
+    case "pulse": return "spinner.Pulse";
+    case "points": return "spinner.Points";
+    case "globe": return "spinner.Globe";
+    case "moon": return "spinner.Moon";
+    case "monkey": return "spinner.Monkey";
+    default: return "spinner.Dot";
+  }
+}
+
+function mapHuhThemeFunc(theme?: string): string {
+  switch (theme) {
+    case "dracula": return "huh.ThemeDracula";
+    case "catppuccin": return "huh.ThemeCatppuccin";
+    case "base16": return "huh.ThemeBase16";
+    default: return "huh.ThemeCharm";
+  }
+}
+
+function huhValidationSnippet(f: { validation?: string; validationParam?: string; errorMessage?: string }): string {
+  const rule = f.validation ?? "none";
+  if (rule === "none") return "";
+  const errMsg = JSON.stringify(f.errorMessage || "Invalid input");
+  if (rule === "required") {
+    return `.Validate(func(s string) error { if strings.TrimSpace(s) == "" { return fmt.Errorf(%s) }; return nil })`.replace("%s", errMsg);
+  }
+  if (rule === "minLength") {
+    const minLen = Math.max(1, parseInt(f.validationParam || "3", 10) || 3);
+    return `.Validate(func(s string) error { if len(strings.TrimSpace(s)) < ${minLen} { return fmt.Errorf(${errMsg}) }; return nil })`;
+  }
+  if (rule === "email") {
+    return `.Validate(func(s string) error { if !strings.Contains(s, "@") { return fmt.Errorf(${errMsg}) }; return nil })`;
+  }
+  if (rule === "regex") {
+    return `.Validate(func(s string) error { if strings.TrimSpace(s) == "" { return fmt.Errorf(${errMsg}) }; return nil })`;
+  }
+  return "";
+}
+
 export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): { code: string; spans: CodeSpanMap } {
   const {
     moduleName,
@@ -564,18 +673,45 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     usesTable,
     usesViewport,
     usesInput,
+    usesTextarea,
+    usesProgress,
+    usesSpinner,
+    usesFilepicker,
+    usesPaginator,
+    usesHelp,
+    usesTimer,
+    usesStopwatch,
     usesHuh,
     usesWish,
+    usesHarmonica,
     interactiveWidgets,
   } = inspectDocCapabilities(doc, rawModuleName);
 
+  const hasHuhValidation = allBoxes.some(
+    (b) => b.contentType === "huh:form" && (b.widgetData?.huhFields ?? []).some((f) => f.validation && f.validation !== "none")
+  );
+
+  const stdImports: string[] = [];
+  if (hasHuhValidation) stdImports.push(`"fmt"`, `"strings"`);
+  if (usesTimer || usesStopwatch) stdImports.push(`"time"`);
+
   const imports: string[] = [];
+  if (usesHelp) imports.push(`"charm.land/bubbles/v2/help"`, `"charm.land/bubbles/v2/key"`);
   if (usesList) imports.push(`"charm.land/bubbles/v2/list"`);
+  if (usesPaginator) imports.push(`"charm.land/bubbles/v2/paginator"`);
+  if (usesProgress) imports.push(`"charm.land/bubbles/v2/progress"`);
+  if (usesSpinner) imports.push(`"charm.land/bubbles/v2/spinner"`);
+  if (usesStopwatch) imports.push(`"charm.land/bubbles/v2/stopwatch"`);
   if (usesTable) imports.push(`"charm.land/bubbles/v2/table"`);
+  if (usesTextarea) imports.push(`"charm.land/bubbles/v2/textarea"`);
   if (usesInput) imports.push(`"charm.land/bubbles/v2/textinput"`);
+  if (usesTimer) imports.push(`"charm.land/bubbles/v2/timer"`);
   if (usesViewport) imports.push(`"charm.land/bubbles/v2/viewport"`);
+  if (usesFilepicker) imports.push(`"charm.land/bubbles/v2/filepicker"`);
   imports.push(`tea "charm.land/bubbletea/v2"`);
   if (usesHuh) imports.push(`"charm.land/huh/v2"`);
+  if (usesTable || usesSpinner) imports.push(`"charm.land/lipgloss/v2"`);
+  if (usesHarmonica) imports.push(`"github.com/charmbracelet/harmonica"`);
   imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
 
   const fieldDecls: string[] = [
@@ -595,6 +731,10 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     ? `\ntype listItem struct{ title, desc string }\nfunc (i listItem) Title() string       { return i.title }\nfunc (i listItem) Description() string { return i.desc }\nfunc (i listItem) FilterValue() string { return i.title }\n`
     : "";
 
+  const helpKeyMapHelper = usesHelp
+    ? `\ntype studioHelpMap struct {\n\tbindings []key.Binding\n}\nfunc (k studioHelpMap) ShortHelp() []key.Binding { return k.bindings }\nfunc (k studioHelpMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.bindings} }\n`
+    : "";
+
   let hasHuhSelect = false;
 
   for (const node of allBoxes) {
@@ -609,8 +749,16 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       const title = wd.listTitle || "Items";
       initLines.push(
         `\t// @tui:id=${node.id}`,
-        `\t${varBase}Model := list.New(preview${pascalBase}Items(), list.NewDefaultDelegate(), 28, 16)`,
-        `\t${varBase}Model.Title = ${JSON.stringify(title)}`
+        `\t${varBase}Del := list.NewDefaultDelegate()`,
+      );
+      if (wd.listDelegateMode === "compact") {
+        initLines.push(`\t${varBase}Del.ShowDescription = false`);
+      }
+      initLines.push(
+        `\t${varBase}Model := list.New(preview${pascalBase}Items(), ${varBase}Del, 28, 16)`,
+        `\t${varBase}Model.Title = ${JSON.stringify(title)}`,
+        `\t${varBase}Model.SetShowPagination(${wd.listShowPagination ?? true})`,
+        `\t${varBase}Model.SetShowStatusBar(${wd.listShowStatusBar ?? true})`
       );
     } else if (ct === "bubble:table") {
       fieldDecls.push(`\t${varBase} table.Model // @tui:id=${node.id}`);
@@ -621,7 +769,11 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
         `\t${varBase}Cols := []table.Column{`,
         ...cols.map((c) => `\t\t{Title: ${JSON.stringify(c.title)}, Width: ${c.width}},`),
         `\t}`,
-        `\t${varBase}Model := table.New(table.WithColumns(${varBase}Cols), table.WithRows(preview${pascalBase}Rows()), table.WithFocused(true), table.WithHeight(10))`
+        `\t${varBase}Model := table.New(table.WithColumns(${varBase}Cols), table.WithRows(preview${pascalBase}Rows()), table.WithFocused(true), table.WithHeight(10))`,
+        `\t${varBase}Styles := table.DefaultStyles()`,
+        `\t${varBase}Styles.Header = ${varBase}Styles.Header.BorderStyle(lipgloss.NormalBorder()).Bold(true)`,
+        `\t${varBase}Styles.Selected = ${varBase}Styles.Selected.Bold(true)`,
+        `\t${varBase}Model.SetStyles(${varBase}Styles)`
       );
     } else if (ct === "bubble:viewport") {
       fieldDecls.push(`\t${varBase} viewport.Model // @tui:id=${node.id}`);
@@ -645,33 +797,153 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
         `\t${varBase}Model.CharLimit = ${wd.inputCharLimit ?? 0}`,
         `\t${varBase}Model.Focus()`
       );
+    } else if (ct === "bubble:textarea") {
+      fieldDecls.push(`\t${varBase} textarea.Model // @tui:id=${node.id}`);
+      const placeholder = wd.textareaPlaceholder ?? "Write notes...";
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := textarea.New()`,
+        `\t${varBase}Model.Placeholder = ${JSON.stringify(placeholder)}`,
+        `\t${varBase}Model.ShowLineNumbers = ${wd.textareaShowLineNumbers ?? true}`,
+        `\t${varBase}Model.CharLimit = ${wd.textareaCharLimit ?? 500}`,
+        `\t${varBase}Model.SetWidth(54)`,
+        `\t${varBase}Model.SetHeight(6)`,
+        `\t${varBase}Model.Focus()`
+      );
+    } else if (ct === "bubble:progress") {
+      fieldDecls.push(`\t${varBase} progress.Model // @tui:id=${node.id}`);
+      fieldDecls.push(`\t${varBase}Percent float64`);
+      const useHarm = wd.harmonica?.enabled ?? true;
+      if (useHarm) {
+        fieldDecls.push(`\t${varBase}Spring harmonica.Spring`, `\t${varBase}Vel float64`);
+      }
+      const opts: string[] = [];
+      if (wd.progressMode === "solid") {
+        opts.push(`progress.WithSolidFill(${JSON.stringify(wd.progressStartColor || "#ff5eae")})`);
+      } else {
+        opts.push(`progress.WithGradient(${JSON.stringify(wd.progressStartColor || "#ff5eae")}, ${JSON.stringify(wd.progressEndColor || "#6dffc2")})`);
+      }
+      if (wd.progressShowPercent === false) {
+        opts.push(`progress.WithoutPercentage()`);
+      }
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := progress.New(${opts.join(", ")})`
+      );
+      if (useHarm) {
+        initLines.push(
+          `\t${varBase}SpringVal := harmonica.NewSpring(harmonica.FPS(60), ${wd.harmonica?.frequency ?? 6.0}, ${wd.harmonica?.damping ?? 0.7})`
+        );
+      }
+    } else if (ct === "bubble:spinner") {
+      fieldDecls.push(`\t${varBase} spinner.Model // @tui:id=${node.id}`);
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := spinner.New()`,
+        `\t${varBase}Model.Spinner = ${mapSpinnerTypeExpr(wd.spinnerType)}`,
+        `\t${varBase}Model.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(${JSON.stringify(wd.spinnerColor?.startsWith("$") ? "#ff5eae" : wd.spinnerColor || "#ff5eae")}))`
+      );
+      initCmds.push(`m.${varBase}.Tick`);
+    } else if (ct === "bubble:filepicker") {
+      fieldDecls.push(`\t${varBase} filepicker.Model // @tui:id=${node.id}`);
+      const allowed = wd.fpAllowedExts ?? [".go", ".md", ".json"];
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := filepicker.New()`,
+        `\t${varBase}Model.AllowedTypes = []string{${allowed.map((e) => JSON.stringify(e)).join(", ")}}`,
+        `\t${varBase}Model.ShowPermissions = ${wd.fpShowPermissions ?? true}`,
+        `\t${varBase}Model.ShowSize = ${wd.fpShowSize ?? true}`,
+        `\t${varBase}Model.CurrentDirectory = ${JSON.stringify(wd.fpCurrentDir || ".")}`
+      );
+      initCmds.push(`m.${varBase}.Init()`);
+    } else if (ct === "bubble:paginator") {
+      fieldDecls.push(`\t${varBase} paginator.Model // @tui:id=${node.id}`);
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := paginator.New()`,
+        `\t${varBase}Model.Type = ${wd.paginatorType === "arabic" ? "paginator.Arabic" : "paginator.Dots"}`,
+        `\t${varBase}Model.PerPage = ${wd.paginatorPerPage ?? 10}`,
+        `\t${varBase}Model.TotalPages = ${wd.paginatorTotalPages ?? 5}`,
+        `\t${varBase}Model.Page = ${Math.max(0, (wd.paginatorPage ?? 1) - 1)}`
+      );
+    } else if (ct === "bubble:help") {
+      fieldDecls.push(`\t${varBase} help.Model // @tui:id=${node.id}`);
+      fieldDecls.push(`\t${varBase}Keys studioHelpMap`);
+      const bindings = wd.helpBindings?.length ? wd.helpBindings : defaultWidgetData("bubble:help").helpBindings!;
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := help.New()`,
+        `\t${varBase}Model.ShowAll = ${wd.helpShowAll ?? false}`,
+        `\t${varBase}KeysMap := studioHelpMap{bindings: []key.Binding{`,
+        ...bindings.map((b) => `\t\tkey.NewBinding(key.WithKeys(${JSON.stringify(b.key)}), key.WithHelp(${JSON.stringify(b.key)}, ${JSON.stringify(b.desc)})),`),
+        `\t}}`
+      );
+    } else if (ct === "bubble:timer") {
+      fieldDecls.push(`\t${varBase} timer.Model // @tui:id=${node.id}`);
+      const dur = Math.max(1, wd.timerDurationSec ?? 90);
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := timer.NewWithInterval(${dur}*time.Second, time.Second)`
+      );
+      if (wd.timerAutoStart !== false) initCmds.push(`m.${varBase}.Init()`);
+    } else if (ct === "bubble:stopwatch") {
+      fieldDecls.push(`\t${varBase} stopwatch.Model // @tui:id=${node.id}`);
+      initLines.push(
+        `\t// @tui:id=${node.id}`,
+        `\t${varBase}Model := stopwatch.NewWithInterval(100 * time.Millisecond)`
+      );
+      if (wd.timerAutoStart !== false) initCmds.push(`m.${varBase}.Init()`);
     } else if (ct === "huh:form") {
       fieldDecls.push(`\t${varBase} *huh.Form // @tui:id=${node.id}`);
       const fields = wd.huhFields?.length ? wd.huhFields : defaultWidgetData("huh:form").huhFields!;
       let selectIdx = 0;
-      const huhFieldSnippets = fields.map((f) => {
+      const groupsMap = new Map<number, string[]>();
+      for (const f of fields) {
+        const gIdx = Math.max(0, f.group ?? 0);
+        const bucket = groupsMap.get(gIdx) ?? [];
         if (f.kind === "select") {
           hasHuhSelect = true;
           const suffix = selectIdx === 0 ? "Options" : `Select${selectIdx + 1}Options`;
           selectIdx++;
           fixtureHookVars.push(`\tpreview${pascalBase}${suffix} = func() []string { return nil }`);
-          return `\t\t\thuh.NewSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...),`;
+          const filt = f.filterable ? `.Filtering(true)` : "";
+          bucket.push(`\t\t\thuh.NewSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...)${filt},`);
+        } else if (f.kind === "multiselect") {
+          hasHuhSelect = true;
+          const suffix = selectIdx === 0 ? "Options" : `Select${selectIdx + 1}Options`;
+          selectIdx++;
+          fixtureHookVars.push(`\tpreview${pascalBase}${suffix} = func() []string { return nil }`);
+          const limit = f.maxSelect ? `.Limit(${f.maxSelect})` : "";
+          bucket.push(`\t\t\thuh.NewMultiSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...)${limit},`);
+        } else if (f.kind === "text") {
+          const ch = f.charLimit ? `.CharLimit(${f.charLimit})` : "";
+          const ln = f.lineLimit ? `.Lines(${f.lineLimit})` : "";
+          bucket.push(`\t\t\thuh.NewText().Title(${JSON.stringify(f.label)}).Placeholder(${JSON.stringify(f.placeholder || "")})${ch}${ln},`);
+        } else if (f.kind === "note") {
+          bucket.push(`\t\t\thuh.NewNote().Title(${JSON.stringify(f.label)}).Description(${JSON.stringify(f.description ?? "")}),`);
+        } else if (f.kind === "confirm") {
+          bucket.push(`\t\t\thuh.NewConfirm().Title(${JSON.stringify(f.label)}),`);
+        } else {
+          const val = huhValidationSnippet(f);
+          bucket.push(`\t\t\thuh.NewInput().Title(${JSON.stringify(f.label)}).Placeholder(${JSON.stringify(f.placeholder || "")})${val},`);
         }
-        if (f.kind === "note") {
-          return `\t\t\thuh.NewNote().Title(${JSON.stringify(f.label)}).Description(${JSON.stringify(f.description ?? "")}),`;
+        groupsMap.set(gIdx, bucket);
+      }
+      const sortedGroupKeys = [...groupsMap.keys()].sort((a, b) => a - b);
+      const groupBlocks: string[] = [];
+      for (const gk of sortedGroupKeys) {
+        const gName = wd.huhGroupNames?.[gk];
+        if (gName) {
+          groupBlocks.push(`\t\thuh.NewGroup( // ${gName}`, ...(groupsMap.get(gk) ?? []), `\t\t),`);
+        } else {
+          groupBlocks.push(`\t\thuh.NewGroup(`, ...(groupsMap.get(gk) ?? []), `\t\t),`);
         }
-        if (f.kind === "confirm") {
-          return `\t\t\thuh.NewConfirm().Title(${JSON.stringify(f.label)}),`;
-        }
-        return `\t\t\thuh.NewInput().Title(${JSON.stringify(f.label)}).Placeholder(${JSON.stringify(f.placeholder || "")}),`;
-      });
+      }
       initLines.push(
         `\t// @tui:id=${node.id}`,
         `\t${varBase}Form := huh.NewForm(`,
-        `\t\thuh.NewGroup(`,
-        ...huhFieldSnippets,
-        `\t\t),`,
-        `\t).WithTheme(huh.ThemeFunc(huh.ThemeCharm))`
+        ...groupBlocks,
+        `\t).WithTheme(huh.ThemeFunc(${mapHuhThemeFunc(wd.huhTheme)}))`
       );
       initCmds.push(`m.${varBase}.Init()`);
     }
@@ -685,13 +957,38 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     ? `\n// Overridden by fixtures_preview_gen.go when built with -tags preview\nvar (\n${fixtureHookVars.join("\n")}\n)\n`
     : "";
 
-  const modelStructInitPairs = allBoxes
-    .filter((n) => ["bubble:list", "bubble:table", "bubble:viewport", "bubble:textinput", "huh:form"].includes(n.contentType ?? ""))
-    .map((n) => {
-      const varBase = toCamel(n.id);
-      const suffix = n.contentType === "huh:form" ? "Form" : "Model";
-      return `\t\t${varBase}: ${varBase}${suffix},`;
-    });
+  const modelStructInitPairs: string[] = [];
+  for (const n of allBoxes) {
+    const varBase = toCamel(n.id);
+    const ct = n.contentType ?? "text";
+    const wd = n.widgetData ?? defaultWidgetData(ct);
+    if (ct === "huh:form") {
+      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Form,`);
+    } else if (ct === "bubble:progress") {
+      const pct = ((wd.progressPercent ?? 68) / 100).toFixed(2);
+      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`, `\t\t${varBase}Percent: ${pct},`);
+      if (wd.harmonica?.enabled ?? true) {
+        modelStructInitPairs.push(`\t\t${varBase}Spring: ${varBase}SpringVal,`);
+      }
+    } else if (ct === "bubble:help") {
+      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`, `\t\t${varBase}Keys: ${varBase}KeysMap,`);
+    } else if (
+      [
+        "bubble:list",
+        "bubble:table",
+        "bubble:viewport",
+        "bubble:textinput",
+        "bubble:textarea",
+        "bubble:spinner",
+        "bubble:filepicker",
+        "bubble:paginator",
+        "bubble:timer",
+        "bubble:stopwatch",
+      ].includes(ct)
+    ) {
+      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`);
+    }
+  }
 
   const initReturn = initCmds.length === 0
     ? "return nil"
@@ -699,12 +996,16 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     ? `return ${initCmds[0]}`
     : `return tea.Batch(${initCmds.join(", ")})`;
 
+  const importBlock = stdImports.length > 0
+    ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${imports.map((s) => `\t${s}`).join("\n")}`
+    : imports.map((s) => `\t${s}`).join("\n");
+
   const code = `package main
 
 import (
-${imports.map((s) => `\t${s}`).join("\n")}
+${importBlock}
 )
-${listItemType}${huhOptionsHelper}${fixtureHookBlock}
+${listItemType}${helpKeyMapHelper}${huhOptionsHelper}${fixtureHookBlock}
 type model struct {
 ${fieldDecls.join("\n")}
 }
@@ -760,6 +1061,7 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
     allBoxes,
     usesHuh,
     usesWish,
+    usesHelp,
     interactiveWidgets,
   } = inspectDocCapabilities(doc, rawModuleName);
 
@@ -783,9 +1085,25 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
       );
     } else if (ct === "bubble:textinput") {
       resizeLines.push(`\t\tm.${varBase}.SetWidth(max(10, msg.Width-8))`);
+    } else if (ct === "bubble:textarea") {
+      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(12, msg.Width-8))`);
+      resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height/3))`);
+    } else if (ct === "bubble:progress") {
+      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(12, msg.Width-8))`);
+    } else if (ct === "bubble:help") {
+      resizeLines.push(`\t\tm.${varBase}.SetWidth(max(16, msg.Width-4))`);
     } else if (ct === "huh:form") {
       resizeLines.push(`\t\tm.${varBase}.WithWidth(max(20, msg.Width-6))`);
       resizeLines.push(`\t\tm.${varBase}.WithHeight(max(6, msg.Height-4))`);
+    }
+  }
+
+  const keyCases: string[] = [];
+  if (usesHelp) {
+    const firstHelp = allBoxes.find((b) => b.contentType === "bubble:help");
+    if (firstHelp) {
+      const varBase = toCamel(firstHelp.id);
+      keyCases.push(`\t\tcase "?":\n\t\t\tm.${varBase}.ShowAll = !m.${varBase}.ShowAll`);
     }
   }
 
@@ -799,10 +1117,21 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
       updateRoutes.push(
         `// @tui:id=${node.id}\n\t${guard}if f, cmd := m.${varBase}.Update(msg); f != nil {\n\t\t\tif form, ok := f.(*huh.Form); ok {\n\t\t\t\tm.${varBase} = form\n\t\t\t}\n\t\t\tcmds = append(cmds, cmd)\n\t\t}${endGuard}`
       );
+    } else if (ct === "bubble:progress" || ct === "bubble:help") {
+      updateRoutes.push(`// @tui:id=${node.id}\n\t_ = m.${varBase}`);
+    } else if (ct === "bubble:timer" || ct === "bubble:stopwatch") {
+      updateRoutes.push(`// @tui:id=${node.id}\n\tvar ${varBase}Cmd tea.Cmd\n\tm.${varBase}, ${varBase}Cmd = m.${varBase}.Update(msg)\n\tcmds = append(cmds, ${varBase}Cmd)`);
     } else {
-      updateRoutes.push(`// @tui:id=${node.id}\n\t${guard}var cmd tea.Cmd\n\t\tm.${varBase}, cmd = m.${varBase}.Update(msg)\n\t\tcmds = append(cmds, cmd)${endGuard}`);
+      updateRoutes.push(`// @tui:id=${node.id}\n\t${guard}var ${varBase}Cmd tea.Cmd\n\t\tm.${varBase}, ${varBase}Cmd = m.${varBase}.Update(msg)\n\t\tcmds = append(cmds, ${varBase}Cmd)${endGuard}`);
     }
   });
+
+  // Ensure animated spinners update regardless of focus
+  for (const node of allBoxes) {
+    if (node.contentType !== "bubble:spinner") continue;
+    const varBase = toCamel(node.id);
+    updateRoutes.push(`// @tui:id=${node.id}\n\tvar ${varBase}Cmd tea.Cmd\n\tm.${varBase}, ${varBase}Cmd = m.${varBase}.Update(msg)\n\tcmds = append(cmds, ${varBase}Cmd)`);
+  }
 
   const focusTabCase = interactiveWidgets.length > 1
     ? `\t\tcase "tab":\n\t\t\tm.focusIdx = (m.focusIdx + 1) % ${interactiveWidgets.length}\n\t\tcase "shift+tab":\n\t\t\tm.focusIdx = (m.focusIdx + ${interactiveWidgets.length - 1}) % ${interactiveWidgets.length}\n`
@@ -824,7 +1153,7 @@ ${resizeLines.join("\n")}${!usesWish ? `\n\tcase tea.BackgroundColorMsg:\n\t\tm.
 \t\tswitch msg.String() {
 \t\tcase "ctrl+c":
 \t\t\treturn m, tea.Quit
-${focusTabCase}\t\t}
+${keyCases.join("\n")}${focusTabCase}\t\t}
 \t}
 ${updateRoutes.length > 0 ? updateRoutes.map((r) => `\t${r}`).join("\n") + "\n" : ""}\treturn m, tea.Batch(cmds...)
 }
@@ -890,11 +1219,13 @@ export function generateUpdateGo(doc: IRDoc, rawModuleName = "github.com/charm-u
 }
 
 export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): { code: string; spans: CodeSpanMap } {
-  const { moduleName, allBoxes, usesGlamour } = inspectDocCapabilities(doc, rawModuleName);
+  const { moduleName, allBoxes, usesGlamour, usesDivider, usesUv, usesCellbuf } = inspectDocCapabilities(doc, rawModuleName);
 
-  const stdImports = usesGlamour ? [`"strings"`] : [];
+  const stdImports = usesGlamour || usesDivider || usesUv || usesCellbuf ? [`"strings"`] : [];
   const thirdImports: string[] = [`tea "charm.land/bubbletea/v2"`];
   if (usesGlamour) thirdImports.push(`"charm.land/glamour/v2"`);
+  if (usesUv) thirdImports.push(`uv "github.com/charmbracelet/ultraviolet"`);
+  if (usesCellbuf) thirdImports.push(`"github.com/charmbracelet/x/cellbuf"`);
   thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
 
   const viewArgs: string[] = [];
@@ -902,7 +1233,8 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
   for (const node of allBoxes) {
     const varBase = toCamel(node.id);
     const ct = node.contentType ?? "text";
-    if (ct === "bubble:textinput" && !firstTextInputId) {
+    const wd = node.widgetData ?? defaultWidgetData(ct);
+    if ((ct === "bubble:textinput" || ct === "bubble:textarea") && !firstTextInputId) {
       firstTextInputId = varBase;
     }
     if (
@@ -910,11 +1242,28 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
       ct === "bubble:table" ||
       ct === "bubble:viewport" ||
       ct === "bubble:textinput" ||
+      ct === "bubble:textarea" ||
+      ct === "bubble:spinner" ||
+      ct === "bubble:filepicker" ||
+      ct === "bubble:paginator" ||
+      ct === "bubble:timer" ||
+      ct === "bubble:stopwatch" ||
       ct === "huh:form"
     ) {
       viewArgs.push(`m.${varBase}.View()`);
+    } else if (ct === "bubble:progress") {
+      viewArgs.push(`m.${varBase}.ViewAs(m.${varBase}Percent)`);
+    } else if (ct === "bubble:help") {
+      viewArgs.push(`m.${varBase}.View(m.${varBase}Keys)`);
     } else if (ct === "glamour:markdown") {
-      viewArgs.push(`renderMarkdown(${JSON.stringify(node.content ?? "# Hello Glamour")})`);
+      const theme = wd.glamourTheme ?? "dark";
+      viewArgs.push(`renderMarkdown(${JSON.stringify(node.content ?? "# Hello Glamour")}, ${JSON.stringify(theme)})`);
+    } else if (ct === "lipgloss:divider") {
+      viewArgs.push(`renderDivider(${JSON.stringify(wd.dividerOrientation ?? "horizontal")}, ${JSON.stringify(wd.dividerChar ?? "─")}, ${JSON.stringify(wd.dividerLabel ?? node.content ?? "")})`);
+    } else if (ct === "uv:screen") {
+      viewArgs.push(`renderUvScreen()`);
+    } else if (ct === "cellbuf:canvas") {
+      viewArgs.push(`renderCellbufCanvas()`);
     } else {
       viewArgs.push(JSON.stringify(node.content ?? node.id));
     }
@@ -952,9 +1301,19 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
     viewPropLines.push(`\tv.DisableBracketedPasteMode = true`);
   }
 
-  const glamourHelper = usesGlamour
-    ? `\nfunc renderMarkdown(md string) string {\n\tr, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(72))\n\tif err != nil {\n\t\treturn md\n\t}\n\tout, err := r.Render(md)\n\tif err != nil {\n\t\treturn md\n\t}\n\treturn strings.TrimSpace(out)\n}\n`
-    : "";
+  const helpers: string[] = [];
+  if (usesGlamour) {
+    helpers.push(`func renderMarkdown(md, theme string) string {\n\tr, err := glamour.NewTermRenderer(glamour.WithStandardStyle(theme), glamour.WithWordWrap(72))\n\tif err != nil {\n\t\treturn md\n\t}\n\tout, err := r.Render(md)\n\tif err != nil {\n\t\treturn md\n\t}\n\treturn strings.TrimSpace(out)\n}`);
+  }
+  if (usesDivider) {
+    helpers.push(`func renderDivider(orientation, ch, label string) string {\n\tif ch == "" {\n\t\tch = "─"\n\t}\n\tif orientation == "vertical" {\n\t\treturn strings.Repeat(ch+"\\n", 4)\n\t}\n\trule := strings.Repeat(ch, 16)\n\tif label != "" {\n\t\treturn "─── " + label + " " + rule\n\t}\n\treturn strings.Repeat(ch, 32)\n}`);
+  }
+  if (usesUv) {
+    helpers.push(`func renderUvScreen() string {\n\tbuf := uv.NewScreenBuffer(34, 7)\n\t_ = buf\n\treturn "ULTRAVIOLET CELL SCREEN"\n}`);
+  }
+  if (usesCellbuf) {
+    helpers.push(`func renderCellbufCanvas() string {\n\tbuf := cellbuf.NewBuffer(34, 7)\n\t_ = buf\n\treturn strings.TrimSpace(cellbuf.Render(buf))\n}`);
+  }
 
   const importBlock = stdImports.length > 0
     ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${thirdImports.map((s) => `\t${s}`).join("\n")}`
@@ -972,7 +1331,7 @@ func (m model) View() tea.View {
 ${viewPropLines.join("\n")}
 \treturn v
 }
-${glamourHelper}`;
+${helpers.length > 0 ? "\n" + helpers.join("\n\n") + "\n" : ""}`;
 
   const lines = code.split("\n");
   const spans: CodeSpanMap = {};
@@ -1083,15 +1442,11 @@ export function generateMainGo(doc: IRDoc, rawModuleName = "github.com/charm-use
 }
 
 export function generateGoMod(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const moduleName = sanitizeModulePath(rawModuleName);
-  const { rootLeaves, activeOverlays } = collectOrderedLeafBoxes(doc);
-  const allBoxes = [...rootLeaves, ...activeOverlays.map((o) => o.node)];
+  const { moduleName, allBoxes, usesGlamour, usesHuh, usesWish, usesHarmonica, usesUv, usesCellbuf } =
+    inspectDocCapabilities(doc, rawModuleName);
 
   const usedTypes = new Set(allBoxes.map((b) => b.contentType ?? "text"));
   const usesBubbles = [...usedTypes].some((t) => t.startsWith("bubble:"));
-  const usesGlamour = usedTypes.has("glamour:markdown");
-  const usesHuh = usedTypes.has("huh:form");
-  const usesWish = usedTypes.has("wish:ssh");
 
   const reqs = [
     `\tcharm.land/bubbletea/v2 v2.1.2`,
@@ -1104,6 +1459,9 @@ export function generateGoMod(doc: IRDoc, rawModuleName = "github.com/charm-user
     reqs.push(`\tgithub.com/charmbracelet/ssh v0.0.0-20250128164007-98fd5ae11894`);
   }
   if (usesGlamour) reqs.push(`\tcharm.land/glamour/v2 v2.0.1`);
+  if (usesHarmonica) reqs.push(`\tgithub.com/charmbracelet/harmonica v0.2.0`);
+  if (usesUv) reqs.push(`\tgithub.com/charmbracelet/ultraviolet v0.0.0-20250911120000-000000000000`);
+  if (usesCellbuf) reqs.push(`\tgithub.com/charmbracelet/x/cellbuf v0.0.13`);
 
   return `module ${moduleName}
 

@@ -6,6 +6,7 @@ import { AlertTriangle, Camera, Check, Columns2, Copy, Keyboard, Pencil, Plus, R
 import { useStudioStore } from "./store/studioStore";
 import { Tooltip } from "./Tooltip";
 import type { PtyStatus } from "./previewTransport";
+import { hasAnimatedWidgets, stepWidgetAnimations } from "./charmWidgets";
 import { findNode, listVisibleFocusBoxes, type ColorProfile, type IRDoc, type IRNode, type Rect, type TelemetryNode } from "./types";
 import { dispatchKey, ensureEngineReady, hitTestCell, renderFrame, wailsTransport } from "./wasmEngine";
 
@@ -227,6 +228,7 @@ export function TerminalViewport({
   const [cellSize, setCellSize] = useState({ w: fontSize * 0.6, h: fontSize * 1.38 });
   const [inlineEdit, setInlineEdit] = useState<{ id: string; text: string } | null>(null);
   const [snapshotSaved, setSnapshotSaved] = useState(false);
+  const [localAnimTick, setLocalAnimTick] = useState(0);
 
   const exportSnapshotPng = () => {
     const srcCanvas = canvasRef.current;
@@ -369,6 +371,20 @@ export function TerminalViewport({
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (mode !== "wasm" || !ready) return;
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+    if (!hasAnimatedWidgets(doc)) return;
+    const id = window.setInterval(() => {
+      if (stepWidgetAnimations(doc, 85)) {
+        setLocalAnimTick((t) => (t + 1) % 1_000_000);
+      }
+    }, 85);
+    return () => window.clearInterval(id);
+  }, [mode, ready, doc, renderTick]);
 
   // Native PTY xterm.js lifecycle
   useEffect(() => {
@@ -524,7 +540,7 @@ export function TerminalViewport({
 
     setTelemetry(frame.telemetry ?? []);
     onTelemetry?.(frame.telemetry ?? []);
-  }, [mode, ready, doc, renderTick, cols, rows, fontSize, fontFamily, palette, colorProfile]);
+  }, [mode, ready, doc, renderTick, localAnimTick, cols, rows, fontSize, fontFamily, palette, colorProfile]);
 
   const hitTest = (e: React.MouseEvent<SVGSVGElement>): TelemetryNode | null => {
     const rect = e.currentTarget.getBoundingClientRect();

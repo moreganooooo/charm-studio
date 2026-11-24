@@ -122,6 +122,8 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 									isStd = true
 								}
 							}
+						} else if _, ok := call.Args[0].(*dst.CompositeLit); ok {
+							isStd = true
 						}
 						if !isStd {
 							preservedDynamic["Border"] = dst.Clone(call.Args[0]).(dst.Expr)
@@ -137,6 +139,18 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 					if !overriddenSet["alignV"] {
 						if _, ok := parseLipAlign(call.Args[0]); !ok {
 							preservedDynamic["AlignVertical"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
+					}
+				case "MaxWidth":
+					if !overriddenSet["maxWidth"] {
+						if _, ok := intLitVal(call.Args[0]); !ok {
+							preservedDynamic["MaxWidth"] = dst.Clone(call.Args[0]).(dst.Expr)
+						}
+					}
+				case "MaxHeight":
+					if !overriddenSet["maxHeight"] {
+						if _, ok := intLitVal(call.Args[0]); !ok {
+							preservedDynamic["MaxHeight"] = dst.Clone(call.Args[0]).(dst.Expr)
 						}
 					}
 				}
@@ -203,6 +217,28 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 	if dyn, ok := preservedDynamic["Border"]; ok {
 		chain("Border", dyn)
 		lockedProps = appendUniqueStr(lockedProps, "border")
+	} else if spec.Border == "custom" {
+		cb := IRCustomBorder{
+			Top: "-", Bottom: "-", Left: "|", Right: "|",
+			TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
+		}
+		if spec.CustomBorder != nil {
+			cb = *spec.CustomBorder
+		}
+		borderLit := &dst.CompositeLit{
+			Type: &dst.SelectorExpr{X: dst.NewIdent("lipgloss"), Sel: dst.NewIdent("Border")},
+			Elts: []dst.Expr{
+				&dst.KeyValueExpr{Key: dst.NewIdent("Top"), Value: strLit(cb.Top)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("Bottom"), Value: strLit(cb.Bottom)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("Left"), Value: strLit(cb.Left)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("Right"), Value: strLit(cb.Right)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("TopLeft"), Value: strLit(cb.TopLeft)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("TopRight"), Value: strLit(cb.TopRight)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("BottomLeft"), Value: strLit(cb.BottomLeft)},
+				&dst.KeyValueExpr{Key: dst.NewIdent("BottomRight"), Value: strLit(cb.BottomRight)},
+			},
+		}
+		chain("Border", borderLit)
 	} else if spec.Border != "" && spec.Border != "none" {
 		bFn := "NormalBorder"
 		switch spec.Border {
@@ -261,6 +297,18 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 		}
 	} else if spec.Margin != [4]int{0, 0, 0, 0} {
 		chain("Margin", intLit(spec.Margin[0]), intLit(spec.Margin[1]), intLit(spec.Margin[2]), intLit(spec.Margin[3]))
+	}
+	if dyn, ok := preservedDynamic["MaxWidth"]; ok {
+		chain("MaxWidth", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "maxWidth")
+	} else if spec.MaxWidth > 0 {
+		chain("MaxWidth", intLit(spec.MaxWidth))
+	}
+	if dyn, ok := preservedDynamic["MaxHeight"]; ok {
+		chain("MaxHeight", dyn)
+		lockedProps = appendUniqueStr(lockedProps, "maxHeight")
+	} else if spec.MaxHeight > 0 {
+		chain("MaxHeight", intLit(spec.MaxHeight))
 	}
 
 	if dyn, ok := preservedDynamic["Bold"]; ok {
@@ -368,7 +416,7 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 	for _, f := range fields {
 		var base *dst.CallExpr
 		switch f.Kind {
-		case "select":
+		case "select", "multiselect":
 			optExprs := make([]dst.Expr, 0, max(1, len(f.Options)))
 			opts := f.Options
 			if len(opts) == 0 {
@@ -380,9 +428,13 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 					Args: []dst.Expr{strLit(o), strLit(o)},
 				})
 			}
+			ctor := "NewSelect"
+			if f.Kind == "multiselect" {
+				ctor = "NewMultiSelect"
+			}
 			base = &dst.CallExpr{
 				Fun: &dst.IndexExpr{
-					X:     &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent("NewSelect")},
+					X:     &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent(ctor)},
 					Index: dst.NewIdent("string"),
 				},
 			}
@@ -393,6 +445,42 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 			base = &dst.CallExpr{
 				Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Options")},
 				Args: optExprs,
+			}
+			if f.Kind == "select" && f.Filterable {
+				base = &dst.CallExpr{
+					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Filtering")},
+					Args: []dst.Expr{boolIdent(true)},
+				}
+			}
+			if f.Kind == "multiselect" && f.MaxSelect > 0 {
+				base = &dst.CallExpr{
+					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Limit")},
+					Args: []dst.Expr{intLit(f.MaxSelect)},
+				}
+			}
+		case "text":
+			base = &dst.CallExpr{
+				Fun: &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent("NewText")},
+			}
+			base = &dst.CallExpr{
+				Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Title")},
+				Args: []dst.Expr{strLit(f.Label)},
+			}
+			base = &dst.CallExpr{
+				Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Placeholder")},
+				Args: []dst.Expr{strLit(f.Placeholder)},
+			}
+			if f.CharLimit > 0 {
+				base = &dst.CallExpr{
+					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("CharLimit")},
+					Args: []dst.Expr{intLit(f.CharLimit)},
+				}
+			}
+			if f.LineLimit > 0 {
+				base = &dst.CallExpr{
+					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Lines")},
+					Args: []dst.Expr{intLit(f.LineLimit)},
+				}
 			}
 		case "note":
 			base = &dst.CallExpr{Fun: &dst.SelectorExpr{X: dst.NewIdent("huh"), Sel: dst.NewIdent("NewNote")}}

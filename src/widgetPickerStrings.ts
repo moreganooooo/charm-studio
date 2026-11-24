@@ -6,6 +6,7 @@ export interface WidgetPickerCategoryStrings {
   Data: string;
   Feedback: string;
   Containers: string;
+  Primitives: string;
 }
 
 export interface WidgetPickerStrings {
@@ -50,6 +51,7 @@ export const WIDGET_PICKER_STRINGS: WidgetPickerStrings = {
     Data: "Data",
     Feedback: "Feedback",
     Containers: "Containers",
+    Primitives: "Primitives",
   },
   insertActionLabel: "Insert",
   keyboardHint: "Arrow keys navigate grid · Enter inserts · Esc closes",

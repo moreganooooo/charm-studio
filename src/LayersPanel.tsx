@@ -28,12 +28,13 @@ interface Props {
   onCycleOverlayAnchor: (overlayId: string, anchor: OverlayAnchor) => void;
 }
 
-const ANCHOR_ORDER: OverlayAnchor[] = ["center", "top-right", "bottom-bar", "bottom-right"];
+const ANCHOR_ORDER: OverlayAnchor[] = ["center", "top-right", "bottom-bar", "bottom-right", "place"];
 const ANCHOR_LABELS: Record<OverlayAnchor, string> = {
   center: "Center",
   "top-right": "Top-Right",
   "bottom-bar": "Bottom Bar",
   "bottom-right": "Bottom-Right",
+  place: "Place(X,Y)",
 };
 
 export function LayersPanel({

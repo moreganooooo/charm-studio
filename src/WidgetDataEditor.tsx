@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
-import { defaultWidgetData, type IRHuhField, type IRNode, type IRWidgetData } from "./types";
+import { AdvancedWidgetEditors } from "./components/AdvancedWidgetEditors";
+import { defaultWidgetData, type HuhThemeName, type HuhValidationRule, type IRHuhField, type IRNode, type IRWidgetData } from "./types";
 
 interface Props {
   node: IRNode;
@@ -26,6 +27,37 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
             style={inputStyle}
           />
         </label>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "center" }}>
+          <label style={labelCol}>
+            <span>Delegate Style</span>
+            <select
+              value={data.listDelegateMode ?? "default"}
+              onChange={(e) => onChangeWidgetData({ ...data, listDelegateMode: e.target.value as IRWidgetData["listDelegateMode"] })}
+              style={inputStyle}
+            >
+              <option value="default">Default (2-line)</option>
+              <option value="compact">Compact (1-line)</option>
+              <option value="accent">Accent Highlight</option>
+            </select>
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, paddingTop: 16 }}>
+            <input
+              type="checkbox"
+              checked={data.listShowPagination ?? true}
+              onChange={(e) => onChangeWidgetData({ ...data, listShowPagination: e.target.checked })}
+            />
+            Pages
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, paddingTop: 16 }}>
+            <input
+              type="checkbox"
+              checked={data.listShowStatusBar ?? true}
+              onChange={(e) => onChangeWidgetData({ ...data, listShowStatusBar: e.target.checked })}
+            />
+            Status
+          </label>
+        </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--cs-text-muted)" }}>
@@ -102,6 +134,49 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <label style={labelCol}>
+            <span>Table Border</span>
+            <select
+              value={data.tableBorderStyle ?? "normal"}
+              onChange={(e) => onChangeWidgetData({ ...data, tableBorderStyle: e.target.value as IRWidgetData["tableBorderStyle"] })}
+              style={inputStyle}
+            >
+              <option value="normal">Normal</option>
+              <option value="rounded">Rounded</option>
+              <option value="thick">Thick</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <label style={labelCol}>
+            <span>Header Accent</span>
+            <input
+              value={data.tableHeaderFg ?? "$accent"}
+              onChange={(e) => onChangeWidgetData({ ...data, tableHeaderFg: e.target.value })}
+              className="cs-mono"
+              style={inputStyle}
+            />
+          </label>
+          <label style={labelCol}>
+            <span>Selected Bg</span>
+            <input
+              value={data.tableSelectedBg ?? "$accent"}
+              onChange={(e) => onChangeWidgetData({ ...data, tableSelectedBg: e.target.value })}
+              className="cs-mono"
+              style={inputStyle}
+            />
+          </label>
+          <label style={labelCol}>
+            <span>Selected Text</span>
+            <input
+              value={data.tableSelectedFg ?? "#150f1d"}
+              onChange={(e) => onChangeWidgetData({ ...data, tableSelectedFg: e.target.value })}
+              className="cs-mono"
+              style={inputStyle}
+            />
+          </label>
+        </div>
+
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--cs-text-muted)" }}>
@@ -288,6 +363,8 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
   if (ct === "huh:form") {
     const data = node.widgetData ?? defaultWidgetData("huh:form");
     const fields = data.huhFields ?? [];
+    const groupNames = data.huhGroupNames ?? ["Step 1"];
+    const themes: HuhThemeName[] = ["charm", "dracula", "catppuccin", "base16"];
 
     const addField = (kind: IRHuhField["kind"]) => {
       let idx = fields.length + 1;
@@ -295,25 +372,58 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
       while (fields.some((f) => f.id === `${prefix}${idx}`)) idx++;
       const fresh: IRHuhField =
         kind === "select"
-          ? { id: `field${idx}`, kind, label: `Option ${idx}`, options: ["Choice A", "Choice B", "Choice C"] }
+          ? { id: `field${idx}`, kind, label: `Option ${idx}`, options: ["Choice A", "Choice B", "Choice C"], filterable: true, group: 0 }
+          : kind === "multiselect"
+          ? { id: `multi${idx}`, kind, label: `Features ${idx}`, options: ["Auth", "Metrics", "TLS", "Tracing"], minSelect: 1, maxSelect: 3, group: 0 }
+          : kind === "text"
+          ? { id: `text${idx}`, kind, label: `Notes ${idx}`, placeholder: "Write multi-line details...", lineLimit: 4, charLimit: 240, group: 0 }
           : kind === "note"
-          ? { id: `note${idx}`, kind, label: "Note", description: "" }
+          ? { id: `note${idx}`, kind, label: "Note", description: "", group: 0 }
           : kind === "confirm"
-          ? { id: `confirm${idx}`, kind, label: "Proceed with setup?" }
-          : { id: `input${idx}`, kind, label: `Field ${idx}`, placeholder: "value..." };
+          ? { id: `confirm${idx}`, kind, label: "Proceed with setup?", group: 0 }
+          : { id: `input${idx}`, kind, label: `Field ${idx}`, placeholder: "value...", validation: "none", group: 0 };
       onChangeWidgetData({ ...data, huhFields: [...fields, fresh] });
     };
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => addField("input")} style={miniAddBtn}>+ Text Input</button>
-          <button onClick={() => addField("select")} style={miniAddBtn}>+ Select List</button>
-          <button onClick={() => addField("note")} style={miniAddBtn}>+ Note</button>
-          <button onClick={() => addField("confirm")} style={miniAddBtn}>+ Confirm Yes/No</button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <label style={labelCol}>
+            <span>Huh Theme</span>
+            <select
+              value={data.huhTheme ?? "charm"}
+              onChange={(e) => onChangeWidgetData({ ...data, huhTheme: e.target.value as HuhThemeName })}
+              style={inputStyle}
+            >
+              {themes.map((t) => (
+                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+              ))}
+            </select>
+          </label>
+          <label style={labelCol}>
+            <span>Wizard Steps (comma)</span>
+            <input
+              value={groupNames.join(", ")}
+              onChange={(e) => {
+                const nextGroups = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                onChangeWidgetData({ ...data, huhGroupNames: nextGroups.length ? nextGroups : ["Step 1"] });
+              }}
+              placeholder="Step 1, Step 2"
+              style={inputStyle}
+            />
+          </label>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 230, overflowY: "auto" }}>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          <button onClick={() => addField("input")} style={miniAddBtn}>+ Input</button>
+          <button onClick={() => addField("text")} style={miniAddBtn}>+ Text Area</button>
+          <button onClick={() => addField("select")} style={miniAddBtn}>+ Select</button>
+          <button onClick={() => addField("multiselect")} style={miniAddBtn}>+ MultiSelect</button>
+          <button onClick={() => addField("note")} style={miniAddBtn}>+ Note</button>
+          <button onClick={() => addField("confirm")} style={miniAddBtn}>+ Confirm</button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
           {fields.map((field, idx) => (
             <div
               key={field.id + idx}
@@ -331,13 +441,28 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--cs-lavender-text)", textTransform: "uppercase" }}>
                   {field.kind}
                 </span>
-                <button
-                  disabled={fields.length <= 1}
-                  onClick={() => onChangeWidgetData({ ...data, huhFields: fields.filter((_, i) => i !== idx) })}
-                  style={{ ...delBtn, opacity: fields.length <= 1 ? 0.35 : 1 }}
-                >
-                  <X size={12} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <select
+                    value={field.group ?? 0}
+                    aria-label="Field step group"
+                    onChange={(e) => {
+                      const next = fields.map((f, i) => (i === idx ? { ...f, group: +e.target.value || 0 } : f));
+                      onChangeWidgetData({ ...data, huhFields: next });
+                    }}
+                    style={{ ...inputStyle, padding: "2px 4px", fontSize: 10.5, width: "auto" }}
+                  >
+                    {groupNames.map((gn, gi) => (
+                      <option key={gi} value={gi}>{gn}</option>
+                    ))}
+                  </select>
+                  <button
+                    disabled={fields.length <= 1}
+                    onClick={() => onChangeWidgetData({ ...data, huhFields: fields.filter((_, i) => i !== idx) })}
+                    style={{ ...delBtn, opacity: fields.length <= 1 ? 0.35 : 1 }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
 
               <input
@@ -372,29 +497,148 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
                 </>
               )}
 
-              {field.kind === "input" && (
-                <input
-                  value={field.placeholder ?? ""}
-                  onChange={(e) => {
-                    const next = fields.map((f, i) => (i === idx ? { ...f, placeholder: e.target.value } : f));
-                    onChangeWidgetData({ ...data, huhFields: next });
-                  }}
-                  placeholder="Default / placeholder text"
-                  style={inputStyle}
-                />
+              {(field.kind === "input" || field.kind === "text") && (
+                <>
+                  <input
+                    value={field.placeholder ?? ""}
+                    onChange={(e) => {
+                      const next = fields.map((f, i) => (i === idx ? { ...f, placeholder: e.target.value } : f));
+                      onChangeWidgetData({ ...data, huhFields: next });
+                    }}
+                    placeholder="Default / placeholder text"
+                    style={inputStyle}
+                  />
+                  {field.kind === "input" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                      <select
+                        value={field.validation ?? "none"}
+                        onChange={(e) => {
+                          const next = fields.map((f, i) => (i === idx ? { ...f, validation: e.target.value as HuhValidationRule } : f));
+                          onChangeWidgetData({ ...data, huhFields: next });
+                        }}
+                        style={inputStyle}
+                      >
+                        <option value="none">No Validation</option>
+                        <option value="required">Required</option>
+                        <option value="minLength">Min Length</option>
+                        <option value="email">Valid Email</option>
+                        <option value="regex">Regex Match</option>
+                      </select>
+                      {(field.validation === "minLength" || field.validation === "regex") ? (
+                        <input
+                          value={field.validationParam ?? ""}
+                          placeholder={field.validation === "minLength" ? "min chars (e.g. 3)" : "pattern (e.g. ^[a-z]+$)"}
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, validationParam: e.target.value } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={inputStyle}
+                        />
+                      ) : (
+                        <input
+                          value={field.errorMessage ?? ""}
+                          placeholder="Error message"
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, errorMessage: e.target.value } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={inputStyle}
+                        />
+                      )}
+                    </div>
+                  )}
+                  {field.kind === "text" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                      <label style={labelCol}>
+                        <span style={{ fontSize: 10.5 }}>Line Limit</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={40}
+                          value={field.lineLimit ?? 4}
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, lineLimit: Math.max(1, +e.target.value || 4) } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                      <label style={labelCol}>
+                        <span style={{ fontSize: 10.5 }}>Char Limit</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={2000}
+                          value={field.charLimit ?? 240}
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, charLimit: Math.max(0, +e.target.value || 0) } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </>
               )}
 
-              {field.kind === "select" && (
-                <input
-                  value={(field.options ?? []).join(", ")}
-                  onChange={(e) => {
-                    const opts = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
-                    const next = fields.map((f, i) => (i === idx ? { ...f, options: opts.length ? opts : ["Option A"] } : f));
-                    onChangeWidgetData({ ...data, huhFields: next });
-                  }}
-                  placeholder="Comma-separated choices (e.g. Fast, Balanced, Strict)"
-                  style={inputStyle}
-                />
+              {(field.kind === "select" || field.kind === "multiselect") && (
+                <>
+                  <input
+                    value={(field.options ?? []).join(", ")}
+                    onChange={(e) => {
+                      const opts = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                      const next = fields.map((f, i) => (i === idx ? { ...f, options: opts.length ? opts : ["Option A"] } : f));
+                      onChangeWidgetData({ ...data, huhFields: next });
+                    }}
+                    placeholder="Comma-separated choices"
+                    style={inputStyle}
+                  />
+                  {field.kind === "select" ? (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(field.filterable)}
+                        onChange={(e) => {
+                          const next = fields.map((f, i) => (i === idx ? { ...f, filterable: e.target.checked } : f));
+                          onChangeWidgetData({ ...data, huhFields: next });
+                        }}
+                      />
+                      Filterable (/)
+                    </label>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+                      <label style={labelCol}>
+                        <span style={{ fontSize: 10.5 }}>Min Select</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          value={field.minSelect ?? 0}
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, minSelect: Math.max(0, +e.target.value || 0) } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                      <label style={labelCol}>
+                        <span style={{ fontSize: 10.5 }}>Max Select</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          value={field.maxSelect ?? 3}
+                          onChange={(e) => {
+                            const next = fields.map((f, i) => (i === idx ? { ...f, maxSelect: Math.max(0, +e.target.value || 0) } : f));
+                            onChangeWidgetData({ ...data, huhFields: next });
+                          }}
+                          style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -403,7 +647,7 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
     );
   }
 
-  return null;
+  return <AdvancedWidgetEditors node={node} onChangeWidgetData={onChangeWidgetData} onChangeContent={onChangeContent} />;
 }
 
 const labelCol: React.CSSProperties = {
