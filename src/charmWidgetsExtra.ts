@@ -139,6 +139,7 @@ interface TextAreaState {
   col: number;
   scroll: number;
   seededFrom?: string;
+  dirty?: boolean;
 }
 
 interface ProgressSpringState {
@@ -150,6 +151,7 @@ interface ProgressSpringState {
 interface SpinnerState {
   frame: number;
   elapsedMs: number;
+  paused?: boolean;
 }
 
 interface FilePickerEntry {
@@ -196,6 +198,7 @@ interface OverlaySpringState {
 
 const textAreaStates = new Map<string, TextAreaState>();
 const progressSpringStates = new Map<string, ProgressSpringState>();
+const progressOverrideStates = new Map<string, { pct: number; seededPct: number }>();
 const spinnerStates = new Map<string, SpinnerState>();
 const filePickerStates = new Map<string, FilePickerState>();
 const paginatorStates = new Map<string, PaginatorState>();
@@ -207,6 +210,8 @@ const overlaySpringStates = new Map<string, OverlaySpringState>();
 
 const fpEntriesCache = new Map<string, FilePickerEntry[]>();
 const paginatorTotalCache = new Map<string, number>();
+const textareaLimitCache = new Map<string, number>();
+const progressPercentCache = new Map<string, number>();
 
 const VIRTUAL_FS: Record<string, FilePickerEntry[]> = {
   "/workspace/charm-app": [
@@ -233,24 +238,46 @@ const VIRTUAL_FS: Record<string, FilePickerEntry[]> = {
   ],
 };
 
+function normalizeFpDir(raw: string): string {
+  const trimmed = (raw || "").trim() || "/workspace/charm-app";
+  if (trimmed === "/") return "/";
+  return trimmed.replace(/\/+$/, "");
+}
+
+function getVirtualEntries(cwd: string, seededRoot: string): FilePickerEntry[] {
+  if (VIRTUAL_FS[cwd]) return VIRTUAL_FS[cwd];
+  const out: FilePickerEntry[] = [];
+  if (cwd !== seededRoot && cwd !== "/") {
+    out.push({ name: "..", isDir: true, size: "4.0K", perms: "drwxr-xr-x" });
+  }
+  out.push(
+    { name: "src", isDir: true, size: "4.0K", perms: "drwxr-xr-x" },
+    { name: "main.go", isDir: false, size: "1.4K", perms: "-rw-r--r--" },
+    { name: "README.md", isDir: false, size: "2.1K", perms: "-rw-r--r--" },
+    { name: "config.json", isDir: false, size: "680B", perms: "-rw-r--r--" }
+  );
+  return out;
+}
+
 function getTextAreaState(id: string, initial: string): TextAreaState {
   let s = textAreaStates.get(id);
   if (!s) {
     const lines = initial ? initial.split("\n") : [""];
-    s = { lines, row: lines.length - 1, col: lines[lines.length - 1].length, scroll: 0, seededFrom: initial };
+    s = { lines, row: lines.length - 1, col: lines[lines.length - 1].length, scroll: 0, seededFrom: initial, dirty: false };
     textAreaStates.set(id, s);
   }
   return s;
 }
 
 function getFilePickerState(id: string, defaultDir: string): FilePickerState {
+  const norm = normalizeFpDir(defaultDir);
   let s = filePickerStates.get(id);
-  if (!s || s.seededRoot !== defaultDir) {
+  if (!s || s.seededRoot !== norm) {
     s = {
-      cwd: VIRTUAL_FS[defaultDir] ? defaultDir : "/workspace/charm-app",
+      cwd: norm,
       cursor: 0,
       selectedFile: null,
-      seededRoot: defaultDir,
+      seededRoot: norm,
     };
     filePickerStates.set(id, s);
   }
@@ -350,12 +377,20 @@ export function getOverlayHarmonicaOffset(overlayId: string, visible: boolean, e
   return visible ? Math.round(s.offset) : 0;
 }
 
+function getEffectiveProgressPercent(node: IRNode): number {
+  const seeded = Math.max(0, Math.min(100, node.widgetData?.progressPercent ?? 68));
+  const ov = progressOverrideStates.get(node.id);
+  if (ov && ov.seededPct === seeded) return ov.pct;
+  return seeded;
+}
+
 export function hasAnimatedWidgets(doc: IRDoc): boolean {
   let active = false;
   const visit = (n: IRNode) => {
     const ct = n.contentType;
-    if (ct === "bubble:spinner") active = true;
-    else if (ct === "bubble:timer") {
+    if (ct === "bubble:spinner") {
+      if (!spinnerStates.get(n.id)?.paused) active = true;
+    } else if (ct === "bubble:timer") {
       const s = timerStates.get(n.id);
       const running = s ? s.running && s.ms > 0 : (n.widgetData?.timerAutoStart ?? true);
       if (running) active = true;
@@ -365,7 +400,7 @@ export function hasAnimatedWidgets(doc: IRDoc): boolean {
       if (running) active = true;
     } else if (ct === "bubble:progress" && n.widgetData?.harmonica?.enabled) {
       const st = progressSpringStates.get(n.id);
-      const target = n.widgetData?.progressPercent ?? 68;
+      const target = getEffectiveProgressPercent(n);
       if (!st || Math.abs(st.pos - target) > 0.1 || Math.abs(st.vel) > 0.1) {
         active = true;
       }
@@ -399,11 +434,13 @@ export function stepWidgetAnimations(doc: IRDoc, dtMs: number): boolean {
         s = { frame: 0, elapsedMs: 0 };
         spinnerStates.set(n.id, s);
       }
-      s.elapsedMs += dtMs;
-      if (s.elapsedMs >= cfg.fpsMs) {
-        s.frame = (s.frame + Math.floor(s.elapsedMs / cfg.fpsMs)) % cfg.frames.length;
-        s.elapsedMs = s.elapsedMs % cfg.fpsMs;
-        changed = true;
+      if (!s.paused) {
+        s.elapsedMs += dtMs;
+        if (s.elapsedMs >= cfg.fpsMs) {
+          s.frame = (s.frame + Math.floor(s.elapsedMs / cfg.fpsMs)) % cfg.frames.length;
+          s.elapsedMs = s.elapsedMs % cfg.fpsMs;
+          changed = true;
+        }
       }
     } else if (ct === "bubble:timer") {
       const s = getTimerState(n.id, n.widgetData?.timerDurationSec ?? 90, n.widgetData?.timerAutoStart ?? true);
@@ -419,7 +456,7 @@ export function stepWidgetAnimations(doc: IRDoc, dtMs: number): boolean {
         changed = true;
       }
     } else if (ct === "bubble:progress" && n.widgetData?.harmonica?.enabled) {
-      const target = Math.max(0, Math.min(100, n.widgetData?.progressPercent ?? 68));
+      const target = getEffectiveProgressPercent(n);
       let s = progressSpringStates.get(n.id);
       if (!s) {
         s = { pos: Math.max(0, target - 28), vel: 0, target };
@@ -502,7 +539,9 @@ export function dispatchExtraWidgetKey(nodeId: string, key: string, ct?: Content
       }
       return true;
     }
+    const limit = textareaLimitCache.get(nodeId) ?? 500;
     if (key === "Enter") {
+      if (limit > 0 && s.lines.join("\n").length >= limit) return true;
       const line = s.lines[s.row];
       const before = line.slice(0, s.col);
       const after = line.slice(s.col);
@@ -510,6 +549,7 @@ export function dispatchExtraWidgetKey(nodeId: string, key: string, ct?: Content
       s.lines.splice(s.row + 1, 0, after);
       s.row++;
       s.col = 0;
+      s.dirty = true;
       return true;
     }
     if (key === "Backspace") {
@@ -517,19 +557,51 @@ export function dispatchExtraWidgetKey(nodeId: string, key: string, ct?: Content
         const line = s.lines[s.row];
         s.lines[s.row] = line.slice(0, s.col - 1) + line.slice(s.col);
         s.col--;
+        s.dirty = true;
       } else if (s.row > 0) {
         const prevLen = s.lines[s.row - 1].length;
         s.lines[s.row - 1] += s.lines[s.row];
         s.lines.splice(s.row, 1);
         s.row--;
         s.col = prevLen;
+        s.dirty = true;
       }
       return true;
     }
     if (key.length === 1) {
+      if (limit > 0 && s.lines.join("\n").length >= limit) return true;
       const line = s.lines[s.row];
       s.lines[s.row] = line.slice(0, s.col) + key + line.slice(s.col);
       s.col++;
+      s.dirty = true;
+      return true;
+    }
+    return false;
+  }
+
+  if (ct === "bubble:progress") {
+    const seededPct = progressPercentCache.get(nodeId) ?? 68;
+    const prev = progressOverrideStates.get(nodeId);
+    const cur = prev && prev.seededPct === seededPct ? prev.pct : seededPct;
+    let delta = 0;
+    if (key === "ArrowRight" || key === "l" || key === "+" || key === "=") delta = 5;
+    else if (key === "ArrowLeft" || key === "h" || key === "-" || key === "_") delta = -5;
+    if (delta === 0) return false;
+    const nextPct = Math.max(0, Math.min(100, cur + delta));
+    progressOverrideStates.set(nodeId, { pct: nextPct, seededPct });
+    const sp = progressSpringStates.get(nodeId);
+    if (sp) sp.target = nextPct;
+    return true;
+  }
+
+  if (ct === "bubble:spinner") {
+    if (key === " " || key === "Enter") {
+      let s = spinnerStates.get(nodeId);
+      if (!s) {
+        s = { frame: 0, elapsedMs: 0, paused: false };
+        spinnerStates.set(nodeId, s);
+      }
+      s.paused = !s.paused;
       return true;
     }
     return false;
@@ -537,7 +609,8 @@ export function dispatchExtraWidgetKey(nodeId: string, key: string, ct?: Content
 
   if (ct === "bubble:filepicker") {
     const s = getFilePickerState(nodeId, "/workspace/charm-app");
-    const entries = fpEntriesCache.get(nodeId) ?? VIRTUAL_FS["/workspace/charm-app"];
+    const root = s.seededRoot ?? "/workspace/charm-app";
+    const entries = fpEntriesCache.get(nodeId) ?? getVirtualEntries(s.cwd, root);
     if (key === "ArrowDown" || key === "j") {
       s.cursor = Math.min(Math.max(0, entries.length - 1), s.cursor + 1);
       return true;
@@ -551,20 +624,21 @@ export function dispatchExtraWidgetKey(nodeId: string, key: string, ct?: Content
       if (!entry) return true;
       if (entry.isDir) {
         if (entry.name === "..") {
-          s.cwd = "/workspace/charm-app";
+          const parent = s.cwd.split("/").slice(0, -1).join("/") || "/";
+          s.cwd = parent.length >= root.length ? parent : root;
         } else {
-          const next = `${s.cwd}/${entry.name}`;
-          if (VIRTUAL_FS[next]) s.cwd = next;
+          s.cwd = s.cwd === "/" ? `/${entry.name}` : `${s.cwd}/${entry.name}`;
         }
         s.cursor = 0;
       } else {
-        s.selectedFile = `${s.cwd}/${entry.name}`;
+        s.selectedFile = s.cwd === "/" ? `/${entry.name}` : `${s.cwd}/${entry.name}`;
       }
       return true;
     }
     if (key === "Backspace" || key === "ArrowLeft" || key === "h") {
-      if (s.cwd !== "/workspace/charm-app") {
-        s.cwd = "/workspace/charm-app";
+      if (s.cwd !== root) {
+        const parent = s.cwd.split("/").slice(0, -1).join("/") || "/";
+        s.cwd = parent.length >= root.length ? parent : root;
         s.cursor = 0;
         return true;
       }
@@ -666,8 +740,11 @@ export function renderBubbleTextArea(node: IRNode, doc: IRDoc, innerW: number, i
   const wd = node.widgetData ?? defaultWidgetData("bubble:textarea");
   const initial = (node.content ?? "").trim();
   const s = getTextAreaState(node.id, initial);
-  if (s.seededFrom !== initial && initial !== "" && s.lines.length === 1 && s.lines[0] === "") {
-    s.lines = initial.split("\n");
+  if (!s.dirty && s.seededFrom !== initial) {
+    s.lines = initial ? initial.split("\n") : [""];
+    s.row = s.lines.length - 1;
+    s.col = s.lines[s.row].length;
+    s.scroll = 0;
     s.seededFrom = initial;
   }
 
@@ -677,38 +754,96 @@ export function renderBubbleTextArea(node: IRNode, doc: IRDoc, innerW: number, i
   const textMain = resolveColorRef(doc.tokens, "$textMain", darkBG, "#f4eaff");
 
   const showNums = wd.textareaShowLineNumbers ?? true;
+  const softWrap = wd.textareaSoftWrap ?? true;
   const cursorStyle = wd.textareaCursorStyle ?? "block";
   const limit = wd.textareaCharLimit ?? 500;
+  textareaLimitCache.set(node.id, limit);
+
   const w = Math.max(12, innerW);
   const h = Math.max(2, innerH);
   const gutterW = showNums ? 4 : 0;
   const textW = Math.max(4, w - gutterW);
 
   const isEmpty = s.lines.length === 1 && s.lines[0] === "";
-  const linesOut: string[] = [];
+  interface VisualRow {
+    li: number;
+    segIdx: number;
+    chars: string[];
+    cursorCol: number | null;
+  }
+  const visualRows: VisualRow[] = [];
+  let cursorVisRow = 0;
 
-  if (s.row < s.scroll) s.scroll = s.row;
-  if (s.row >= s.scroll + h - 1) s.scroll = Math.max(0, s.row - (h - 2));
+  if (isEmpty) {
+    visualRows.push({ li: 0, segIdx: 0, chars: [], cursorCol: 0 });
+    cursorVisRow = 0;
+  } else {
+    for (let li = 0; li < s.lines.length; li++) {
+      const lineChars = Array.from(s.lines[li]);
+      const isActive = li === s.row;
+      const clampedCol = isActive ? Math.max(0, Math.min(lineChars.length, s.col)) : -1;
+
+      if (softWrap) {
+        const segCount = Math.max(1, Math.ceil(lineChars.length / textW));
+        for (let seg = 0; seg < segCount; seg++) {
+          const start = seg * textW;
+          const slice = lineChars.slice(start, start + textW);
+          let cursorCol: number | null = null;
+          if (isActive && clampedCol >= start && (clampedCol < start + textW || seg === segCount - 1)) {
+            if (clampedCol - start < textW) {
+              cursorCol = clampedCol - start;
+              cursorVisRow = visualRows.length;
+            }
+          }
+          visualRows.push({ li, segIdx: seg, chars: slice, cursorCol });
+        }
+        if (isActive && clampedCol === lineChars.length && lineChars.length > 0 && lineChars.length % textW === 0) {
+          cursorVisRow = visualRows.length;
+          visualRows.push({ li, segIdx: segCount, chars: [], cursorCol: 0 });
+        }
+      } else {
+        let start = 0;
+        if (isActive && clampedCol >= textW) {
+          start = clampedCol - textW + 1;
+        }
+        const slice = lineChars.slice(start, start + textW);
+        const cursorCol = isActive ? clampedCol - start : null;
+        if (isActive) cursorVisRow = visualRows.length;
+        visualRows.push({ li, segIdx: 0, chars: slice, cursorCol });
+      }
+    }
+  }
 
   const bodyBudget = Math.max(1, h - 1);
+  if (cursorVisRow < s.scroll) s.scroll = cursorVisRow;
+  if (cursorVisRow >= s.scroll + bodyBudget) s.scroll = Math.max(0, cursorVisRow - bodyBudget + 1);
+  if (s.scroll > Math.max(0, visualRows.length - bodyBudget)) {
+    s.scroll = Math.max(0, visualRows.length - bodyBudget);
+  }
+
+  const linesOut: string[] = [];
   for (let i = 0; i < bodyBudget; i++) {
-    const li = s.scroll + i;
-    if (li >= s.lines.length) {
+    const vr = visualRows[s.scroll + i];
+    if (!vr) {
       linesOut.push(showNums ? fg(muted, " ~  ") : "");
       continue;
     }
-    const gutter = showNums ? fg(li === s.row ? accent : muted, `${String(li + 1).padStart(2, " ")}│ `) : "";
-    const rawLine = s.lines[li];
-    if (isEmpty && li === 0) {
+    const gutter = showNums
+      ? vr.segIdx === 0
+        ? fg(vr.li === s.row ? accent : muted, `${String(vr.li + 1).padStart(2, " ")}│ `)
+        : fg(vr.li === s.row ? accent : muted, "  │ ")
+      : "";
+
+    if (isEmpty && vr.li === 0) {
       const ph = wd.textareaPlaceholder || "Write multi-line text...";
       const curGlyph = cursorStyle === "bar" ? fg(glow, "▏") : cursorStyle === "underline" ? underline(fg(glow, ph[0] || " ")) : reverse(fg(glow, ph[0] || " "));
       linesOut.push(gutter + curGlyph + faint(fg(muted, ph.slice(1, textW))));
       continue;
     }
-    if (li === s.row) {
-      const before = rawLine.slice(0, s.col);
-      const at = rawLine[s.col] ?? " ";
-      const after = rawLine.slice(s.col + 1);
+    if (vr.cursorCol !== null) {
+      const before = vr.chars.slice(0, vr.cursorCol).join("");
+      const at = vr.chars[vr.cursorCol] ?? " ";
+      const after = vr.chars.slice(vr.cursorCol + 1).join("");
       const curGlyph =
         cursorStyle === "bar"
           ? fg(glow, "▏") + fg(textMain, at === " " ? "" : at)
@@ -717,18 +852,25 @@ export function renderBubbleTextArea(node: IRNode, doc: IRDoc, innerW: number, i
           : reverse(fg(glow, at));
       linesOut.push(gutter + clipVisible(fg(textMain, before) + curGlyph + fg(textMain, after), textW));
     } else {
-      linesOut.push(gutter + clipVisible(fg(textMain, rawLine), textW));
+      linesOut.push(gutter + clipVisible(fg(textMain, vr.chars.join("")), textW));
     }
   }
 
   const totalChars = s.lines.join("\n").length;
-  linesOut.push(faint(fg(muted, `Ln ${s.row + 1}, Col ${s.col + 1} · ${totalChars}/${limit} chars`)));
+  const limitLabel = limit > 0 ? `${totalChars}/${limit}` : `${totalChars}`;
+  linesOut.push(faint(fg(muted, `Ln ${s.row + 1}, Col ${s.col + 1} · ${limitLabel} chars`)));
   return linesOut.slice(0, h).map((l) => clipVisible(l, w)).join("\n");
 }
 
 export function renderBubbleProgress(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG: boolean): string {
   const wd = node.widgetData ?? defaultWidgetData("bubble:progress");
-  const target = Math.max(0, Math.min(100, wd.progressPercent ?? 68));
+  const seeded = Math.max(0, Math.min(100, wd.progressPercent ?? 68));
+  progressPercentCache.set(node.id, seeded);
+  const ov = progressOverrideStates.get(node.id);
+  if (ov && ov.seededPct !== seeded) {
+    progressOverrideStates.delete(node.id);
+  }
+  const target = getEffectiveProgressPercent(node);
   let displayPct = target;
   if (wd.harmonica?.enabled) {
     const s = progressSpringStates.get(node.id);
@@ -766,7 +908,7 @@ export function renderBubbleProgress(node: IRNode, doc: IRDoc, innerW: number, i
 
   const lines = [bar + (showPct ? bold(fg(textMain, pctLabel)) : "")];
   if (innerH >= 2 && wd.harmonica?.enabled) {
-    lines.push(faint(fg(muted, `harmonica spring · freq ${wd.harmonica.frequency.toFixed(1)} · damp ${wd.harmonica.damping.toFixed(2)}`)));
+    lines.push(faint(fg(muted, `harmonica spring · freq ${wd.harmonica.frequency.toFixed(1)} · damp ${wd.harmonica.damping.toFixed(2)} · ←/→ adjust`)));
   }
   return lines.slice(0, Math.max(1, innerH)).map((l) => clipVisible(l, w)).join("\n");
 }
@@ -778,16 +920,19 @@ export function renderBubbleSpinner(node: IRNode, doc: IRDoc, innerW: number, _i
   const s = spinnerStates.get(node.id);
   const frameIdx = (s?.frame ?? 0) % cfg.frames.length;
   const spinColor = resolveColorRef(doc.tokens, wd.spinnerColor || "$accent", darkBG, "#ff5eae");
+  const muted = resolveColorRef(doc.tokens, "$borderIdle", darkBG, "#565f89");
   const textMain = resolveColorRef(doc.tokens, "$textMain", darkBG, "#f4eaff");
   const glyph = bold(fg(spinColor, cfg.frames[frameIdx]));
   const label = wd.spinnerLabel ?? "Loading...";
-  return clipVisible(`${glyph} ${fg(textMain, label)}`, Math.max(6, innerW));
+  const suffix = s?.paused ? ` ${faint(fg(muted, "(paused)"))}` : "";
+  return clipVisible(`${glyph} ${fg(textMain, label)}${suffix}`, Math.max(6, innerW));
 }
 
 export function renderBubbleFilePicker(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG: boolean): string {
   const wd = node.widgetData ?? defaultWidgetData("bubble:filepicker");
   const s = getFilePickerState(node.id, wd.fpCurrentDir || "/workspace/charm-app");
-  const allEntries = VIRTUAL_FS[s.cwd] ?? VIRTUAL_FS["/workspace/charm-app"];
+  const root = s.seededRoot ?? "/workspace/charm-app";
+  const allEntries = getVirtualEntries(s.cwd, root);
   const exts = (wd.fpAllowedExts ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
   const entries = allEntries.filter(
     (e) => e.isDir || exts.length === 0 || exts.some((ext) => e.name.toLowerCase().endsWith(ext))
@@ -951,7 +1096,7 @@ function flushGridToAnsi(grid: GridCell[][]): string {
     .join("\n");
 }
 
-export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH: number): string {
+export function renderUvScreen(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG = true): string {
   const wd = node.widgetData ?? defaultWidgetData("uv:screen");
   const w = Math.max(8, innerW);
   const h = Math.max(3, innerH);
@@ -960,6 +1105,8 @@ export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH
   );
 
   for (const cmd of wd.uvCommands ?? []) {
+    const cmdFg = cmd.fg ? resolveColorRef(doc.tokens, cmd.fg, darkBG, "") : "";
+    const cmdBg = cmd.bg ? resolveColorRef(doc.tokens, cmd.bg, darkBG, "") : "";
     if (cmd.op === "fillRect") {
       const rw = Math.max(1, cmd.w ?? 6);
       const rh = Math.max(1, cmd.h ?? 3);
@@ -968,7 +1115,7 @@ export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH
         if (y < 0) continue;
         for (let x = cmd.x; x < Math.min(w, cmd.x + rw); x++) {
           if (x < 0) continue;
-          grid[y][x] = { ch: glyph, fg: cmd.fg || "", bg: cmd.bg || "", bold: Boolean(cmd.bold) };
+          grid[y][x] = { ch: glyph, fg: cmdFg, bg: cmdBg, bold: Boolean(cmd.bold) };
         }
       }
     } else if (cmd.op === "drawText") {
@@ -977,7 +1124,7 @@ export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH
         chars.forEach((ch, idx) => {
           const x = cmd.x + idx;
           if (x >= 0 && x < w) {
-            grid[cmd.y][x] = { ch, fg: cmd.fg || "", bg: cmd.bg || grid[cmd.y][x].bg, bold: Boolean(cmd.bold) };
+            grid[cmd.y][x] = { ch, fg: cmdFg, bg: cmdBg || grid[cmd.y][x].bg, bold: Boolean(cmd.bold) };
           }
         });
       }
@@ -985,8 +1132,8 @@ export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH
       if (cmd.y >= 0 && cmd.y < h && cmd.x >= 0 && cmd.x < w) {
         grid[cmd.y][cmd.x] = {
           ch: Array.from(cmd.text || "✦")[0] || "✦",
-          fg: cmd.fg || "",
-          bg: cmd.bg || grid[cmd.y][cmd.x].bg,
+          fg: cmdFg,
+          bg: cmdBg || grid[cmd.y][cmd.x].bg,
           bold: Boolean(cmd.bold),
         };
       }
@@ -1008,7 +1155,7 @@ export function renderUvScreen(node: IRNode, _doc: IRDoc, innerW: number, innerH
   return flushGridToAnsi(grid);
 }
 
-export function renderCellbufCanvas(node: IRNode, _doc: IRDoc, innerW: number, innerH: number): string {
+export function renderCellbufCanvas(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG = true): string {
   const wd = node.widgetData ?? defaultWidgetData("cellbuf:canvas");
   const w = Math.max(8, innerW);
   const h = Math.max(3, innerH);
@@ -1017,12 +1164,17 @@ export function renderCellbufCanvas(node: IRNode, _doc: IRDoc, innerW: number, i
   );
 
   for (const layer of wd.cellbufLayers ?? []) {
+    const fgChecker = resolveColorRef(doc.tokens, layer.fg || "#414868", darkBG, "#414868");
+    const fgBox = resolveColorRef(doc.tokens, layer.fg || "#b9a2ff", darkBG, "#b9a2ff");
+    const fgLine = resolveColorRef(doc.tokens, layer.fg || "#ff5eae", darkBG, "#ff5eae");
+    const fgText = resolveColorRef(doc.tokens, layer.fg || "#6dffc2", darkBG, "#6dffc2");
+    const layerBg = layer.bg ? resolveColorRef(doc.tokens, layer.bg, darkBG, "") : "";
     if (layer.shape === "checker") {
       const ch = Array.from(layer.borderChar || "░")[0] || "░";
       for (let y = Math.max(0, layer.y); y < Math.min(h, layer.y + layer.h); y++) {
         for (let x = Math.max(0, layer.x); x < Math.min(w, layer.x + layer.w); x++) {
           if ((x + y) % 2 === 0) {
-            grid[y][x] = { ch, fg: layer.fg || "#414868", bg: layer.bg || "", bold: false };
+            grid[y][x] = { ch, fg: fgChecker, bg: layerBg, bold: false };
           }
         }
       }
@@ -1040,14 +1192,14 @@ export function renderCellbufCanvas(node: IRNode, _doc: IRDoc, innerW: number, i
           else if (x === x1 && y === y1) ch = "╯";
           else if (y === y0 || y === y1) ch = Array.from(layer.borderChar || "─")[0] || "─";
           else if (x === x0 || x === x1) ch = "│";
-          grid[y][x] = { ch, fg: layer.fg || "#b9a2ff", bg: layer.bg || "", bold: false };
+          grid[y][x] = { ch, fg: fgBox, bg: layerBg, bold: false };
         }
       }
     } else if (layer.shape === "line") {
       const ch = Array.from(layer.borderChar || "─")[0] || "─";
       if (layer.y >= 0 && layer.y < h) {
         for (let x = Math.max(0, layer.x); x < Math.min(w, layer.x + layer.w); x++) {
-          grid[layer.y][x] = { ch, fg: layer.fg || "#ff5eae", bg: layer.bg || grid[layer.y][x].bg, bold: false };
+          grid[layer.y][x] = { ch, fg: fgLine, bg: layerBg || grid[layer.y][x].bg, bold: false };
         }
       }
     } else if (layer.shape === "text") {
@@ -1055,7 +1207,7 @@ export function renderCellbufCanvas(node: IRNode, _doc: IRDoc, innerW: number, i
         Array.from(layer.text || "").forEach((ch, idx) => {
           const x = layer.x + idx;
           if (x >= 0 && x < w) {
-            grid[layer.y][x] = { ch, fg: layer.fg || "#6dffc2", bg: layer.bg || grid[layer.y][x].bg, bold: true };
+            grid[layer.y][x] = { ch, fg: fgText, bg: layerBg || grid[layer.y][x].bg, bold: true };
           }
         });
       }

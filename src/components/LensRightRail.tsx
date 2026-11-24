@@ -45,6 +45,9 @@ const VISUAL_BORDERS: { id: IRStyle["border"]; label: string; glyph: string }[] 
   { id: "rounded", label: "Rounded", glyph: "╭─╮" },
   { id: "normal", label: "Clean", glyph: "┌─┐" },
   { id: "thick", label: "Bold", glyph: "┏━┓" },
+  { id: "double", label: "Double", glyph: "╔═╗" },
+  { id: "hidden", label: "Hidden", glyph: "···" },
+  { id: "custom", label: "Custom", glyph: "+─+" },
   { id: "none", label: "None", glyph: "   " },
 ];
 
@@ -145,13 +148,12 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
     setActiveProperty("widget");
     updateNode(selectedNode.id, (n) => {
       const seeded = defaultWidgetData(nextType);
+      const keepExisting = n.contentType === nextType ? (n.widgetData ?? {}) : {};
+      const merged = { ...seeded, ...keepExisting };
       return {
         ...n,
         contentType: nextType,
-        widgetData: {
-          ...seeded,
-          ...(n.widgetData ?? {}),
-        },
+        widgetData: Object.keys(merged).length > 0 ? merged : undefined,
       };
     });
   };

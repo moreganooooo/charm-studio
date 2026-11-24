@@ -6,11 +6,15 @@ import (
     "encoding/json"
     "fmt"
     "image/color"
+    "sort"
+    "strconv"
     "strings"
     "syscall/js"
+    "time"
 
     "charmstudio/engine/astsync"
 
+    "charm.land/bubbles/v2/filepicker"
     "charm.land/bubbles/v2/help"
     "charm.land/bubbles/v2/key"
     "charm.land/bubbles/v2/list"
@@ -28,7 +32,7 @@ import (
     "charm.land/lipgloss/v2"
     "github.com/charmbracelet/colorprofile"
     uv "github.com/charmbracelet/ultraviolet"
-    "time"
+    "github.com/charmbracelet/x/cellbuf"
 )
 
 // --- Layout IR ---
@@ -164,21 +168,24 @@ func (k studioHelpMap) ShortHelp() []key.Binding  { return k.bindings }
 func (k studioHelpMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.bindings} }
 
 type bubbleEntry struct {
-    kind      string
-    list      list.Model
-    table     table.Model
-    vp        viewport.Model
-    input     textinput.Model
-    textarea  textarea.Model
-    progress  progress.Model
-    pct       float64
-    spinner   spinner.Model
-    paginator paginator.Model
-    help      help.Model
-    helpKeys  studioHelpMap
-    timer     timer.Model
-    stopwatch stopwatch.Model
-    form      *huh.Form
+    kind       string
+    list       list.Model
+    table      table.Model
+    vp         viewport.Model
+    input      textinput.Model
+    textarea   textarea.Model
+    progress   progress.Model
+    pct        float64
+    spinner    spinner.Model
+    filepicker filepicker.Model
+    paginator  paginator.Model
+    help       help.Model
+    helpKeys   studioHelpMap
+    timer      timer.Model
+    stopwatch  stopwatch.Model
+    form       *huh.Form
+    huhSeed    string
+    progSeed   string
 }
 
 var (
@@ -283,6 +290,14 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
             sp.Spinner = spinner.Dot
             entry.spinner = sp
 
+        case "bubble:filepicker":
+            fp := filepicker.New()
+            fp.AllowedTypes = []string{".go", ".md", ".json"}
+            fp.ShowPermissions = true
+            fp.ShowSize = true
+            fp.SetHeight(max(4, h))
+            entry.filepicker = fp
+
         case "bubble:paginator":
             pg := paginator.New()
             pg.Type = paginator.Dots
@@ -301,32 +316,20 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
             }}
 
         case "bubble:timer":
-            entry.timer = timer.NewWithInterval(90*time.Second, time.Second)
+            dur := 90.0
+            if node.WidgetData != nil && node.WidgetData.TimerDurationSec > 0 {
+                dur = node.WidgetData.TimerDurationSec
+            }
+            entry.timer = timer.NewWithInterval(time.Duration(dur)*time.Second, time.Second)
 
         case "bubble:stopwatch":
             entry.stopwatch = stopwatch.NewWithInterval(100 * time.Millisecond)
 
         case "huh:form":
-            f := huh.NewForm(
-                huh.NewGroup(
-                    huh.NewInput().
-                        Title("Service Name").
-                        Placeholder("api-gateway"),
-                    huh.NewSelect[string]().
-                        Title("Environment").
-                        Options(
-                            huh.NewOption("Production", "prod"),
-                            huh.NewOption("Staging", "staging"),
-                        ),
-                    huh.NewConfirm().
-                        Title("Enable Auto-Scaling?"),
-                ),
-            ).
-                WithWidth(max(16, w)).
-                WithHeight(max(6, h)).
-                WithShowHelp(false)
-            f.Init()
-            entry.form = f
+            entry.form = buildStudioHuhForm(node.WidgetData, w, h)
+            if b, err := json.Marshal(node.WidgetData); err == nil {
+                entry.huhSeed = string(b)
+            }
         }
         bubblesStore[id] = entry
     }
@@ -336,6 +339,27 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
     case "bubble:list":
         del := list.NewDefaultDelegate()
         del.Styles = list.NewDefaultItemStyles(hasDarkBG)
+        if node.WidgetData != nil {
+            if node.WidgetData.ListDelegateMode == "compact" {
+                del.ShowDescription = false
+            }
+            if node.WidgetData.ListTitle != "" {
+                entry.list.Title = node.WidgetData.ListTitle
+            }
+            if node.WidgetData.ListShowPagination != nil {
+                entry.list.SetShowPagination(*node.WidgetData.ListShowPagination)
+            }
+            if node.WidgetData.ListShowStatusBar != nil {
+                entry.list.SetShowStatusBar(*node.WidgetData.ListShowStatusBar)
+            }
+            if len(node.WidgetData.ListItems) > 0 {
+                items := make([]list.Item, 0, len(node.WidgetData.ListItems))
+                for _, it := range node.WidgetData.ListItems {
+                    items = append(items, listItem{title: it.Title, desc: it.Desc})
+                }
+                entry.list.SetItems(items)
+            }
+        }
         entry.list.SetDelegate(del)
         entry.list.Styles = list.DefaultStyles(hasDarkBG)
         entry.list.SetSize(max(10, w), max(4, h))
@@ -348,20 +372,78 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
         if borderHex == "" || borderHex == "$borderIdle" {
             borderHex = "#414868"
         }
+        headerFg := ""
+        headerBg := ""
+        selFg := ""
+        selBg := accentHex
+        borderKind := "normal"
+        if node.WidgetData != nil {
+            if len(node.WidgetData.TableColumns) > 0 {
+                cols := make([]table.Column, 0, len(node.WidgetData.TableColumns))
+                for _, c := range node.WidgetData.TableColumns {
+                    cols = append(cols, table.Column{Title: c.Title, Width: max(3, c.Width)})
+                }
+                entry.table.SetColumns(cols)
+            }
+            if len(node.WidgetData.TableRows) > 0 {
+                rows := make([]table.Row, 0, len(node.WidgetData.TableRows))
+                for _, r := range node.WidgetData.TableRows {
+                    rows = append(rows, table.Row(r))
+                }
+                entry.table.SetRows(rows)
+            }
+            if node.WidgetData.TableHeaderFg != "" {
+                headerFg = resolveColor(node.WidgetData.TableHeaderFg, tokens, hasDarkBG)
+            }
+            if node.WidgetData.TableHeaderBg != "" {
+                headerBg = resolveColor(node.WidgetData.TableHeaderBg, tokens, hasDarkBG)
+            }
+            if node.WidgetData.TableSelectedFg != "" {
+                selFg = resolveColor(node.WidgetData.TableSelectedFg, tokens, hasDarkBG)
+            }
+            if node.WidgetData.TableSelectedBg != "" {
+                selBg = resolveColor(node.WidgetData.TableSelectedBg, tokens, hasDarkBG)
+            }
+            if node.WidgetData.TableBorderStyle != "" {
+                borderKind = node.WidgetData.TableBorderStyle
+            }
+        }
         ts := table.DefaultStyles()
-        ts.Header = ts.Header.
-            BorderStyle(lipgloss.NormalBorder()).
-            BorderForeground(lipgloss.Color(borderHex)).
-            BorderBottom(true).
-            Bold(true)
-        ts.Selected = ts.Selected.
-            Foreground(ld(lipgloss.Color("#ffffff"), lipgloss.Color("#11111b"))).
-            Background(lipgloss.Color(accentHex)).
-            Bold(true)
+        if borderKind == "none" {
+            ts.Header = ts.Header.BorderBottom(false)
+        } else {
+            b := lipgloss.NormalBorder()
+            if borderKind == "rounded" {
+                b = lipgloss.RoundedBorder()
+            } else if borderKind == "thick" {
+                b = lipgloss.ThickBorder()
+            }
+            ts.Header = ts.Header.
+                BorderStyle(b).
+                BorderForeground(lipgloss.Color(borderHex)).
+                BorderBottom(true)
+        }
+        if headerFg != "" {
+            ts.Header = ts.Header.Foreground(lipgloss.Color(headerFg))
+        }
+        if headerBg != "" {
+            ts.Header = ts.Header.Background(lipgloss.Color(headerBg))
+        }
+        ts.Header = ts.Header.Bold(true)
+        selStyle := ts.Selected.Background(lipgloss.Color(selBg)).Bold(true)
+        if selFg != "" {
+            selStyle = selStyle.Foreground(lipgloss.Color(selFg))
+        } else {
+            selStyle = selStyle.Foreground(ld(lipgloss.Color("#ffffff"), lipgloss.Color("#11111b")))
+        }
+        ts.Selected = selStyle
         entry.table.SetStyles(ts)
         entry.table.SetWidth(max(12, w))
         entry.table.SetHeight(max(4, h))
     case "bubble:viewport":
+        if node.Content != "" && node.Content != entry.vp.View() {
+            entry.vp.SetContent(node.Content)
+        }
         entry.vp.SetWidth(max(10, w))
         entry.vp.SetHeight(max(3, h))
     case "bubble:textinput":
@@ -405,14 +487,73 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
     case "bubble:textarea":
         entry.textarea.SetWidth(max(10, w))
         entry.textarea.SetHeight(max(3, h))
-        if node.WidgetData != nil && node.WidgetData.TextareaShowLineNumbers != nil {
-            entry.textarea.ShowLineNumbers = *node.WidgetData.TextareaShowLineNumbers
+        if node.WidgetData != nil {
+            if node.WidgetData.TextareaPlaceholder != "" {
+                entry.textarea.Placeholder = node.WidgetData.TextareaPlaceholder
+            }
+            if node.WidgetData.TextareaCharLimit > 0 {
+                entry.textarea.CharLimit = node.WidgetData.TextareaCharLimit
+            }
+            if node.WidgetData.TextareaShowLineNumbers != nil {
+                entry.textarea.ShowLineNumbers = *node.WidgetData.TextareaShowLineNumbers
+            }
         }
     case "bubble:progress":
-        entry.progress.SetWidth(max(8, w))
-        if node.WidgetData != nil && node.WidgetData.ProgressPercent > 0 {
-            entry.pct = node.WidgetData.ProgressPercent / 100.0
+        if node.WidgetData != nil {
+            startC := resolveColor(node.WidgetData.ProgressStartColor, tokens, hasDarkBG)
+            endC := resolveColor(node.WidgetData.ProgressEndColor, tokens, hasDarkBG)
+            if startC == "" {
+                startC = "#ff5eae"
+            }
+            if endC == "" {
+                endC = "#6dffc2"
+            }
+            showPct := node.WidgetData.ProgressShowPercent == nil || *node.WidgetData.ProgressShowPercent
+            seedKey := fmt.Sprintf("%s|%s|%s|%t", node.WidgetData.ProgressMode, startC, endC, showPct)
+            if entry.progSeed != seedKey {
+                opts := []progress.Option{}
+                if node.WidgetData.ProgressMode == "solid" {
+                    opts = append(opts, progress.WithSolidFill(startC))
+                } else {
+                    opts = append(opts, progress.WithGradient(startC, endC))
+                }
+                if !showPct {
+                    opts = append(opts, progress.WithoutPercentage())
+                }
+                entry.progress = progress.New(opts...)
+                entry.progSeed = seedKey
+            }
+            if node.WidgetData.ProgressPercent > 0 {
+                entry.pct = node.WidgetData.ProgressPercent / 100.0
+            }
         }
+        entry.progress.SetWidth(max(8, w))
+    case "bubble:spinner":
+        if node.WidgetData != nil {
+            entry.spinner.Spinner = mapStudioSpinner(node.WidgetData.SpinnerType)
+            if node.WidgetData.SpinnerColor != "" {
+                sc := resolveColor(node.WidgetData.SpinnerColor, tokens, hasDarkBG)
+                if sc != "" {
+                    entry.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(sc))
+                }
+            }
+        }
+    case "bubble:filepicker":
+        if node.WidgetData != nil {
+            if len(node.WidgetData.FpAllowedExts) > 0 {
+                entry.filepicker.AllowedTypes = node.WidgetData.FpAllowedExts
+            }
+            if node.WidgetData.FpShowPermissions != nil {
+                entry.filepicker.ShowPermissions = *node.WidgetData.FpShowPermissions
+            }
+            if node.WidgetData.FpShowSize != nil {
+                entry.filepicker.ShowSize = *node.WidgetData.FpShowSize
+            }
+            if node.WidgetData.FpCurrentDir != "" {
+                entry.filepicker.CurrentDirectory = node.WidgetData.FpCurrentDir
+            }
+        }
+        entry.filepicker.SetHeight(max(4, h))
     case "bubble:paginator":
         if node.WidgetData != nil {
             if node.WidgetData.PaginatorType == "arabic" {
@@ -429,18 +570,155 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
         }
     case "bubble:help":
         entry.help.SetWidth(max(12, w))
-        if node.WidgetData != nil && node.WidgetData.HelpShowAll != nil {
-            entry.help.ShowAll = *node.WidgetData.HelpShowAll
+        if node.WidgetData != nil {
+            if node.WidgetData.HelpShowAll != nil {
+                entry.help.ShowAll = *node.WidgetData.HelpShowAll
+            }
+            if len(node.WidgetData.HelpBindings) > 0 {
+                bindings := make([]key.Binding, 0, len(node.WidgetData.HelpBindings))
+                for _, hb := range node.WidgetData.HelpBindings {
+                    bindings = append(bindings, key.NewBinding(key.WithKeys(hb.Key), key.WithHelp(hb.Key, hb.Desc)))
+                }
+                entry.helpKeys = studioHelpMap{bindings: bindings}
+            }
         }
     case "huh:form":
+        if node.WidgetData != nil {
+            if b, err := json.Marshal(node.WidgetData); err == nil && string(b) != entry.huhSeed {
+                entry.form = buildStudioHuhForm(node.WidgetData, w, h)
+                entry.huhSeed = string(b)
+            }
+        }
         if entry.form != nil {
-            entry.form.WithTheme(huh.ThemeFunc(huh.ThemeCharm))
             entry.form.WithWidth(max(16, w))
             entry.form.WithHeight(max(6, h))
         }
     }
 
     return entry
+}
+
+func mapStudioSpinner(t string) spinner.Spinner {
+    switch t {
+    case "line":
+        return spinner.Line
+    case "mini-dot":
+        return spinner.MiniDot
+    case "jump":
+        return spinner.Jump
+    case "pulse":
+        return spinner.Pulse
+    case "points":
+        return spinner.Points
+    case "globe":
+        return spinner.Globe
+    case "moon":
+        return spinner.Moon
+    case "monkey":
+        return spinner.Monkey
+    default:
+        return spinner.Dot
+    }
+}
+
+func buildStudioHuhForm(wd *astsync.IRWidgetData, w, h int) *huh.Form {
+    if wd == nil || len(wd.HuhFields) == 0 {
+        f := huh.NewForm(
+            huh.NewGroup(
+                huh.NewInput().Title("Service Name").Placeholder("api-gateway"),
+                huh.NewSelect[string]().Title("Environment").Options(
+                    huh.NewOption("Production", "prod"),
+                    huh.NewOption("Staging", "staging"),
+                ),
+                huh.NewConfirm().Title("Enable Auto-Scaling?"),
+            ),
+        ).WithWidth(max(16, w)).WithHeight(max(6, h)).WithShowHelp(false)
+        f.Init()
+        return f
+    }
+
+    grouped := map[int][]huh.Field{}
+    for _, fld := range wd.HuhFields {
+        gIdx := max(0, fld.Group)
+        switch fld.Kind {
+        case "select":
+            opts := make([]huh.Option[string], 0, max(1, len(fld.Options)))
+            for _, o := range fld.Options {
+                opts = append(opts, huh.NewOption(o, o))
+            }
+            if len(opts) == 0 {
+                opts = append(opts, huh.NewOption("Default", "default"))
+            }
+            grouped[gIdx] = append(grouped[gIdx], huh.NewSelect[string]().Title(fld.Label).Options(opts...).Filtering(fld.Filterable))
+        case "multiselect":
+            opts := make([]huh.Option[string], 0, max(1, len(fld.Options)))
+            for _, o := range fld.Options {
+                opts = append(opts, huh.NewOption(o, o))
+            }
+            if len(opts) == 0 {
+                opts = append(opts, huh.NewOption("Default", "default"))
+            }
+            ms := huh.NewMultiSelect[string]().Title(fld.Label).Options(opts...)
+            if fld.MaxSelect > 0 {
+                ms = ms.Limit(fld.MaxSelect)
+            }
+            grouped[gIdx] = append(grouped[gIdx], ms)
+        case "text":
+            tx := huh.NewText().Title(fld.Label).Placeholder(fld.Placeholder)
+            if fld.CharLimit > 0 {
+                tx = tx.CharLimit(fld.CharLimit)
+            }
+            if fld.LineLimit > 0 {
+                tx = tx.Lines(fld.LineLimit)
+            }
+            grouped[gIdx] = append(grouped[gIdx], tx)
+        case "note":
+            grouped[gIdx] = append(grouped[gIdx], huh.NewNote().Title(fld.Label).Description(fld.Description))
+        case "confirm":
+            grouped[gIdx] = append(grouped[gIdx], huh.NewConfirm().Title(fld.Label))
+        default:
+            grouped[gIdx] = append(grouped[gIdx], huh.NewInput().Title(fld.Label).Placeholder(fld.Placeholder))
+        }
+    }
+    keys := make([]int, 0, len(grouped))
+    for k := range grouped {
+        keys = append(keys, k)
+    }
+    sort.Ints(keys)
+    groups := make([]*huh.Group, 0, len(keys))
+    for _, k := range keys {
+        groups = append(groups, huh.NewGroup(grouped[k]...))
+    }
+    themeFn := huh.ThemeCharm
+    switch wd.HuhTheme {
+    case "dracula":
+        themeFn = huh.ThemeDracula
+    case "catppuccin":
+        themeFn = huh.ThemeCatppuccin
+    case "base16":
+        themeFn = huh.ThemeBase16
+    }
+    f := huh.NewForm(groups...).
+        WithTheme(huh.ThemeFunc(themeFn)).
+        WithWidth(max(16, w)).
+        WithHeight(max(6, h)).
+        WithShowHelp(false)
+    f.Init()
+    return f
+}
+
+func parseHexColor(hex string) (color.Color, bool) {
+    h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+    if len(h) != 6 {
+        return nil, false
+    }
+    r, err1 := strconv.ParseUint(h[0:2], 16, 8)
+    g, err2 := strconv.ParseUint(h[2:4], 16, 8)
+    b, err3 := strconv.ParseUint(h[4:6], 16, 8)
+    if err1 != nil || err2 != nil || err3 != nil {
+        return nil, false
+    }
+    return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}, true
 }
 
 func truncateText(text string, maxW, maxH int) string {
@@ -476,7 +754,13 @@ func renderNodeContent(node IRNode, spec IRStyle, innerW, innerH int, hasDarkBG 
         case "bubble:progress":
             return b.progress.ViewAs(b.pct)
         case "bubble:spinner":
-            return b.spinner.View() + " " + node.Content
+            label := node.Content
+            if node.WidgetData != nil && node.WidgetData.SpinnerLabel != "" {
+                label = node.WidgetData.SpinnerLabel
+            }
+            return b.spinner.View() + " " + label
+        case "bubble:filepicker":
+            return b.filepicker.View()
         case "bubble:paginator":
             return b.paginator.View()
         case "bubble:help":
@@ -490,6 +774,159 @@ func renderNodeContent(node IRNode, spec IRStyle, innerW, innerH int, hasDarkBG 
                 return b.form.View()
             }
         }
+    }
+    switch node.ContentType {
+    case "lipgloss:divider":
+        orient, ch, lbl := "horizontal", "─", node.Content
+        if node.WidgetData != nil {
+            if node.WidgetData.DividerOrientation != "" {
+                orient = node.WidgetData.DividerOrientation
+            }
+            if node.WidgetData.DividerChar != "" {
+                ch = node.WidgetData.DividerChar
+            }
+            if node.WidgetData.DividerLabel != "" {
+                lbl = node.WidgetData.DividerLabel
+            }
+        }
+        if orient == "vertical" {
+            return strings.TrimSuffix(strings.Repeat(ch+"\n", max(1, innerH)), "\n")
+        }
+        if lbl != "" {
+            return fmt.Sprintf("─── %s %s", lbl, strings.Repeat(ch, max(2, innerW-len([]rune(lbl))-5)))
+        }
+        return strings.Repeat(ch, max(4, innerW))
+    case "uv:screen":
+        w, h := max(8, innerW), max(3, innerH)
+        buf := uv.NewScreenBuffer(w, h)
+        if node.WidgetData != nil {
+            for _, cmd := range node.WidgetData.UvCommands {
+                var st uv.Style
+                if cmd.Fg != "" {
+                    if c, ok := parseHexColor(resolveColor(cmd.Fg, tokens, hasDarkBG)); ok {
+                        st.Fg = c
+                    }
+                }
+                if cmd.Bg != "" {
+                    if c, ok := parseHexColor(resolveColor(cmd.Bg, tokens, hasDarkBG)); ok {
+                        st.Bg = c
+                    }
+                }
+                if cmd.Bold {
+                    st.Attrs |= uv.AttrBold
+                }
+                switch cmd.Op {
+                case "fillRect":
+                    rw, rh := max(1, cmd.W), max(1, cmd.H)
+                    g := " "
+                    if r := []rune(cmd.Text); len(r) > 0 {
+                        g = string(r[0])
+                    }
+                    for yy := max(0, cmd.Y); yy < min(h, cmd.Y+rh); yy++ {
+                        for xx := max(0, cmd.X); xx < min(w, cmd.X+rw); xx++ {
+                            buf.SetCell(xx, yy, &uv.Cell{Content: g, Width: 1, Style: st})
+                        }
+                    }
+                case "drawText":
+                    if cmd.Y >= 0 && cmd.Y < h {
+                        for i, r := range []rune(cmd.Text) {
+                            xx := cmd.X + i
+                            if xx >= 0 && xx < w {
+                                buf.SetCell(xx, cmd.Y, &uv.Cell{Content: string(r), Width: 1, Style: st})
+                            }
+                        }
+                    }
+                case "setCell":
+                    if cmd.X >= 0 && cmd.X < w && cmd.Y >= 0 && cmd.Y < h {
+                        g := "✦"
+                        if r := []rune(cmd.Text); len(r) > 0 {
+                            g = string(r[0])
+                        }
+                        buf.SetCell(cmd.X, cmd.Y, &uv.Cell{Content: g, Width: 1, Style: st})
+                    }
+                }
+            }
+        }
+        return strings.TrimRight(buf.Render(), "\n")
+    case "cellbuf:canvas":
+        w, h := max(8, innerW), max(3, innerH)
+        buf := cellbuf.NewBuffer(w, h)
+        if node.WidgetData != nil {
+            for _, layer := range node.WidgetData.CellbufLayers {
+                var st cellbuf.Style
+                if layer.Fg != "" {
+                    if c, ok := parseHexColor(resolveColor(layer.Fg, tokens, hasDarkBG)); ok {
+                        st.Fg = c
+                    }
+                }
+                if layer.Bg != "" {
+                    if c, ok := parseHexColor(resolveColor(layer.Bg, tokens, hasDarkBG)); ok {
+                        st.Bg = c
+                    }
+                }
+                switch layer.Shape {
+                case "checker":
+                    ch := '░'
+                    if r := []rune(layer.BorderChar); len(r) > 0 {
+                        ch = r[0]
+                    }
+                    for yy := max(0, layer.Y); yy < min(h, layer.Y+layer.H); yy++ {
+                        for xx := max(0, layer.X); xx < min(w, layer.X+layer.W); xx++ {
+                            if (xx+yy)%2 == 0 {
+                                buf.SetCell(xx, yy, &cellbuf.Cell{Rune: ch, Width: 1, Style: st})
+                            }
+                        }
+                    }
+                case "box":
+                    x0, y0 := layer.X, layer.Y
+                    x1, y1 := layer.X+max(2, layer.W)-1, layer.Y+max(2, layer.H)-1
+                    bch := '─'
+                    if r := []rune(layer.BorderChar); len(r) > 0 {
+                        bch = r[0]
+                    }
+                    for yy := max(0, y0); yy <= min(h-1, y1); yy++ {
+                        for xx := max(0, x0); xx <= min(w-1, x1); xx++ {
+                            ch := ' '
+                            switch {
+                            case xx == x0 && yy == y0:
+                                ch = '╭'
+                            case xx == x1 && yy == y0:
+                                ch = '╮'
+                            case xx == x0 && yy == y1:
+                                ch = '╰'
+                            case xx == x1 && yy == y1:
+                                ch = '╯'
+                            case yy == y0 || yy == y1:
+                                ch = bch
+                            case xx == x0 || xx == x1:
+                                ch = '│'
+                            }
+                            buf.SetCell(xx, yy, &cellbuf.Cell{Rune: ch, Width: 1, Style: st})
+                        }
+                    }
+                case "line":
+                    bch := '─'
+                    if r := []rune(layer.BorderChar); len(r) > 0 {
+                        bch = r[0]
+                    }
+                    if layer.Y >= 0 && layer.Y < h {
+                        for xx := max(0, layer.X); xx < min(w, layer.X+layer.W); xx++ {
+                            buf.SetCell(xx, layer.Y, &cellbuf.Cell{Rune: bch, Width: 1, Style: st})
+                        }
+                    }
+                case "text":
+                    if layer.Y >= 0 && layer.Y < h {
+                        for i, r := range []rune(layer.Text) {
+                            xx := layer.X + i
+                            if xx >= 0 && xx < w {
+                                buf.SetCell(xx, layer.Y, &cellbuf.Cell{Rune: r, Width: 1, Style: st})
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return strings.TrimRight(cellbuf.Render(buf), "\n")
     }
     if spec.Truncate {
         return truncateText(node.Content, innerW, innerH)
@@ -569,6 +1006,8 @@ func dispatchStudioKey(_ js.Value, args []js.Value) any {
             return false
         }
         entry.textarea, _ = entry.textarea.Update(msg)
+    case "bubble:filepicker":
+        entry.filepicker, _ = entry.filepicker.Update(msg)
     case "bubble:paginator":
         entry.paginator, _ = entry.paginator.Update(msg)
     case "bubble:help":
@@ -685,12 +1124,16 @@ func colorToHex(c color.Color, prof colorprofile.Profile) string {
 
 func toLipPos(align string, defaultPos lipgloss.Position) lipgloss.Position {
     switch align {
-    case "left", "top", "start":
+    case "left", "start":
         return lipgloss.Left
+    case "top":
+        return lipgloss.Top
     case "center":
         return lipgloss.Center
-    case "right", "bottom", "end":
+    case "right", "end":
         return lipgloss.Right
+    case "bottom":
+        return lipgloss.Bottom
     default:
         return defaultPos
     }

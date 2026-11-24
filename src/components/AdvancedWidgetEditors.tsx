@@ -1,6 +1,7 @@
 import { Pause, Play, RotateCcw, X } from "lucide-react";
 import { controlClockWidget, getClockWidgetRunning } from "../charmWidgets";
 import { useStudioStore } from "../store/studioStore";
+import { ColorSwatchPicker } from "./ColorSwatchPicker";
 import {
   defaultWidgetData,
   type GlamourThemeName,
@@ -18,8 +19,16 @@ interface Props {
 }
 
 export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeContent }: Props) {
-  const { bumpTick } = useStudioStore();
+  const { bumpTick, ir, palette } = useStudioStore();
   const ct = node.contentType ?? "text";
+  const swatchHex = (val?: string) => {
+    if (!val) return "";
+    if (val.startsWith("$")) {
+      const pair = ir.tokens[val.slice(1)];
+      return pair ? (palette.darkBG ? pair.dark : pair.light) : "";
+    }
+    return val;
+  };
 
   if (ct === "lipgloss:divider") {
     const data = node.widgetData ?? defaultWidgetData("lipgloss:divider");
@@ -175,21 +184,37 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <label style={labelCol}>
             <span>Start Color</span>
-            <input
-              value={data.progressStartColor ?? "#ff5eae"}
-              onChange={(e) => onChangeWidgetData({ ...data, progressStartColor: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.progressStartColor ?? "#ff5eae"}
+                onChange={(e) => onChangeWidgetData({ ...data, progressStartColor: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Progress Start"
+                value={swatchHex(data.progressStartColor ?? "#ff5eae")}
+                onChange={(c) => onChangeWidgetData({ ...data, progressStartColor: c })}
+              />
+            </div>
           </label>
           <label style={labelCol}>
             <span>End Color</span>
-            <input
-              value={data.progressEndColor ?? "#6dffc2"}
-              onChange={(e) => onChangeWidgetData({ ...data, progressEndColor: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.progressEndColor ?? "#6dffc2"}
+                onChange={(e) => onChangeWidgetData({ ...data, progressEndColor: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Progress End"
+                value={swatchHex(data.progressEndColor ?? "#6dffc2")}
+                onChange={(c) => onChangeWidgetData({ ...data, progressEndColor: c })}
+              />
+            </div>
           </label>
         </div>
 
@@ -252,7 +277,7 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
             ))}
           </select>
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 96px", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 124px", gap: 8 }}>
           <label style={labelCol}>
             <span>Status Label</span>
             <input
@@ -263,12 +288,20 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
           </label>
           <label style={labelCol}>
             <span>Color</span>
-            <input
-              value={data.spinnerColor ?? "$accent"}
-              onChange={(e) => onChangeWidgetData({ ...data, spinnerColor: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.spinnerColor ?? "$accent"}
+                onChange={(e) => onChangeWidgetData({ ...data, spinnerColor: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Spinner"
+                value={swatchHex(data.spinnerColor ?? "$accent")}
+                onChange={(c) => onChangeWidgetData({ ...data, spinnerColor: c })}
+              />
+            </div>
           </label>
         </div>
       </div>
@@ -582,10 +615,10 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
           </button>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
           {cmds.map((cmd, idx) => (
             <div key={cmd.id + idx} style={{ padding: 6, borderRadius: 6, background: "var(--cs-panel)", border: "1px solid var(--cs-border)", display: "flex", flexDirection: "column", gap: 5 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 54px auto", gap: 4 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 48px 48px auto", gap: 4 }}>
                 <select
                   value={cmd.op}
                   onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, op: e.target.value as IRUvCommand["op"] } : c)) })}
@@ -617,7 +650,29 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
                   <X size={12} />
                 </button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 78px", gap: 4 }}>
+              {cmd.op === "fillRect" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={cmd.w ?? 6}
+                    onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, w: Math.max(1, +e.target.value || 1) } : c)) })}
+                    style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                    title="Rect Width"
+                    placeholder="W"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={cmd.h ?? 3}
+                    onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, h: Math.max(1, +e.target.value || 1) } : c)) })}
+                    style={{ ...inputStyle, fontVariantNumeric: "tabular-nums" }}
+                    title="Rect Height"
+                    placeholder="H"
+                  />
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6, alignItems: "center" }}>
                 <input
                   value={cmd.text ?? ""}
                   placeholder="glyphs / text"
@@ -625,13 +680,46 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
                   className="cs-mono"
                   style={inputStyle}
                 />
-                <input
-                  value={cmd.fg ?? ""}
-                  placeholder="fg color"
-                  onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, fg: e.target.value } : c)) })}
-                  className="cs-mono"
-                  style={inputStyle}
-                />
+                <label style={checkLbl}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(cmd.bold)}
+                    onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, bold: e.target.checked } : c)) })}
+                  />
+                  Bold
+                </label>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 3, alignItems: "center" }}>
+                  <input
+                    value={cmd.fg ?? ""}
+                    placeholder="fg color"
+                    onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, fg: e.target.value } : c)) })}
+                    className="cs-mono"
+                    style={inputStyle}
+                  />
+                  <ColorSwatchPicker
+                    allowAnsi
+                    label={`Op ${idx + 1} Fg`}
+                    value={swatchHex(cmd.fg)}
+                    onChange={(c) => onChangeWidgetData({ ...data, uvCommands: cmds.map((it, i) => (i === idx ? { ...it, fg: c } : it)) })}
+                  />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 3, alignItems: "center" }}>
+                  <input
+                    value={cmd.bg ?? ""}
+                    placeholder="bg color"
+                    onChange={(e) => onChangeWidgetData({ ...data, uvCommands: cmds.map((c, i) => (i === idx ? { ...c, bg: e.target.value } : c)) })}
+                    className="cs-mono"
+                    style={inputStyle}
+                  />
+                  <ColorSwatchPicker
+                    allowAnsi
+                    label={`Op ${idx + 1} Bg`}
+                    value={swatchHex(cmd.bg)}
+                    onChange={(c) => onChangeWidgetData({ ...data, uvCommands: cmds.map((it, i) => (i === idx ? { ...it, bg: c } : it)) })}
+                  />
+                </div>
               </div>
             </div>
           ))}
@@ -668,7 +756,7 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
             + Add Shape
           </button>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }}>
           {layers.map((layer, idx) => (
             <div key={layer.id + idx} style={{ padding: 6, borderRadius: 6, background: "var(--cs-panel)", border: "1px solid var(--cs-border)", display: "flex", flexDirection: "column", gap: 5 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 90px auto", gap: 4 }}>
@@ -707,7 +795,7 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
                   />
                 ))}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 78px", gap: 4 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 56px", gap: 4 }}>
                 <input
                   value={layer.text ?? ""}
                   placeholder="label / text"
@@ -715,12 +803,46 @@ export function AdvancedWidgetEditors({ node, onChangeWidgetData, onChangeConten
                   style={inputStyle}
                 />
                 <input
-                  value={layer.fg ?? ""}
-                  placeholder="fg color"
-                  onChange={(e) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, fg: e.target.value } : l)) })}
+                  value={layer.borderChar ?? ""}
+                  maxLength={2}
+                  placeholder="─"
+                  title="Border / Fill Glyph"
+                  onChange={(e) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, borderChar: e.target.value } : l)) })}
                   className="cs-mono"
-                  style={inputStyle}
+                  style={{ ...inputStyle, textAlign: "center" }}
                 />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 3, alignItems: "center" }}>
+                  <input
+                    value={layer.fg ?? ""}
+                    placeholder="fg color"
+                    onChange={(e) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, fg: e.target.value } : l)) })}
+                    className="cs-mono"
+                    style={inputStyle}
+                  />
+                  <ColorSwatchPicker
+                    allowAnsi
+                    label={`${layer.name} Fg`}
+                    value={swatchHex(layer.fg)}
+                    onChange={(c) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, fg: c } : l)) })}
+                  />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 3, alignItems: "center" }}>
+                  <input
+                    value={layer.bg ?? ""}
+                    placeholder="bg color"
+                    onChange={(e) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, bg: e.target.value } : l)) })}
+                    className="cs-mono"
+                    style={inputStyle}
+                  />
+                  <ColorSwatchPicker
+                    allowAnsi
+                    label={`${layer.name} Bg`}
+                    value={swatchHex(layer.bg)}
+                    onChange={(c) => onChangeWidgetData({ ...data, cellbufLayers: layers.map((l, i) => (i === idx ? { ...l, bg: c } : l)) })}
+                  />
+                </div>
               </div>
             </div>
           ))}

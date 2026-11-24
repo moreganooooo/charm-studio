@@ -388,10 +388,15 @@ export class WasmTransport implements PreviewTransport {
         }
         return l;
       });
-      if (lines.length < targetH && st.placeV && st.placeV !== "top") {
+      if (lines.length < targetH && st.placeV) {
         const extra = targetH - lines.length;
-        const topBlank = st.placeV === "center" ? Math.floor(extra / 2) : extra;
-        lines = [...Array.from({ length: topBlank }, () => ""), ...lines];
+        const topBlank = st.placeV === "top" ? 0 : st.placeV === "center" ? Math.floor(extra / 2) : extra;
+        const bottomBlank = Math.max(0, extra - topBlank);
+        lines = [
+          ...Array.from({ length: topBlank }, () => ""),
+          ...lines,
+          ...Array.from({ length: bottomBlank }, () => ""),
+        ];
       }
     }
 

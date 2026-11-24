@@ -83,6 +83,37 @@ function colorExpr(val: string | undefined, tokenNames: Set<string>): string | n
   return `lipgloss.Color(${JSON.stringify(val)})`;
 }
 
+function resolveDocColorHex(doc: IRDoc, ref: string | undefined, fallback: string): string {
+  if (!ref) return fallback;
+  if (ref.startsWith("$")) {
+    const pair = doc.tokens[ref.slice(1)];
+    if (pair) return pair.dark || pair.light || fallback;
+    return fallback;
+  }
+  return ref;
+}
+
+function isTokenRef(ref: string | undefined): boolean {
+  return Boolean(ref && ref.startsWith("$"));
+}
+
+function goTokenColorExpr(doc: IRDoc, ref: string | undefined, fallback: string, isDarkExpr = "isDark"): string {
+  if (isTokenRef(ref)) {
+    return `ui.ResolveTokenColor(${isDarkExpr}, ${JSON.stringify(ref)}, ${JSON.stringify(fallback)})`;
+  }
+  return JSON.stringify(resolveDocColorHex(doc, ref, fallback));
+}
+
+function hexToColorRGBAExpr(hex: string): string | null {
+  const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!m) return null;
+  const h = m[1];
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `color.RGBA{R: ${r}, G: ${g}, B: ${b}, A: 255}`;
+}
+
 function lipPos(v: string | undefined, kind: "h" | "v"): string {
   if (kind === "h") {
     if (v === "center") return "lipgloss.Center";
@@ -163,9 +194,14 @@ export function generateStylesGo(doc: IRDoc): string {
     })
     .join("\n");
 
-  return `package ui
+  const tokenSwitchCases = tokenEntries
+    .map(([name, pair]) => `\tcase ${JSON.stringify(name)}:\n\t\tif isDark {\n\t\t\treturn ${JSON.stringify(pair.dark || pair.light)}\n\t\t}\n\t\treturn ${JSON.stringify(pair.light || pair.dark)}`)
+    .join("\n");
 
-import "charm.land/lipgloss/v2"
+  const stringsImport = tokenEntries.length > 0 ? `\nimport (\n\t"strings"\n\n\t"charm.land/lipgloss/v2"\n)` : `\nimport "charm.land/lipgloss/v2"`;
+
+  return `package ui
+${stringsImport}
 
 type Theme struct {
 ${structFields}
@@ -182,6 +218,11 @@ ${styleInits}
 
 func DefaultStyles(isDark bool) Theme {
 \treturn NewTheme(isDark)
+}
+
+func ResolveTokenColor(isDark bool, ref, fallback string) string {
+${tokenEntries.length ? `\tname := strings.TrimPrefix(ref, "$")\n\tswitch name {\n${tokenSwitchCases}\n\t}\n` : `\t_, _, _ = isDark, ref, fallback\n`}
+\treturn fallback
 }
 `;
 }
@@ -293,6 +334,10 @@ export function generateLayoutGo(doc: IRDoc): string {
   if (activeOverlays.length > 0) {
     const ovParams = activeOverlays.map((o) => `${toCamel(o.node.id)}Content string`);
     leafParams.push(...ovParams);
+    const harmonicaOvParams = activeOverlays
+      .filter((o) => Boolean(o.harmonica?.enabled))
+      .map((o) => `${toCamel(o.node.id)}OvYOffset int`);
+    leafParams.push(...harmonicaOvParams);
     lines.push("");
     lines.push(`\tlayers := []*lipgloss.Layer{lipgloss.NewLayer(${rootVar}).X(0).Y(0).Z(0).ID(${JSON.stringify(doc.root.id)})}`);
     for (const ov of activeOverlays) {
@@ -300,7 +345,9 @@ export function generateLayoutGo(doc: IRDoc): string {
       const oh = ov.node.height?.value ?? 9;
       const anchor = ov.anchor ?? "center";
       const stRef = ov.node.style ? `st.${toPascal(ov.node.style)}` : "lipgloss.NewStyle()";
+      const ovStyle = ov.node.style ? doc.styles[ov.node.style] : undefined;
       const ovVar = freshVar(ov.node.id);
+      if (ovStyle?.truncate) usesTruncate = true;
 
       let wCode = `${ow}`;
       let xExpr = `max(0, (w-${ow})/2)`;
@@ -325,12 +372,26 @@ export function generateLayoutGo(doc: IRDoc): string {
         }
       }
 
+      const finalYExpr = ov.harmonica?.enabled
+        ? `(${yExpr}) + ${toCamel(ov.node.id)}OvYOffset`
+        : yExpr;
+
+      let ovContentArg = `${toCamel(ov.node.id)}Content`;
+      if (ovStyle?.truncate) {
+        ovContentArg = `truncate(${ovContentArg}, max(1, ${wCode}-${stRef}.GetHorizontalFrameSize()))`;
+      }
+
       lines.push(`\t// @tui:id=${ov.node.id}`);
       if (ov.harmonica?.enabled) {
         lines.push(`\t// Harmonica spring animation: frequency=${ov.harmonica.frequency.toFixed(1)}, damping=${ov.harmonica.damping.toFixed(2)}`);
       }
-      lines.push(`\t${ovVar} := ${stRef}.Width(${wCode} - ${stRef}.GetHorizontalMargins()).Height(${oh} - ${stRef}.GetVerticalMargins()).Render(${toCamel(ov.node.id)}Content)`);
-      lines.push(`\tlayers = append(layers, lipgloss.NewLayer(${ovVar}).X(${xExpr}).Y(${yExpr}).Z(${ov.z}).ID(${JSON.stringify(ov.node.id)}))`);
+      if (ovStyle?.placeH || ovStyle?.placeV) {
+        lines.push(`\t${ovVar}Inner := ${stRef}.Width(${wCode} - ${stRef}.GetHorizontalMargins()).Height(${oh} - ${stRef}.GetVerticalMargins()).Render(${ovContentArg})`);
+        lines.push(`\t${ovVar} := lipgloss.Place(max(1, ${wCode}-${stRef}.GetHorizontalMargins()), max(1, ${oh}-${stRef}.GetVerticalMargins()), ${lipPos(ovStyle.placeH, "h")}, ${lipPos(ovStyle.placeV, "v")}, ${ovVar}Inner)`);
+      } else {
+        lines.push(`\t${ovVar} := ${stRef}.Width(${wCode} - ${stRef}.GetHorizontalMargins()).Height(${oh} - ${stRef}.GetVerticalMargins()).Render(${ovContentArg})`);
+      }
+      lines.push(`\tlayers = append(layers, lipgloss.NewLayer(${ovVar}).X(${xExpr}).Y(${finalYExpr}).Z(${ov.z}).ID(${JSON.stringify(ov.node.id)}))`);
     }
     lines.push(`\tcanvas := lipgloss.NewCanvas(w, h)`);
     lines.push(`\tcanvas.Compose(lipgloss.NewCompositor(layers...))`);
@@ -400,10 +461,8 @@ function inspectDocCapabilities(doc: IRDoc, rawModuleName = "github.com/charm-us
     n.contentType === "bubble:viewport" ||
     n.contentType === "bubble:textinput" ||
     n.contentType === "bubble:textarea" ||
-    n.contentType === "bubble:progress" ||
     n.contentType === "bubble:filepicker" ||
     n.contentType === "bubble:paginator" ||
-    n.contentType === "bubble:help" ||
     n.contentType === "bubble:timer" ||
     n.contentType === "bubble:stopwatch" ||
     n.contentType === "huh:form"
@@ -660,7 +719,8 @@ function huhValidationSnippet(f: { validation?: string; validationParam?: string
     return `.Validate(func(s string) error { if !strings.Contains(s, "@") { return fmt.Errorf(${errMsg}) }; return nil })`;
   }
   if (rule === "regex") {
-    return `.Validate(func(s string) error { if strings.TrimSpace(s) == "" { return fmt.Errorf(${errMsg}) }; return nil })`;
+    const pat = JSON.stringify(f.validationParam || ".+");
+    return `.Validate(func(s string) error { matched, err := regexp.MatchString(${pat}, s); if err != nil || !matched { return fmt.Errorf(${errMsg}) }; return nil })`;
   }
   return "";
 }
@@ -668,6 +728,7 @@ function huhValidationSnippet(f: { validation?: string; validationParam?: string
 export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): { code: string; spans: CodeSpanMap } {
   const {
     moduleName,
+    activeOverlays,
     allBoxes,
     usesList,
     usesTable,
@@ -687,13 +748,28 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     interactiveWidgets,
   } = inspectDocCapabilities(doc, rawModuleName);
 
-  const hasHuhValidation = allBoxes.some(
-    (b) => b.contentType === "huh:form" && (b.widgetData?.huhFields ?? []).some((f) => f.validation && f.validation !== "none")
+  const hasHuhRegex = allBoxes.some(
+    (b) => b.contentType === "huh:form" && (b.widgetData?.huhFields ?? []).some((f) => f.validation === "regex")
   );
+  const hasHuhStringValidation = allBoxes.some(
+    (b) =>
+      b.contentType === "huh:form" &&
+      (b.widgetData?.huhFields ?? []).some(
+        (f) => f.validation === "required" || f.validation === "minLength" || f.validation === "email"
+      )
+  );
+  const hasHuhMinSelect = allBoxes.some(
+    (b) =>
+      b.contentType === "huh:form" &&
+      (b.widgetData?.huhFields ?? []).some((f) => f.kind === "multiselect" && (f.minSelect ?? 0) > 0)
+  );
+  const hasHuhValidation = hasHuhRegex || hasHuhStringValidation || hasHuhMinSelect;
 
   const stdImports: string[] = [];
-  if (hasHuhValidation) stdImports.push(`"fmt"`, `"strings"`);
-  if (usesTimer || usesStopwatch) stdImports.push(`"time"`);
+  if (hasHuhValidation) stdImports.push(`"fmt"`);
+  if (hasHuhRegex) stdImports.push(`"regexp"`);
+  if (hasHuhStringValidation) stdImports.push(`"strings"`);
+  if (usesTimer || usesStopwatch || usesHarmonica) stdImports.push(`"time"`);
 
   const imports: string[] = [];
   if (usesHelp) imports.push(`"charm.land/bubbles/v2/help"`, `"charm.land/bubbles/v2/key"`);
@@ -716,6 +792,7 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
 
   const fieldDecls: string[] = [
     `\twidth, height int`,
+    `\tisDark        bool`,
     `\ttheme         ui.Theme`,
   ];
   if (interactiveWidgets.length > 1) {
@@ -726,6 +803,7 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
   const initLines: string[] = [];
   const initCmds: string[] = [];
   if (!usesWish) initCmds.push("tea.RequestBackgroundColor");
+  if (usesHarmonica) initCmds.push("tickHarmonica()");
 
   const listItemType = usesList
     ? `\ntype listItem struct{ title, desc string }\nfunc (i listItem) Title() string       { return i.title }\nfunc (i listItem) Description() string { return i.desc }\nfunc (i listItem) FilterValue() string { return i.title }\n`
@@ -764,6 +842,31 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       fieldDecls.push(`\t${varBase} table.Model // @tui:id=${node.id}`);
       fixtureHookVars.push(`\tpreview${pascalBase}Rows = func() []table.Row { return nil }`);
       const cols = wd.tableColumns?.length ? wd.tableColumns : defaultWidgetData("bubble:table").tableColumns!;
+      const headerFgExpr = wd.tableHeaderFg ? goTokenColorExpr(doc, wd.tableHeaderFg, "", "true") : "";
+      const headerBgExpr = wd.tableHeaderBg ? goTokenColorExpr(doc, wd.tableHeaderBg, "", "true") : "";
+      const selFgExpr = goTokenColorExpr(doc, wd.tableSelectedFg || "$textMain", "#ffffff", "true");
+      const selBgExpr = goTokenColorExpr(doc, wd.tableSelectedBg || "$accent", "#ff5eae", "true");
+      let headerChain = `${varBase}Styles.Header`;
+      if (wd.tableBorderStyle === "none") {
+        headerChain += `.BorderBottom(false)`;
+      } else {
+        const bExpr =
+          wd.tableBorderStyle === "rounded"
+            ? "lipgloss.RoundedBorder()"
+            : wd.tableBorderStyle === "thick"
+            ? "lipgloss.ThickBorder()"
+            : "lipgloss.NormalBorder()";
+        headerChain += `.BorderStyle(${bExpr})`;
+      }
+      if (headerFgExpr) headerChain += `.Foreground(lipgloss.Color(${headerFgExpr}))`;
+      if (headerBgExpr) headerChain += `.Background(lipgloss.Color(${headerBgExpr}))`;
+      headerChain += `.Bold(true)`;
+
+      let selChain = `${varBase}Styles.Selected`;
+      if (selFgExpr) selChain += `.Foreground(lipgloss.Color(${selFgExpr}))`;
+      if (selBgExpr) selChain += `.Background(lipgloss.Color(${selBgExpr}))`;
+      selChain += `.Bold(true)`;
+
       initLines.push(
         `\t// @tui:id=${node.id}`,
         `\t${varBase}Cols := []table.Column{`,
@@ -771,8 +874,8 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
         `\t}`,
         `\t${varBase}Model := table.New(table.WithColumns(${varBase}Cols), table.WithRows(preview${pascalBase}Rows()), table.WithFocused(true), table.WithHeight(10))`,
         `\t${varBase}Styles := table.DefaultStyles()`,
-        `\t${varBase}Styles.Header = ${varBase}Styles.Header.BorderStyle(lipgloss.NormalBorder()).Bold(true)`,
-        `\t${varBase}Styles.Selected = ${varBase}Styles.Selected.Bold(true)`,
+        `\t${varBase}Styles.Header = ${headerChain}`,
+        `\t${varBase}Styles.Selected = ${selChain}`,
         `\t${varBase}Model.SetStyles(${varBase}Styles)`
       );
     } else if (ct === "bubble:viewport") {
@@ -815,13 +918,19 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       fieldDecls.push(`\t${varBase}Percent float64`);
       const useHarm = wd.harmonica?.enabled ?? true;
       if (useHarm) {
-        fieldDecls.push(`\t${varBase}Spring harmonica.Spring`, `\t${varBase}Vel float64`);
+        fieldDecls.push(
+          `\t${varBase}Target float64`,
+          `\t${varBase}Spring harmonica.Spring`,
+          `\t${varBase}Vel float64`
+        );
       }
       const opts: string[] = [];
       if (wd.progressMode === "solid") {
-        opts.push(`progress.WithSolidFill(${JSON.stringify(wd.progressStartColor || "#ff5eae")})`);
+        opts.push(`progress.WithSolidFill(${goTokenColorExpr(doc, wd.progressStartColor, "#ff5eae", "true")})`);
       } else {
-        opts.push(`progress.WithGradient(${JSON.stringify(wd.progressStartColor || "#ff5eae")}, ${JSON.stringify(wd.progressEndColor || "#6dffc2")})`);
+        opts.push(
+          `progress.WithGradient(${goTokenColorExpr(doc, wd.progressStartColor, "#ff5eae", "true")}, ${goTokenColorExpr(doc, wd.progressEndColor, "#6dffc2", "true")})`
+        );
       }
       if (wd.progressShowPercent === false) {
         opts.push(`progress.WithoutPercentage()`);
@@ -837,11 +946,12 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       }
     } else if (ct === "bubble:spinner") {
       fieldDecls.push(`\t${varBase} spinner.Model // @tui:id=${node.id}`);
+      const spinExpr = goTokenColorExpr(doc, wd.spinnerColor || "$accent", "#ff5eae", "true");
       initLines.push(
         `\t// @tui:id=${node.id}`,
         `\t${varBase}Model := spinner.New()`,
         `\t${varBase}Model.Spinner = ${mapSpinnerTypeExpr(wd.spinnerType)}`,
-        `\t${varBase}Model.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(${JSON.stringify(wd.spinnerColor?.startsWith("$") ? "#ff5eae" : wd.spinnerColor || "#ff5eae")}))`
+        `\t${varBase}Model.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(${spinExpr}))`
       );
       initCmds.push(`m.${varBase}.Tick`);
     } else if (ct === "bubble:filepicker") {
@@ -914,7 +1024,11 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
           selectIdx++;
           fixtureHookVars.push(`\tpreview${pascalBase}${suffix} = func() []string { return nil }`);
           const limit = f.maxSelect ? `.Limit(${f.maxSelect})` : "";
-          bucket.push(`\t\t\thuh.NewMultiSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...)${limit},`);
+          const minMsg = JSON.stringify(f.errorMessage || `Select at least ${f.minSelect}`);
+          const minVal = f.minSelect && f.minSelect > 0
+            ? `.Validate(func(vals []string) error { if len(vals) < ${f.minSelect} { return fmt.Errorf(${minMsg}) }; return nil })`
+            : "";
+          bucket.push(`\t\t\thuh.NewMultiSelect[string]().Title(${JSON.stringify(f.label)}).Options(toHuhOptions(preview${pascalBase}${suffix}())...)${limit}${minVal},`);
         } else if (f.kind === "text") {
           const ch = f.charLimit ? `.CharLimit(${f.charLimit})` : "";
           const ln = f.lineLimit ? `.Lines(${f.lineLimit})` : "";
@@ -949,8 +1063,25 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     }
   }
 
+  for (const ov of activeOverlays) {
+    if (!ov.harmonica?.enabled) continue;
+    const ovVar = `${toCamel(ov.node.id)}Ov`;
+    fieldDecls.push(
+      `\t${ovVar}Spring harmonica.Spring`,
+      `\t${ovVar}Offset float64`,
+      `\t${ovVar}Vel    float64`
+    );
+    initLines.push(
+      `\t${ovVar}SpringVal := harmonica.NewSpring(harmonica.FPS(60), ${ov.harmonica.frequency ?? 6.0}, ${ov.harmonica.damping ?? 0.72})`
+    );
+  }
+
   const huhOptionsHelper = hasHuhSelect
     ? `\nfunc toHuhOptions(vals []string) []huh.Option[string] {\n\tif len(vals) == 0 {\n\t\treturn []huh.Option[string]{huh.NewOption("Default", "default")}\n\t}\n\tout := make([]huh.Option[string], 0, len(vals))\n\tfor _, v := range vals {\n\t\tout = append(out, huh.NewOption(v, v))\n\t}\n\treturn out\n}\n`
+    : "";
+
+  const harmonicaHelper = usesHarmonica
+    ? `\ntype harmonicaTickMsg time.Time\n\nfunc tickHarmonica() tea.Cmd {\n\treturn tea.Tick(time.Second/60, func(t time.Time) tea.Msg {\n\t\treturn harmonicaTickMsg(t)\n\t})\n}\n`
     : "";
 
   const fixtureHookBlock = fixtureHookVars.length > 0
@@ -965,10 +1096,15 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
     if (ct === "huh:form") {
       modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Form,`);
     } else if (ct === "bubble:progress") {
-      const pct = ((wd.progressPercent ?? 68) / 100).toFixed(2);
-      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`, `\t\t${varBase}Percent: ${pct},`);
-      if (wd.harmonica?.enabled ?? true) {
-        modelStructInitPairs.push(`\t\t${varBase}Spring: ${varBase}SpringVal,`);
+      const targetNum = Math.max(0, Math.min(100, wd.progressPercent ?? 68)) / 100;
+      const useHarm = wd.harmonica?.enabled ?? true;
+      const startNum = useHarm ? Math.max(0, targetNum - 0.25) : targetNum;
+      modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`, `\t\t${varBase}Percent: ${startNum.toFixed(2)},`);
+      if (useHarm) {
+        modelStructInitPairs.push(
+          `\t\t${varBase}Target: ${targetNum.toFixed(2)},`,
+          `\t\t${varBase}Spring: ${varBase}SpringVal,`
+        );
       }
     } else if (ct === "bubble:help") {
       modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`, `\t\t${varBase}Keys: ${varBase}KeysMap,`);
@@ -989,6 +1125,14 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
       modelStructInitPairs.push(`\t\t${varBase}: ${varBase}Model,`);
     }
   }
+  for (const ov of activeOverlays) {
+    if (!ov.harmonica?.enabled) continue;
+    const ovVar = `${toCamel(ov.node.id)}Ov`;
+    modelStructInitPairs.push(
+      `\t\t${ovVar}Spring: ${ovVar}SpringVal,`,
+      `\t\t${ovVar}Offset: 12.0,`
+    );
+  }
 
   const initReturn = initCmds.length === 0
     ? "return nil"
@@ -1005,7 +1149,7 @@ export function generateModelGoWithSpans(doc: IRDoc, rawModuleName = "github.com
 import (
 ${importBlock}
 )
-${listItemType}${helpKeyMapHelper}${huhOptionsHelper}${fixtureHookBlock}
+${harmonicaHelper}${listItemType}${helpKeyMapHelper}${huhOptionsHelper}${fixtureHookBlock}
 type model struct {
 ${fieldDecls.join("\n")}
 }
@@ -1013,7 +1157,8 @@ ${fieldDecls.join("\n")}
 func newModel(theme ui.Theme) model {
 ${initLines.join("\n")}
 \treturn model{
-\t\ttheme: theme,
+\t\tisDark: true,
+\t\ttheme:  theme,
 ${modelStructInitPairs.join("\n")}
 \t}
 }
@@ -1058,16 +1203,70 @@ export function generateModelGo(doc: IRDoc, rawModuleName = "github.com/charm-us
 export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): { code: string; spans: CodeSpanMap } {
   const {
     moduleName,
+    activeOverlays,
     allBoxes,
     usesHuh,
     usesWish,
     usesHelp,
+    usesHarmonica,
     interactiveWidgets,
   } = inspectDocCapabilities(doc, rawModuleName);
+
+  const stdImports: string[] = [];
+  if (usesHarmonica) stdImports.push(`"math"`);
 
   const imports: string[] = [`tea "charm.land/bubbletea/v2"`];
   if (usesHuh) imports.push(`"charm.land/huh/v2"`);
   if (!usesWish) imports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
+
+  const bgWidgetUpdates: string[] = [];
+  let updateUsesLipgloss = false;
+  let updateUsesTable = false;
+  let updateUsesProgress = false;
+  for (const node of allBoxes) {
+    const varBase = toCamel(node.id);
+    const ct = node.contentType ?? "text";
+    const wd = node.widgetData ?? defaultWidgetData(ct);
+    if (ct === "bubble:spinner" && isTokenRef(wd.spinnerColor || "$accent")) {
+      updateUsesLipgloss = true;
+      bgWidgetUpdates.push(`\t\tm.${varBase}.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(${goTokenColorExpr(doc, wd.spinnerColor || "$accent", "#ff5eae", "m.isDark")}))`);
+    } else if (ct === "bubble:table" && (isTokenRef(wd.tableHeaderFg) || isTokenRef(wd.tableHeaderBg) || isTokenRef(wd.tableSelectedFg || "$textMain") || isTokenRef(wd.tableSelectedBg || "$accent"))) {
+      updateUsesLipgloss = true;
+      updateUsesTable = true;
+      const bExpr = wd.tableBorderStyle === "rounded" ? "lipgloss.RoundedBorder()" : wd.tableBorderStyle === "thick" ? "lipgloss.ThickBorder()" : "lipgloss.NormalBorder()";
+      let hChain = `${varBase}St.Header`;
+      hChain += wd.tableBorderStyle === "none" ? `.BorderBottom(false)` : `.BorderStyle(${bExpr})`;
+      if (wd.tableHeaderFg) hChain += `.Foreground(lipgloss.Color(${goTokenColorExpr(doc, wd.tableHeaderFg, "", "m.isDark")}))`;
+      if (wd.tableHeaderBg) hChain += `.Background(lipgloss.Color(${goTokenColorExpr(doc, wd.tableHeaderBg, "", "m.isDark")}))`;
+      hChain += `.Bold(true)`;
+      const sChain = `${varBase}St.Selected.Foreground(lipgloss.Color(${goTokenColorExpr(doc, wd.tableSelectedFg || "$textMain", "#ffffff", "m.isDark")})).Background(lipgloss.Color(${goTokenColorExpr(doc, wd.tableSelectedBg || "$accent", "#ff5eae", "m.isDark")})).Bold(true)`;
+      bgWidgetUpdates.push(
+        `\t\t${varBase}St := table.DefaultStyles()`,
+        `\t\t${varBase}St.Header = ${hChain}`,
+        `\t\t${varBase}St.Selected = ${sChain}`,
+        `\t\tm.${varBase}.SetStyles(${varBase}St)`
+      );
+    } else if (ct === "bubble:progress" && (isTokenRef(wd.progressStartColor) || isTokenRef(wd.progressEndColor))) {
+      updateUsesProgress = true;
+      const opts: string[] = [];
+      if (wd.progressMode === "solid") {
+        opts.push(`progress.WithSolidFill(${goTokenColorExpr(doc, wd.progressStartColor, "#ff5eae", "m.isDark")})`);
+      } else {
+        opts.push(`progress.WithGradient(${goTokenColorExpr(doc, wd.progressStartColor, "#ff5eae", "m.isDark")}, ${goTokenColorExpr(doc, wd.progressEndColor, "#6dffc2", "m.isDark")})`);
+      }
+      if (wd.progressShowPercent === false) opts.push(`progress.WithoutPercentage()`);
+      bgWidgetUpdates.push(
+        `\t\t${varBase}PrevW := m.${varBase}.Width()`,
+        `\t\tm.${varBase} = progress.New(${opts.join(", ")})`,
+        `\t\tif ${varBase}PrevW > 0 { m.${varBase}.SetWidth(${varBase}PrevW) }`
+      );
+    }
+  }
+  if (!usesWish) {
+    if (updateUsesProgress) imports.push(`"charm.land/bubbles/v2/progress"`);
+    if (updateUsesTable) imports.push(`"charm.land/bubbles/v2/table"`);
+    if (updateUsesLipgloss) imports.push(`"charm.land/lipgloss/v2"`);
+  }
 
   const resizeLines: string[] = [];
   for (const node of allBoxes) {
@@ -1090,6 +1289,8 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
       resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height/3))`);
     } else if (ct === "bubble:progress") {
       resizeLines.push(`\t\tm.${varBase}.SetWidth(max(12, msg.Width-8))`);
+    } else if (ct === "bubble:filepicker") {
+      resizeLines.push(`\t\tm.${varBase}.SetHeight(max(4, msg.Height-6))`);
     } else if (ct === "bubble:help") {
       resizeLines.push(`\t\tm.${varBase}.SetWidth(max(16, msg.Width-4))`);
     } else if (ct === "huh:form") {
@@ -1117,8 +1318,6 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
       updateRoutes.push(
         `// @tui:id=${node.id}\n\t${guard}if f, cmd := m.${varBase}.Update(msg); f != nil {\n\t\t\tif form, ok := f.(*huh.Form); ok {\n\t\t\t\tm.${varBase} = form\n\t\t\t}\n\t\t\tcmds = append(cmds, cmd)\n\t\t}${endGuard}`
       );
-    } else if (ct === "bubble:progress" || ct === "bubble:help") {
-      updateRoutes.push(`// @tui:id=${node.id}\n\t_ = m.${varBase}`);
     } else if (ct === "bubble:timer" || ct === "bubble:stopwatch") {
       updateRoutes.push(`// @tui:id=${node.id}\n\tvar ${varBase}Cmd tea.Cmd\n\tm.${varBase}, ${varBase}Cmd = m.${varBase}.Update(msg)\n\tcmds = append(cmds, ${varBase}Cmd)`);
     } else {
@@ -1133,14 +1332,49 @@ export function generateUpdateGoWithSpans(doc: IRDoc, rawModuleName = "github.co
     updateRoutes.push(`// @tui:id=${node.id}\n\tvar ${varBase}Cmd tea.Cmd\n\tm.${varBase}, ${varBase}Cmd = m.${varBase}.Update(msg)\n\tcmds = append(cmds, ${varBase}Cmd)`);
   }
 
+  const harmonicaSteps: string[] = [];
+  if (usesHarmonica) {
+    for (const node of allBoxes) {
+      if (node.contentType !== "bubble:progress" || !(node.widgetData?.harmonica?.enabled ?? true)) continue;
+      const varBase = toCamel(node.id);
+      harmonicaSteps.push(
+        `\t\tm.${varBase}Percent, m.${varBase}Vel = m.${varBase}Spring.Update(m.${varBase}Percent, m.${varBase}Vel, m.${varBase}Target)`,
+        `\t\tif math.Abs(m.${varBase}Target-m.${varBase}Percent) > 0.001 || math.Abs(m.${varBase}Vel) > 0.001 {`,
+        `\t\t\tanimating = true`,
+        `\t\t}`
+      );
+    }
+    for (const ov of activeOverlays) {
+      if (!ov.harmonica?.enabled) continue;
+      const ovVar = `${toCamel(ov.node.id)}Ov`;
+      harmonicaSteps.push(
+        `\t\tm.${ovVar}Offset, m.${ovVar}Vel = m.${ovVar}Spring.Update(m.${ovVar}Offset, m.${ovVar}Vel, 0)`,
+        `\t\tif math.Abs(m.${ovVar}Offset) > 0.05 || math.Abs(m.${ovVar}Vel) > 0.05 {`,
+        `\t\t\tanimating = true`,
+        `\t\t}`
+      );
+    }
+  }
+  const harmonicaCase = usesHarmonica
+    ? `\n\tcase harmonicaTickMsg:\n\t\tanimating := false\n${harmonicaSteps.join("\n")}\n\t\tif animating {\n\t\t\tcmds = append(cmds, tickHarmonica())\n\t\t}`
+    : "";
+
   const focusTabCase = interactiveWidgets.length > 1
     ? `\t\tcase "tab":\n\t\t\tm.focusIdx = (m.focusIdx + 1) % ${interactiveWidgets.length}\n\t\tcase "shift+tab":\n\t\t\tm.focusIdx = (m.focusIdx + ${interactiveWidgets.length - 1}) % ${interactiveWidgets.length}\n`
+    : "";
+
+  const importBlock = stdImports.length > 0
+    ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${imports.map((s) => `\t${s}`).join("\n")}`
+    : imports.map((s) => `\t${s}`).join("\n");
+
+  const bgColorCase = !usesWish
+    ? `\n\tcase tea.BackgroundColorMsg:\n\t\tm.isDark = msg.IsDark()\n\t\tm.theme = ui.NewTheme(m.isDark)${bgWidgetUpdates.length > 0 ? "\n" + bgWidgetUpdates.join("\n") : ""}`
     : "";
 
   const code = `package main
 
 import (
-${imports.map((s) => `\t${s}`).join("\n")}
+${importBlock}
 )
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1148,7 +1382,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 \tswitch msg := msg.(type) {
 \tcase tea.WindowSizeMsg:
 \t\tm.width, m.height = msg.Width, msg.Height
-${resizeLines.join("\n")}${!usesWish ? `\n\tcase tea.BackgroundColorMsg:\n\t\tm.theme = ui.NewTheme(msg.IsDark())` : ""}
+${resizeLines.join("\n")}${bgColorCase}${harmonicaCase}
 \tcase tea.KeyPressMsg:
 \t\tswitch msg.String() {
 \t\tcase "ctrl+c":
@@ -1219,22 +1453,40 @@ export function generateUpdateGo(doc: IRDoc, rawModuleName = "github.com/charm-u
 }
 
 export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): { code: string; spans: CodeSpanMap } {
-  const { moduleName, allBoxes, usesGlamour, usesDivider, usesUv, usesCellbuf } = inspectDocCapabilities(doc, rawModuleName);
+  const { moduleName, activeOverlays, allBoxes, usesGlamour, usesDivider, usesUv, usesCellbuf } =
+    inspectDocCapabilities(doc, rawModuleName);
 
-  const stdImports = usesGlamour || usesDivider || usesUv || usesCellbuf ? [`"strings"`] : [];
-  const thirdImports: string[] = [`tea "charm.land/bubbletea/v2"`];
-  if (usesGlamour) thirdImports.push(`"charm.land/glamour/v2"`);
-  if (usesUv) thirdImports.push(`uv "github.com/charmbracelet/ultraviolet"`);
-  if (usesCellbuf) thirdImports.push(`"github.com/charmbracelet/x/cellbuf"`);
-  thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
+  const harmonicaOverlays = activeOverlays.filter((o) => Boolean(o.harmonica?.enabled));
+  let usesColorPkg = false;
+  let usesHexHelper = false;
+  let usesStrconv = false;
+  const uvHelpers: string[] = [];
+  const cellbufHelpers: string[] = [];
+
+  const colorExprForCanvas = (ref: string | undefined, fallback: string): string | null => {
+    if (!ref && !fallback) return null;
+    if (isTokenRef(ref)) {
+      usesColorPkg = true;
+      usesHexHelper = true;
+      usesStrconv = true;
+      return `hexToColorRGBA(ui.ResolveTokenColor(isDark, ${JSON.stringify(ref)}, ${JSON.stringify(fallback)}))`;
+    }
+    const lit = hexToColorRGBAExpr(resolveDocColorHex(doc, ref, fallback));
+    if (lit) {
+      usesColorPkg = true;
+      return lit;
+    }
+    return null;
+  };
 
   const viewArgs: string[] = [];
   let firstTextInputId: string | null = null;
   for (const node of allBoxes) {
     const varBase = toCamel(node.id);
+    const pascalBase = toPascal(node.id);
     const ct = node.contentType ?? "text";
     const wd = node.widgetData ?? defaultWidgetData(ct);
-    if ((ct === "bubble:textinput" || ct === "bubble:textarea") && !firstTextInputId) {
+    if (ct === "bubble:textinput" && !firstTextInputId) {
       firstTextInputId = varBase;
     }
     if (
@@ -1261,13 +1513,186 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
     } else if (ct === "lipgloss:divider") {
       viewArgs.push(`renderDivider(${JSON.stringify(wd.dividerOrientation ?? "horizontal")}, ${JSON.stringify(wd.dividerChar ?? "─")}, ${JSON.stringify(wd.dividerLabel ?? node.content ?? "")})`);
     } else if (ct === "uv:screen") {
-      viewArgs.push(`renderUvScreen()`);
+      const fnName = `renderUvScreen${pascalBase}`;
+      const wArg = node.width?.mode === "fixed" ? `${Math.max(8, node.width.value ?? 36)}` : `max(8, m.width-4)`;
+      const hArg = node.height?.mode === "fixed" ? `${Math.max(3, node.height.value ?? 8)}` : `max(3, m.height-4)`;
+      const hasTokenColors = (wd.uvCommands ?? []).some((c) => isTokenRef(c.fg) || isTokenRef(c.bg));
+      viewArgs.push(hasTokenColors ? `${fnName}(${wArg}, ${hArg}, m.isDark)` : `${fnName}(${wArg}, ${hArg})`);
+      const body: string[] = [
+        `\tbuf := uv.NewScreenBuffer(w, h)`,
+      ];
+      for (const cmd of wd.uvCommands ?? []) {
+        const fgRgba = colorExprForCanvas(cmd.fg, "");
+        const bgRgba = colorExprForCanvas(cmd.bg, "");
+        const styleParts: string[] = [];
+        if (fgRgba) styleParts.push(`Fg: ${fgRgba}`);
+        if (bgRgba) styleParts.push(`Bg: ${bgRgba}`);
+        if (cmd.bold) styleParts.push(`Attrs: uv.AttrBold`);
+        const styleExpr = styleParts.length > 0 ? `uv.Style{${styleParts.join(", ")}}` : `uv.Style{}`;
+
+        if (cmd.op === "fillRect") {
+          const glyph = Array.from(cmd.text || " ")[0] || " ";
+          const rw = Math.max(1, cmd.w ?? 6);
+          const rh = Math.max(1, cmd.h ?? 3);
+          body.push(
+            `\tfor y := max(0, ${cmd.y}); y < min(h, ${cmd.y + rh}); y++ {`,
+            `\t\tfor x := max(0, ${cmd.x}); x < min(w, ${cmd.x + rw}); x++ {`,
+            `\t\t\tbuf.SetCell(x, y, &uv.Cell{Content: ${JSON.stringify(glyph)}, Width: 1, Style: ${styleExpr}})`,
+            `\t\t}`,
+            `\t}`
+          );
+        } else if (cmd.op === "drawText") {
+          const textVal = cmd.text || "";
+          body.push(
+            `\tif ${cmd.y} >= 0 && ${cmd.y} < h {`,
+            `\t\tfor i, r := range []rune(${JSON.stringify(textVal)}) {`,
+            `\t\t\tx := ${cmd.x} + i`,
+            `\t\t\tif x >= 0 && x < w {`,
+            `\t\t\t\tbuf.SetCell(x, ${cmd.y}, &uv.Cell{Content: string(r), Width: 1, Style: ${styleExpr}})`,
+            `\t\t\t}`,
+            `\t\t}`,
+            `\t}`
+          );
+        } else if (cmd.op === "setCell") {
+          const glyph = Array.from(cmd.text || "✦")[0] || "✦";
+          body.push(
+            `\tif ${cmd.x} >= 0 && ${cmd.x} < w && ${cmd.y} >= 0 && ${cmd.y} < h {`,
+            `\t\tbuf.SetCell(${cmd.x}, ${cmd.y}, &uv.Cell{Content: ${JSON.stringify(glyph)}, Width: 1, Style: ${styleExpr}})`,
+            `\t}`
+          );
+        }
+      }
+      if (wd.uvShowCursor !== false) {
+        const cx = Math.max(0, wd.uvCursorX ?? 14);
+        const cy = Math.max(0, wd.uvCursorY ?? 4);
+        body.push(
+          `\tcx, cy := min(w-1, ${cx}), min(h-1, ${cy})`,
+          `\tif cur := buf.CellAt(cx, cy); cur != nil {`,
+          `\t\tcpy := *cur`,
+          `\t\tcpy.Style.Attrs |= uv.AttrReverse`,
+          `\t\tbuf.SetCell(cx, cy, &cpy)`,
+          `\t} else {`,
+          `\t\tbuf.SetCell(cx, cy, &uv.Cell{Content: " ", Width: 1, Style: uv.Style{Attrs: uv.AttrReverse}})`,
+          `\t}`
+        );
+      }
+      body.push(`\treturn strings.TrimRight(buf.Render(), "\\n")`);
+      const sig = hasTokenColors ? `(w, h int, isDark bool)` : `(w, h int)`;
+      uvHelpers.push(`func ${fnName}${sig} string {\n${body.join("\n")}\n}`);
     } else if (ct === "cellbuf:canvas") {
-      viewArgs.push(`renderCellbufCanvas()`);
+      const fnName = `renderCellbufCanvas${pascalBase}`;
+      const wArg = node.width?.mode === "fixed" ? `${Math.max(8, node.width.value ?? 36)}` : `max(8, m.width-4)`;
+      const hArg = node.height?.mode === "fixed" ? `${Math.max(3, node.height.value ?? 8)}` : `max(3, m.height-4)`;
+      const hasTokenColors = (wd.cellbufLayers ?? []).some((l) => isTokenRef(l.fg) || isTokenRef(l.bg));
+      viewArgs.push(hasTokenColors ? `${fnName}(${wArg}, ${hArg}, m.isDark)` : `${fnName}(${wArg}, ${hArg})`);
+      const body: string[] = [
+        `\tbuf := cellbuf.NewBuffer(w, h)`,
+      ];
+      for (const layer of wd.cellbufLayers ?? []) {
+        const defaultFg =
+          layer.shape === "checker"
+            ? "#414868"
+            : layer.shape === "box"
+            ? "#b9a2ff"
+            : layer.shape === "line"
+            ? "#ff5eae"
+            : "#6dffc2";
+        const fgRgba = colorExprForCanvas(layer.fg, defaultFg);
+        const bgRgba = colorExprForCanvas(layer.bg, "");
+        const styleParts: string[] = [];
+        if (fgRgba) styleParts.push(`Fg: ${fgRgba}`);
+        if (bgRgba) styleParts.push(`Bg: ${bgRgba}`);
+        const styleExpr = styleParts.length > 0 ? `cellbuf.Style{${styleParts.join(", ")}}` : `cellbuf.Style{}`;
+
+        if (layer.shape === "checker") {
+          const ch = Array.from(layer.borderChar || "░")[0] || "░";
+          const codePt = ch.codePointAt(0) ?? 0x2591;
+          body.push(
+            `\tfor y := max(0, ${layer.y}); y < min(h, ${layer.y + layer.h}); y++ {`,
+            `\t\tfor x := max(0, ${layer.x}); x < min(w, ${layer.x + layer.w}); x++ {`,
+            `\t\t\tif (x+y)%2 == 0 {`,
+            `\t\t\t\tbuf.SetCell(x, y, &cellbuf.Cell{Rune: rune(${codePt}), Width: 1, Style: ${styleExpr}})`,
+            `\t\t\t}`,
+            `\t\t}`,
+            `\t}`
+          );
+        } else if (layer.shape === "box") {
+          const x0 = layer.x;
+          const y0 = layer.y;
+          const x1 = layer.x + Math.max(2, layer.w) - 1;
+          const y1 = layer.y + Math.max(2, layer.h) - 1;
+          const borderCh = Array.from(layer.borderChar || "─")[0] || "─";
+          const borderCp = borderCh.codePointAt(0) ?? 0x2500;
+          body.push(
+            `\tfor y := max(0, ${y0}); y <= min(h-1, ${y1}); y++ {`,
+            `\t\tfor x := max(0, ${x0}); x <= min(w-1, ${x1}); x++ {`,
+            `\t\t\tch := ' '`,
+            `\t\t\tswitch {`,
+            `\t\t\tcase x == ${x0} && y == ${y0}:`,
+            `\t\t\t\tch = '╭'`,
+            `\t\t\tcase x == ${x1} && y == ${y0}:`,
+            `\t\t\t\tch = '╮'`,
+            `\t\t\tcase x == ${x0} && y == ${y1}:`,
+            `\t\t\t\tch = '╰'`,
+            `\t\t\tcase x == ${x1} && y == ${y1}:`,
+            `\t\t\t\tch = '╯'`,
+            `\t\t\tcase y == ${y0} || y == ${y1}:`,
+            `\t\t\t\tch = rune(${borderCp})`,
+            `\t\t\tcase x == ${x0} || x == ${x1}:`,
+            `\t\t\t\tch = '│'`,
+            `\t\t\t}`,
+            `\t\t\tbuf.SetCell(x, y, &cellbuf.Cell{Rune: ch, Width: 1, Style: ${styleExpr}})`,
+            `\t\t}`,
+            `\t}`
+          );
+        } else if (layer.shape === "line") {
+          const ch = Array.from(layer.borderChar || "─")[0] || "─";
+          const cp = ch.codePointAt(0) ?? 0x2500;
+          body.push(
+            `\tif ${layer.y} >= 0 && ${layer.y} < h {`,
+            `\t\tfor x := max(0, ${layer.x}); x < min(w, ${layer.x + layer.w}); x++ {`,
+            `\t\t\tbuf.SetCell(x, ${layer.y}, &cellbuf.Cell{Rune: rune(${cp}), Width: 1, Style: ${styleExpr}})`,
+            `\t\t}`,
+            `\t}`
+          );
+        } else if (layer.shape === "text") {
+          const txt = layer.text || "";
+          body.push(
+            `\tif ${layer.y} >= 0 && ${layer.y} < h {`,
+            `\t\tfor i, r := range []rune(${JSON.stringify(txt)}) {`,
+            `\t\t\tx := ${layer.x} + i`,
+            `\t\t\tif x >= 0 && x < w {`,
+            `\t\t\t\tbuf.SetCell(x, ${layer.y}, &cellbuf.Cell{Rune: r, Width: 1, Style: ${styleExpr}})`,
+            `\t\t\t}`,
+            `\t\t}`,
+            `\t}`
+          );
+        }
+      }
+      body.push(`\treturn strings.TrimRight(cellbuf.Render(buf), "\\n")`);
+      const sig = hasTokenColors ? `(w, h int, isDark bool)` : `(w, h int)`;
+      cellbufHelpers.push(`func ${fnName}${sig} string {\n${body.join("\n")}\n}`);
     } else {
       viewArgs.push(JSON.stringify(node.content ?? node.id));
     }
   }
+
+  for (const ov of harmonicaOverlays) {
+    const ovVar = `${toCamel(ov.node.id)}Ov`;
+    viewArgs.push(`int(math.Round(m.${ovVar}Offset))`);
+  }
+
+  const stdImports: string[] = [];
+  if (usesColorPkg) stdImports.push(`"image/color"`);
+  if (harmonicaOverlays.length > 0) stdImports.push(`"math"`);
+  if (usesStrconv) stdImports.push(`"strconv"`);
+  if (usesGlamour || usesDivider || usesUv || usesCellbuf) stdImports.push(`"strings"`);
+
+  const thirdImports: string[] = [`tea "charm.land/bubbletea/v2"`];
+  if (usesGlamour) thirdImports.push(`"charm.land/glamour/v2"`);
+  if (usesUv) thirdImports.push(`uv "github.com/charmbracelet/ultraviolet"`);
+  if (usesCellbuf) thirdImports.push(`"github.com/charmbracelet/x/cellbuf"`);
+  thirdImports.push(`${JSON.stringify(`${moduleName}/ui`)}`);
 
   const altScreen = doc.view?.altScreen ?? true;
   const mouseMode = doc.view?.mouseMode ?? "cell";
@@ -1308,12 +1733,10 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
   if (usesDivider) {
     helpers.push(`func renderDivider(orientation, ch, label string) string {\n\tif ch == "" {\n\t\tch = "─"\n\t}\n\tif orientation == "vertical" {\n\t\treturn strings.Repeat(ch+"\\n", 4)\n\t}\n\trule := strings.Repeat(ch, 16)\n\tif label != "" {\n\t\treturn "─── " + label + " " + rule\n\t}\n\treturn strings.Repeat(ch, 32)\n}`);
   }
-  if (usesUv) {
-    helpers.push(`func renderUvScreen() string {\n\tbuf := uv.NewScreenBuffer(34, 7)\n\t_ = buf\n\treturn "ULTRAVIOLET CELL SCREEN"\n}`);
+  if (usesHexHelper) {
+    helpers.push(`func hexToColorRGBA(hex string) color.Color {\n\th := strings.TrimPrefix(strings.TrimSpace(hex), "#")\n\tif len(h) != 6 {\n\t\treturn color.RGBA{R: 255, G: 255, B: 255, A: 255}\n\t}\n\tr, _ := strconv.ParseUint(h[0:2], 16, 8)\n\tg, _ := strconv.ParseUint(h[2:4], 16, 8)\n\tb, _ := strconv.ParseUint(h[4:6], 16, 8)\n\treturn color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}\n}`);
   }
-  if (usesCellbuf) {
-    helpers.push(`func renderCellbufCanvas() string {\n\tbuf := cellbuf.NewBuffer(34, 7)\n\t_ = buf\n\treturn strings.TrimSpace(cellbuf.Render(buf))\n}`);
-  }
+  helpers.push(...uvHelpers, ...cellbufHelpers);
 
   const importBlock = stdImports.length > 0
     ? `${stdImports.map((s) => `\t${s}`).join("\n")}\n\n${thirdImports.map((s) => `\t${s}`).join("\n")}`
@@ -1460,7 +1883,7 @@ export function generateGoMod(doc: IRDoc, rawModuleName = "github.com/charm-user
   }
   if (usesGlamour) reqs.push(`\tcharm.land/glamour/v2 v2.0.1`);
   if (usesHarmonica) reqs.push(`\tgithub.com/charmbracelet/harmonica v0.2.0`);
-  if (usesUv) reqs.push(`\tgithub.com/charmbracelet/ultraviolet v0.0.0-20250911120000-000000000000`);
+  if (usesUv) reqs.push(`\tgithub.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4`);
   if (usesCellbuf) reqs.push(`\tgithub.com/charmbracelet/x/cellbuf v0.0.13`);
 
   return `module ${moduleName}

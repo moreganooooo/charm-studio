@@ -1044,8 +1044,10 @@ function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number,
       }
       const filteredOpts = opts.map((o, i) => ({ o, i })).filter((x) => !q || x.o.toLowerCase().includes(q));
       const selIdx = (s.selects[field.id] ?? 0) % opts.length;
-      if (innerH >= 10 && groupFields.length <= 3) {
-        filteredOpts.slice(0, 5).forEach(({ o, i }) => {
+      if (innerH >= 7 && (groupFields.length <= 3 || active)) {
+        const curPos = Math.max(0, filteredOpts.findIndex((x) => x.i === selIdx));
+        const start = Math.max(0, Math.min(Math.max(0, filteredOpts.length - 5), curPos - 2));
+        filteredOpts.slice(start, start + 5).forEach(({ o, i }) => {
           const isCur = i === selIdx;
           const prefix = isCur ? fg(glow, "❯ ") : "  ";
           const lbl = isCur ? bold(fg(accent, o)) : fg(textMain, o);
@@ -1058,7 +1060,9 @@ function renderHuhForm(node: IRNode, doc: IRDoc, innerW: number, innerH: number,
       const opts = field.options?.length ? field.options : ["Option A", "Option B"];
       const curSet = s.multiSelects[field.id] ?? new Set<number>();
       const curIdx = (s.selects[field.id] ?? 0) % opts.length;
-      opts.slice(0, 5).forEach((opt, oi) => {
+      const start = Math.max(0, Math.min(Math.max(0, opts.length - 5), curIdx - 2));
+      opts.slice(start, start + 5).forEach((opt, relIdx) => {
+        const oi = start + relIdx;
         const isCur = active && oi === curIdx;
         const checked = curSet.has(oi);
         const box = checked ? fg(pal.ok, "[✓] ") : fg(muted, "[ ] ");
@@ -1122,12 +1126,15 @@ function highlightCodeLine(line: string, gt: (typeof GLAMOUR_THEMES)[GlamourThem
 }
 
 function renderInlineMarkdown(line: string, accent: string, glow: string, textMain: string, surface: string): string {
+  const rgbMatch = textMain.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  const n = rgbMatch ? parseInt(rgbMatch[1], 16) : 0xc0caf5;
+  const textEsc = `\x1b[38;2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`;
   let out = line;
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `${underline(fg(accent, label))} ${faint(`(${url})`)}`);
   out = out.replace(/`([^`]+)`/g, (_m, code) => fgBg(glow, surface, ` ${code} `));
   out = out.replace(/\*\*([^*]+)\*\*/g, (_m, b) => bold(fg(textMain, b)));
   out = out.replace(/\*([^*]+)\*/g, (_m, it) => italic(fg(textMain, it)));
-  return out;
+  return `${textEsc}${out.split("\x1b[0m").join(`\x1b[0m${textEsc}`)}\x1b[0m`;
 }
 
 function renderGlamourMarkdown(node: IRNode, _doc: IRDoc, innerW: number, innerH: number, darkBG: boolean): string {
@@ -1206,6 +1213,31 @@ function renderGlamourMarkdown(node: IRNode, _doc: IRDoc, innerW: number, innerH
       for (const wl of wrapPlainText(quote, Math.max(6, w - 3))) {
         rendered.push(fg(gt.accent, "┃ ") + italic(fg(gt.muted, wl)));
       }
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed.trim())) {
+      rendered.push(fg(gt.muted, "─".repeat(Math.max(4, w))));
+      continue;
+    }
+    const taskMatch = /^[-*]\s+\[( |x|X)\]\s+(.*)$/.exec(trimmed);
+    if (taskMatch) {
+      const done = taskMatch[1].toLowerCase() === "x";
+      const badge = done ? fg(gt.str, "[✓] ") : fg(gt.muted, "[ ] ");
+      const wrapped = wrapPlainText(taskMatch[2], Math.max(6, w - 5));
+      wrapped.forEach((wl, idx) => {
+        const styled = renderInlineMarkdown(wl, gt.accent, gt.h2, gt.text, gt.codeBg);
+        rendered.push((idx === 0 ? badge : "    ") + styled);
+      });
+      continue;
+    }
+    const olMatch = /^(\d+)\.\s+(.*)$/.exec(trimmed);
+    if (olMatch) {
+      const prefix = `${olMatch[1]}. `;
+      const wrapped = wrapPlainText(olMatch[2], Math.max(6, w - prefix.length - 1));
+      wrapped.forEach((wl, idx) => {
+        const styled = renderInlineMarkdown(wl, gt.accent, gt.h2, gt.text, gt.codeBg);
+        rendered.push((idx === 0 ? fg(gt.accent, prefix) : " ".repeat(prefix.length)) + styled);
+      });
       continue;
     }
     if (/^[-*]\s+/.test(trimmed)) {
@@ -1398,9 +1430,9 @@ export function renderCharmWidgetContent(
     case "wish:ssh":
       return renderWishBanner(node, doc, innerW, innerH, darkBG, cols, rows);
     case "uv:screen":
-      return renderUvScreen(node, doc, innerW, innerH);
+      return renderUvScreen(node, doc, innerW, innerH, darkBG);
     case "cellbuf:canvas":
-      return renderCellbufCanvas(node, doc, innerW, innerH);
+      return renderCellbufCanvas(node, doc, innerW, innerH, darkBG);
     default:
       return node.content ?? "";
   }

@@ -3,9 +3,11 @@ package astsync
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dave/dst"
@@ -26,6 +28,36 @@ func textInputSetting(data *IRWidgetData, field string) dst.Expr {
 		}
 	}
 	return nil
+}
+
+func goSpinnerConst(t string) string {
+	switch t {
+	case "line":
+		return "Line"
+	case "mini-dot":
+		return "MiniDot"
+	case "jump":
+		return "Jump"
+	case "pulse":
+		return "Pulse"
+	case "points":
+		return "Points"
+	case "globe":
+		return "Globe"
+	case "moon":
+		return "Moon"
+	case "monkey":
+		return "Monkey"
+	default:
+		return "Dot"
+	}
+}
+
+func goPaginatorConst(t string) string {
+	if t == "arabic" {
+		return "Arabic"
+	}
+	return "Dots"
 }
 
 // Older generated constructors do not assign EchoMode or CharLimit. Insert only
@@ -411,6 +443,144 @@ func collectNodesMap(doc IRDoc) (map[string]IRNode, string) {
 	return nodes, firstTextInput
 }
 
+func buildHuhValidateExpr(f IRHuhField) *dst.FuncLit {
+	var body []dst.Stmt
+	errMsg := f.ErrorMessage
+	if errMsg == "" {
+		errMsg = "Invalid input"
+	}
+	switch f.Validation {
+	case "required":
+		body = []dst.Stmt{
+			&dst.IfStmt{
+				Cond: &dst.BinaryExpr{
+					X: &dst.CallExpr{
+						Fun:  &dst.SelectorExpr{X: dst.NewIdent("strings"), Sel: dst.NewIdent("TrimSpace")},
+						Args: []dst.Expr{dst.NewIdent("s")},
+					},
+					Op: token.EQL,
+					Y:  strLit(""),
+				},
+				Body: &dst.BlockStmt{
+					List: []dst.Stmt{
+						&dst.ReturnStmt{Results: []dst.Expr{
+							&dst.CallExpr{
+								Fun:  &dst.SelectorExpr{X: dst.NewIdent("fmt"), Sel: dst.NewIdent("Errorf")},
+								Args: []dst.Expr{strLit(errMsg)},
+							},
+						}},
+					},
+				},
+			},
+			&dst.ReturnStmt{Results: []dst.Expr{dst.NewIdent("nil")}},
+		}
+	case "minLength":
+		minLen := 3
+		if n, err := strconv.Atoi(f.ValidationParam); err == nil && n > 0 {
+			minLen = n
+		}
+		body = []dst.Stmt{
+			&dst.IfStmt{
+				Cond: &dst.BinaryExpr{
+					X: &dst.CallExpr{
+						Fun: dst.NewIdent("len"),
+						Args: []dst.Expr{
+							&dst.CallExpr{
+								Fun:  &dst.SelectorExpr{X: dst.NewIdent("strings"), Sel: dst.NewIdent("TrimSpace")},
+								Args: []dst.Expr{dst.NewIdent("s")},
+							},
+						},
+					},
+					Op: token.LSS,
+					Y:  intLit(minLen),
+				},
+				Body: &dst.BlockStmt{
+					List: []dst.Stmt{
+						&dst.ReturnStmt{Results: []dst.Expr{
+							&dst.CallExpr{
+								Fun:  &dst.SelectorExpr{X: dst.NewIdent("fmt"), Sel: dst.NewIdent("Errorf")},
+								Args: []dst.Expr{strLit(errMsg)},
+							},
+						}},
+					},
+				},
+			},
+			&dst.ReturnStmt{Results: []dst.Expr{dst.NewIdent("nil")}},
+		}
+	case "email":
+		body = []dst.Stmt{
+			&dst.IfStmt{
+				Cond: &dst.UnaryExpr{
+					Op: token.NOT,
+					X: &dst.CallExpr{
+						Fun:  &dst.SelectorExpr{X: dst.NewIdent("strings"), Sel: dst.NewIdent("Contains")},
+						Args: []dst.Expr{dst.NewIdent("s"), strLit("@")},
+					},
+				},
+				Body: &dst.BlockStmt{
+					List: []dst.Stmt{
+						&dst.ReturnStmt{Results: []dst.Expr{
+							&dst.CallExpr{
+								Fun:  &dst.SelectorExpr{X: dst.NewIdent("fmt"), Sel: dst.NewIdent("Errorf")},
+								Args: []dst.Expr{strLit(errMsg)},
+							},
+						}},
+					},
+				},
+			},
+			&dst.ReturnStmt{Results: []dst.Expr{dst.NewIdent("nil")}},
+		}
+	case "regex":
+		pat := f.ValidationParam
+		if pat == "" {
+			pat = ".+"
+		}
+		body = []dst.Stmt{
+			&dst.AssignStmt{
+				Lhs: []dst.Expr{dst.NewIdent("matched"), dst.NewIdent("err")},
+				Tok: token.DEFINE,
+				Rhs: []dst.Expr{
+					&dst.CallExpr{
+						Fun:  &dst.SelectorExpr{X: dst.NewIdent("regexp"), Sel: dst.NewIdent("MatchString")},
+						Args: []dst.Expr{strLit(pat), dst.NewIdent("s")},
+					},
+				},
+			},
+			&dst.IfStmt{
+				Cond: &dst.BinaryExpr{
+					X:  &dst.BinaryExpr{X: dst.NewIdent("err"), Op: token.NEQ, Y: dst.NewIdent("nil")},
+					Op: token.LOR,
+					Y:  &dst.UnaryExpr{Op: token.NOT, X: dst.NewIdent("matched")},
+				},
+				Body: &dst.BlockStmt{
+					List: []dst.Stmt{
+						&dst.ReturnStmt{Results: []dst.Expr{
+							&dst.CallExpr{
+								Fun:  &dst.SelectorExpr{X: dst.NewIdent("fmt"), Sel: dst.NewIdent("Errorf")},
+								Args: []dst.Expr{strLit(errMsg)},
+							},
+						}},
+					},
+				},
+			},
+			&dst.ReturnStmt{Results: []dst.Expr{dst.NewIdent("nil")}},
+		}
+	default:
+		return nil
+	}
+	return &dst.FuncLit{
+		Type: &dst.FuncType{
+			Params: &dst.FieldList{
+				List: []*dst.Field{{Names: []*dst.Ident{dst.NewIdent("s")}, Type: dst.NewIdent("string")}},
+			},
+			Results: &dst.FieldList{
+				List: []*dst.Field{{Type: dst.NewIdent("error")}},
+			},
+		},
+		Body: &dst.BlockStmt{List: body},
+	}
+}
+
 func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 	args := make([]dst.Expr, 0, len(fields))
 	for _, f := range fields {
@@ -456,6 +626,50 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 				base = &dst.CallExpr{
 					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Limit")},
 					Args: []dst.Expr{intLit(f.MaxSelect)},
+				}
+			}
+			if f.Kind == "multiselect" && f.MinSelect > 0 {
+				errMsg := f.ErrorMessage
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("Select at least %d", f.MinSelect)
+				}
+				base = &dst.CallExpr{
+					Fun: &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Validate")},
+					Args: []dst.Expr{
+						&dst.FuncLit{
+							Type: &dst.FuncType{
+								Params: &dst.FieldList{
+									List: []*dst.Field{{
+										Names: []*dst.Ident{dst.NewIdent("vals")},
+										Type:  &dst.ArrayType{Elt: dst.NewIdent("string")},
+									}},
+								},
+								Results: &dst.FieldList{List: []*dst.Field{{Type: dst.NewIdent("error")}}},
+							},
+							Body: &dst.BlockStmt{
+								List: []dst.Stmt{
+									&dst.IfStmt{
+										Cond: &dst.BinaryExpr{
+											X:  &dst.CallExpr{Fun: dst.NewIdent("len"), Args: []dst.Expr{dst.NewIdent("vals")}},
+											Op: token.LSS,
+											Y:  intLit(f.MinSelect),
+										},
+										Body: &dst.BlockStmt{
+											List: []dst.Stmt{
+												&dst.ReturnStmt{Results: []dst.Expr{
+													&dst.CallExpr{
+														Fun:  &dst.SelectorExpr{X: dst.NewIdent("fmt"), Sel: dst.NewIdent("Errorf")},
+														Args: []dst.Expr{strLit(errMsg)},
+													},
+												}},
+											},
+										},
+									},
+									&dst.ReturnStmt{Results: []dst.Expr{dst.NewIdent("nil")}},
+								},
+							},
+						},
+					},
 				}
 			}
 		case "text":
@@ -506,6 +720,12 @@ func buildHuhGroupExpr(fields []IRHuhField) *dst.CallExpr {
 				Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Placeholder")},
 				Args: []dst.Expr{strLit(f.Placeholder)},
 			}
+			if valLit := buildHuhValidateExpr(f); valLit != nil {
+				base = &dst.CallExpr{
+					Fun:  &dst.SelectorExpr{X: base, Sel: dst.NewIdent("Validate")},
+					Args: []dst.Expr{valLit},
+				}
+			}
 		}
 		args = append(args, base)
 	}
@@ -519,6 +739,21 @@ func patchHuhFormExpr(e dst.Expr, fields []IRHuhField) bool {
 	if len(fields) == 0 {
 		return false
 	}
+	grouped := map[int][]IRHuhField{}
+	for _, f := range fields {
+		gIdx := max(0, f.Group)
+		grouped[gIdx] = append(grouped[gIdx], f)
+	}
+	keys := make([]int, 0, len(grouped))
+	for k := range grouped {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	groupExprs := make([]dst.Expr, 0, len(keys))
+	for _, k := range keys {
+		groupExprs = append(groupExprs, buildHuhGroupExpr(grouped[k]))
+	}
+
 	cur := e
 	for {
 		call, ok := cur.(*dst.CallExpr)
@@ -530,7 +765,7 @@ func patchHuhFormExpr(e dst.Expr, fields []IRHuhField) bool {
 			return false
 		}
 		if sel.Sel.Name == "NewForm" {
-			call.Args = []dst.Expr{buildHuhGroupExpr(fields)}
+			call.Args = groupExprs
 			return true
 		}
 		cur = sel.X
@@ -834,6 +1069,16 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 										node.Rhs[i] = value
 										patched[wn.ID+"."+field] = true
 									}
+								} else if wn.ContentType == "bubble:textarea" && field == "CharLimit" && literalLimit && wn.WidgetData.TextareaCharLimit > 0 {
+									node.Rhs[i] = intLit(wn.WidgetData.TextareaCharLimit)
+									patched[wn.ID+".CharLimit"] = true
+								}
+							case "ShowLineNumbers":
+								if wn.ContentType == "bubble:textarea" && wn.WidgetData.TextareaShowLineNumbers != nil {
+									if _, isBool := boolIdentVal(rhs); isBool {
+										node.Rhs[i] = boolIdent(*wn.WidgetData.TextareaShowLineNumbers)
+										patched[wn.ID+".ShowLineNumbers"] = true
+									}
 								}
 							case "Prompt":
 								if wn.WidgetData.InputPrompt != nil {
@@ -841,9 +1086,91 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 									patched[wn.ID+".Prompt"] = true
 								}
 							case "Placeholder":
-								if wn.WidgetData.InputPlaceholder != nil {
+								if wn.ContentType == "bubble:textarea" && wn.WidgetData.TextareaPlaceholder != "" {
+									if _, isStr := unquoteLit(rhs); isStr {
+										node.Rhs[i] = strLit(wn.WidgetData.TextareaPlaceholder)
+										patched[wn.ID+".Placeholder"] = true
+									}
+								} else if wn.WidgetData.InputPlaceholder != nil {
 									node.Rhs[i] = strLit(*wn.WidgetData.InputPlaceholder)
 									patched[wn.ID+".Placeholder"] = true
+								}
+							case "Spinner":
+								if wn.ContentType == "bubble:spinner" && wn.WidgetData.SpinnerType != "" {
+									if parseSpinnerTypeExpr(rhs) != "" {
+										node.Rhs[i] = &dst.SelectorExpr{X: dst.NewIdent("spinner"), Sel: dst.NewIdent(goSpinnerConst(wn.WidgetData.SpinnerType))}
+										patched[wn.ID+".Spinner"] = true
+									}
+								}
+							case "Type":
+								if wn.ContentType == "bubble:paginator" && wn.WidgetData.PaginatorType != "" {
+									if parsePaginatorTypeExpr(rhs) != "" {
+										node.Rhs[i] = &dst.SelectorExpr{X: dst.NewIdent("paginator"), Sel: dst.NewIdent(goPaginatorConst(wn.WidgetData.PaginatorType))}
+										patched[wn.ID+".Type"] = true
+									}
+								}
+							case "PerPage":
+								if wn.ContentType == "bubble:paginator" && wn.WidgetData.PaginatorPerPage > 0 {
+									if _, ok := intLitVal(rhs); ok {
+										node.Rhs[i] = intLit(wn.WidgetData.PaginatorPerPage)
+										patched[wn.ID+".PerPage"] = true
+									}
+								}
+							case "TotalPages":
+								if wn.ContentType == "bubble:paginator" && wn.WidgetData.PaginatorTotalPages > 0 {
+									if _, ok := intLitVal(rhs); ok {
+										node.Rhs[i] = intLit(wn.WidgetData.PaginatorTotalPages)
+										patched[wn.ID+".TotalPages"] = true
+									}
+								}
+							case "Page":
+								if wn.ContentType == "bubble:paginator" && wn.WidgetData.PaginatorPage > 0 {
+									if _, ok := intLitVal(rhs); ok {
+										node.Rhs[i] = intLit(max(0, wn.WidgetData.PaginatorPage-1))
+										patched[wn.ID+".Page"] = true
+									}
+								}
+							case "ShowAll":
+								if wn.ContentType == "bubble:help" && wn.WidgetData.HelpShowAll != nil {
+									if _, isBool := boolIdentVal(rhs); isBool {
+										node.Rhs[i] = boolIdent(*wn.WidgetData.HelpShowAll)
+										patched[wn.ID+".ShowAll"] = true
+									}
+								}
+							case "ShowPermissions":
+								if wn.ContentType == "bubble:filepicker" && wn.WidgetData.FpShowPermissions != nil {
+									if _, isBool := boolIdentVal(rhs); isBool {
+										node.Rhs[i] = boolIdent(*wn.WidgetData.FpShowPermissions)
+										patched[wn.ID+".ShowPermissions"] = true
+									}
+								}
+							case "ShowSize":
+								if wn.ContentType == "bubble:filepicker" && wn.WidgetData.FpShowSize != nil {
+									if _, isBool := boolIdentVal(rhs); isBool {
+										node.Rhs[i] = boolIdent(*wn.WidgetData.FpShowSize)
+										patched[wn.ID+".ShowSize"] = true
+									}
+								}
+							case "CurrentDirectory":
+								if wn.ContentType == "bubble:filepicker" && wn.WidgetData.FpCurrentDir != "" {
+									if _, isStr := unquoteLit(rhs); isStr {
+										node.Rhs[i] = strLit(wn.WidgetData.FpCurrentDir)
+										patched[wn.ID+".CurrentDirectory"] = true
+									}
+								}
+							case "AllowedTypes":
+								if wn.ContentType == "bubble:filepicker" && len(wn.WidgetData.FpAllowedExts) > 0 {
+									if _, isComp := rhs.(*dst.CompositeLit); isComp {
+										elts := make([]dst.Expr, 0, len(wn.WidgetData.FpAllowedExts))
+										for _, ext := range wn.WidgetData.FpAllowedExts {
+											elts = append(elts, strLit(ext))
+										}
+										node.Rhs[i] = &dst.CompositeLit{
+											Type: &dst.ArrayType{Elt: dst.NewIdent("string")},
+											Elts: elts,
+										}
+										patched[wn.ID+".AllowedTypes"] = true
+									}
 								}
 							}
 						}
@@ -909,6 +1236,20 @@ func SyncGoSource(existingGo string, doc IRDoc) GoSyncResult {
 								if wn.WidgetData != nil && len(wn.WidgetData.ListItems) > 0 && len(call.Args) == 1 {
 									call.Args[0] = buildListItemsLit(wn.WidgetData.ListItems)
 									patched[wn.ID+".SetItems"] = true
+								}
+							case "SetShowPagination":
+								if wn.WidgetData != nil && wn.WidgetData.ListShowPagination != nil && len(call.Args) == 1 {
+									if _, isBool := boolIdentVal(call.Args[0]); isBool {
+										call.Args[0] = boolIdent(*wn.WidgetData.ListShowPagination)
+										patched[wn.ID+".SetShowPagination"] = true
+									}
+								}
+							case "SetShowStatusBar":
+								if wn.WidgetData != nil && wn.WidgetData.ListShowStatusBar != nil && len(call.Args) == 1 {
+									if _, isBool := boolIdentVal(call.Args[0]); isBool {
+										call.Args[0] = boolIdent(*wn.WidgetData.ListShowStatusBar)
+										patched[wn.ID+".SetShowStatusBar"] = true
+									}
 								}
 							}
 						}

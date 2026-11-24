@@ -1,5 +1,7 @@
 import { X } from "lucide-react";
 import { AdvancedWidgetEditors } from "./components/AdvancedWidgetEditors";
+import { ColorSwatchPicker } from "./components/ColorSwatchPicker";
+import { useStudioStore } from "./store/studioStore";
 import { defaultWidgetData, type HuhThemeName, type HuhValidationRule, type IRHuhField, type IRNode, type IRWidgetData } from "./types";
 
 interface Props {
@@ -9,7 +11,16 @@ interface Props {
 }
 
 export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: Props) {
+  const { ir, palette } = useStudioStore();
   const ct = node.contentType ?? "text";
+  const swatchHex = (val?: string) => {
+    if (!val) return "";
+    if (val.startsWith("$")) {
+      const pair = ir.tokens[val.slice(1)];
+      return pair ? (palette.darkBG ? pair.dark : pair.light) : "";
+    }
+    return val;
+  };
 
   if (ct === "bubble:list") {
     const data = node.widgetData ?? defaultWidgetData("bubble:list");
@@ -150,30 +161,72 @@ export function WidgetDataEditor({ node, onChangeWidgetData, onChangeContent }: 
           </label>
           <label style={labelCol}>
             <span>Header Accent</span>
-            <input
-              value={data.tableHeaderFg ?? "$accent"}
-              onChange={(e) => onChangeWidgetData({ ...data, tableHeaderFg: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.tableHeaderFg ?? "$accent"}
+                onChange={(e) => onChangeWidgetData({ ...data, tableHeaderFg: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Header Accent"
+                value={swatchHex(data.tableHeaderFg ?? "$accent")}
+                onChange={(c) => onChangeWidgetData({ ...data, tableHeaderFg: c })}
+              />
+            </div>
+          </label>
+          <label style={labelCol}>
+            <span>Header Bg</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.tableHeaderBg ?? ""}
+                placeholder="transparent"
+                onChange={(e) => onChangeWidgetData({ ...data, tableHeaderBg: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Header Bg"
+                value={swatchHex(data.tableHeaderBg)}
+                onChange={(c) => onChangeWidgetData({ ...data, tableHeaderBg: c })}
+              />
+            </div>
           </label>
           <label style={labelCol}>
             <span>Selected Bg</span>
-            <input
-              value={data.tableSelectedBg ?? "$accent"}
-              onChange={(e) => onChangeWidgetData({ ...data, tableSelectedBg: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.tableSelectedBg ?? "$accent"}
+                onChange={(e) => onChangeWidgetData({ ...data, tableSelectedBg: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Selected Bg"
+                value={swatchHex(data.tableSelectedBg ?? "$accent")}
+                onChange={(c) => onChangeWidgetData({ ...data, tableSelectedBg: c })}
+              />
+            </div>
           </label>
           <label style={labelCol}>
             <span>Selected Text</span>
-            <input
-              value={data.tableSelectedFg ?? "#150f1d"}
-              onChange={(e) => onChangeWidgetData({ ...data, tableSelectedFg: e.target.value })}
-              className="cs-mono"
-              style={inputStyle}
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, alignItems: "center" }}>
+              <input
+                value={data.tableSelectedFg ?? "#150f1d"}
+                onChange={(e) => onChangeWidgetData({ ...data, tableSelectedFg: e.target.value })}
+                className="cs-mono"
+                style={inputStyle}
+              />
+              <ColorSwatchPicker
+                allowAnsi
+                label="Selected Text"
+                value={swatchHex(data.tableSelectedFg ?? "#150f1d")}
+                onChange={(c) => onChangeWidgetData({ ...data, tableSelectedFg: c })}
+              />
+            </div>
           </label>
         </div>
 

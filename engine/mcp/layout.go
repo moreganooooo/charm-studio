@@ -81,12 +81,16 @@ func DefaultMatrixSizes() []SizeSpec {
 
 func toLipPos(align string, def lipgloss.Position) lipgloss.Position {
 	switch align {
-	case "left", "top", "start":
+	case "left", "start":
 		return lipgloss.Left
+	case "top":
+		return lipgloss.Top
 	case "center":
 		return lipgloss.Center
-	case "right", "bottom", "end":
+	case "right", "end":
 		return lipgloss.Right
+	case "bottom":
+		return lipgloss.Bottom
 	default:
 		return def
 	}
@@ -115,6 +119,19 @@ func buildLayoutStyles(doc astsync.IRDoc) map[string]lipgloss.Style {
 			s = s.Border(lipgloss.DoubleBorder())
 		case "hidden":
 			s = s.Border(lipgloss.HiddenBorder())
+		case "custom":
+			if spec.CustomBorder != nil {
+				s = s.Border(lipgloss.Border{
+					Top:         spec.CustomBorder.Top,
+					Bottom:      spec.CustomBorder.Bottom,
+					Left:        spec.CustomBorder.Left,
+					Right:       spec.CustomBorder.Right,
+					TopLeft:     spec.CustomBorder.TopLeft,
+					TopRight:    spec.CustomBorder.TopRight,
+					BottomLeft:  spec.CustomBorder.BottomLeft,
+					BottomRight: spec.CustomBorder.BottomRight,
+				})
+			}
 		}
 
 		if spec.Border != "" && spec.Border != "none" && spec.BorderEdges != nil {
@@ -124,6 +141,12 @@ func buildLayoutStyles(doc astsync.IRDoc) map[string]lipgloss.Style {
 				BorderLeft(spec.BorderEdges[3])
 		}
 
+		if spec.MaxWidth > 0 {
+			s = s.MaxWidth(spec.MaxWidth)
+		}
+		if spec.MaxHeight > 0 {
+			s = s.MaxHeight(spec.MaxHeight)
+		}
 		if spec.AlignH != "" {
 			s = s.AlignHorizontal(toLipPos(spec.AlignH, lipgloss.Left))
 		}
@@ -197,6 +220,58 @@ func sampleNodeText(node astsync.IRNode, spec astsync.IRStyle, innerW, innerH in
 	case "bubble:textinput":
 		prompt, placeholder := node.WidgetData.TextInputLabels()
 		body = prompt + placeholder
+	case "bubble:textarea":
+		if body == "" {
+			if node.WidgetData != nil && node.WidgetData.TextareaPlaceholder != "" {
+				body = node.WidgetData.TextareaPlaceholder
+			} else {
+				body = "Write notes...\nLn 1, Col 1"
+			}
+		}
+	case "bubble:progress":
+		pct := 68
+		if node.WidgetData != nil && node.WidgetData.ProgressPercent > 0 {
+			pct = int(node.WidgetData.ProgressPercent)
+		}
+		body = fmt.Sprintf("[██████████░░░░] %d%%", pct)
+	case "bubble:spinner":
+		lbl := "Loading..."
+		if node.WidgetData != nil && node.WidgetData.SpinnerLabel != "" {
+			lbl = node.WidgetData.SpinnerLabel
+		}
+		body = "⠋ " + lbl
+	case "bubble:filepicker":
+		dir := "/workspace/charm-app"
+		if node.WidgetData != nil && node.WidgetData.FpCurrentDir != "" {
+			dir = node.WidgetData.FpCurrentDir
+		}
+		body = dir + "\nmain.go\nREADME.md"
+	case "bubble:paginator":
+		body = "● ○ ○ ○ ○"
+	case "bubble:help":
+		body = "↑/k up • ↓/j down • ? help • q quit"
+	case "bubble:timer":
+		body = "01:30  ● RUN"
+	case "bubble:stopwatch":
+		body = "00.0s  ● RUN"
+	case "lipgloss:divider":
+		ch := "─"
+		if node.WidgetData != nil && node.WidgetData.DividerChar != "" {
+			ch = node.WidgetData.DividerChar
+		}
+		if node.WidgetData != nil && node.WidgetData.DividerOrientation == "vertical" {
+			body = strings.TrimSuffix(strings.Repeat(ch+"\n", max(1, innerH)), "\n")
+		} else {
+			body = strings.Repeat(ch, max(4, innerW))
+		}
+	case "glamour:markdown":
+		if body == "" {
+			body = "# Glamour Markdown\nRendered TUI documentation"
+		}
+	case "uv:screen":
+		body = strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", max(8, innerW))+"\n", max(3, innerH)), "\n")
+	case "cellbuf:canvas":
+		body = strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", max(8, innerW))+"\n", max(3, innerH)), "\n")
 	case "huh:form":
 		if node.WidgetData != nil && len(node.WidgetData.HuhFields) > 0 {
 			lines := make([]string, 0, len(node.WidgetData.HuhFields)*2)
@@ -325,6 +400,15 @@ func evalLayoutNode(
 		innerH := max(1, targetH-s.GetVerticalPadding()-s.GetVerticalBorderSize())
 		body := sampleNodeText(node, spec, innerW, innerH)
 		rendered := s.Render(body)
+		if spec.PlaceH != "" || spec.PlaceV != "" {
+			rendered = lipgloss.Place(
+				max(1, targetW),
+				max(1, targetH),
+				toLipPos(spec.PlaceH, lipgloss.Left),
+				toLipPos(spec.PlaceV, lipgloss.Top),
+				rendered,
+			)
+		}
 		actualW, actualH := lipgloss.Size(rendered)
 
 		mRect := Rect{X: x, Y: y, W: actualW, H: actualH}

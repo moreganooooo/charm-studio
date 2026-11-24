@@ -364,3 +364,67 @@ func RenderApp(w, h int, st Theme) string {
 		t.Fatalf("note changed on sync: %+v", updated)
 	}
 }
+
+func TestPlaceAndExtraWidgetsRoundTrip(t *testing.T) {
+	const src = `package ui
+import (
+	"charm.land/bubbles/v2/paginator"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/lipgloss/v2"
+)
+func buildWidgets() {
+	// @tui:id=notes
+	notesModel := textarea.New()
+	notesModel.Placeholder = "Draft"
+	notesModel.ShowLineNumbers = true
+	notesModel.CharLimit = 250
+
+	// @tui:id=spin
+	spinModel := spinner.New()
+	spinModel.Spinner = spinner.MiniDot
+
+	// @tui:id=pager
+	pagerModel := paginator.New()
+	pagerModel.Type = paginator.Dots
+	pagerModel.TotalPages = 5
+	pagerModel.Page = 1
+}
+func RenderApp(w, h int, st Theme) string {
+	// @tui:id=notes
+	notesInner := st.Main.Width(w).Height(h).Render("")
+	notes := lipgloss.Place(max(1, w), max(1, h), lipgloss.Center, lipgloss.Bottom, notesInner)
+	return notes
+}`
+	parsed := ParseGoSource(src)
+	if parsed.Error != "" || parsed.Root == nil || parsed.Root.ID != "notes" || parsed.Root.WidgetData == nil {
+		t.Fatalf("failed to parse Place + textarea widget: %+v", parsed)
+	}
+	if parsed.Root.WidgetData.TextareaPlaceholder != "Draft" || parsed.Root.WidgetData.TextareaCharLimit != 250 {
+		t.Fatalf("unexpected textarea widgetData: %+v", parsed.Root.WidgetData)
+	}
+
+	showNums := false
+	doc := IRDoc{
+		Root: IRNode{
+			ID:          "notes",
+			Kind:        "Box",
+			ContentType: "bubble:textarea",
+			WidgetData: &IRWidgetData{
+				TextareaPlaceholder:     "Updated Notes",
+				TextareaShowLineNumbers: &showNums,
+				TextareaCharLimit:       400,
+			},
+		},
+	}
+	synced := SyncGoSource(src, doc)
+	if synced.Error != "" {
+		t.Fatal(synced.Error)
+	}
+	if !strings.Contains(synced.UpdatedGo, `notesModel.Placeholder = "Updated Notes"`) ||
+		!strings.Contains(synced.UpdatedGo, "notesModel.ShowLineNumbers = false") ||
+		!strings.Contains(synced.UpdatedGo, "notesModel.CharLimit = 400") {
+		t.Fatalf("textarea fields did not patch cleanly: %s", synced.UpdatedGo)
+	}
+}
+

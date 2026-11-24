@@ -975,12 +975,23 @@ func ParseGoSource(src string) GoParseResult {
 
 	// Parse Go-to-IR layout tree, overlays, Bubbles/Huh widgets, and node-level dynamic expressions
 	widgets := extractWidgetConfigs(f)
-	rootNode, overlays, nodeDynExprs, nodeSyncDisabled := extractLayoutTreeWithMeta(f, widgets, out.StyleNames)
+	rootNode, overlays, nodeDynExprs, nodeSyncDisabled, placeStyles := extractLayoutTreeWithMeta(f, widgets, out.StyleNames)
 	if rootNode != nil {
 		out.Root = rootNode
 	}
 	if len(overlays) > 0 {
 		out.Overlays = overlays
+	}
+	for styleKey, pos := range placeStyles {
+		if st, ok := out.Styles[styleKey]; ok {
+			if pos[0] != "" {
+				st.PlaceH = pos[0]
+			}
+			if pos[1] != "" {
+				st.PlaceV = pos[1]
+			}
+			out.Styles[styleKey] = st
+		}
 	}
 	for nodeKey, dynMap := range nodeDynExprs {
 		out.DynamicExprs[nodeKey] = dynMap
@@ -1064,10 +1075,11 @@ func isLikelyStyleExpr(name string, expr dst.Expr) bool {
 // --- Widget & Layout Tree Extraction ---
 
 type parsedWidgetInfo struct {
-	id          string
-	contentType string
-	content     string
-	widgetData  IRWidgetData
+	id            string
+	contentType   string
+	content       string
+	hasWidgetData bool
+	widgetData    IRWidgetData
 }
 
 func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
@@ -1076,6 +1088,7 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 	listItemsVars := map[string][]IRListItem{}
 	tableColsVars := map[string][]IRTableColumn{}
 	tableRowsVars := map[string][][]string{}
+	compactDelegates := map[string]bool{}
 
 	ensureWidget := func(id, ct string) *parsedWidgetInfo {
 		if w, ok := out[id]; ok {
@@ -1096,7 +1109,7 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 		if id, ok := varToID[varName]; ok {
 			return id
 		}
-		for _, suffix := range []string{"Model", "Form", "Cols", "Rows", "Items"} {
+		for _, suffix := range []string{"Model", "Form", "Cols", "Rows", "Items", "Del"} {
 			if strings.HasSuffix(varName, suffix) && len(varName) > len(suffix) {
 				return strings.TrimSuffix(varName, suffix)
 			}
@@ -1104,7 +1117,7 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 		return varName
 	}
 
-	// Pass 1: collect @tui:id annotations on struct fields & statements, plus slice literals
+	// Pass 1: collect @tui:id annotations on struct fields & statements, plus slice literals and list delegates
 	dst.Inspect(f, func(n dst.Node) bool {
 		switch node := n.(type) {
 		case *dst.Field:
@@ -1123,20 +1136,24 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 				if i >= len(node.Rhs) {
 					continue
 				}
-				idIdent, ok := lhs.(*dst.Ident)
-				if !ok {
-					continue
-				}
-				if tagID != "" {
-					varToID[idIdent.Name] = tagID
-				}
-				if comp, ok := node.Rhs[i].(*dst.CompositeLit); ok {
-					if items, ok := parseListItemsLit(comp); ok {
-						listItemsVars[idIdent.Name] = items
-					} else if cols, ok := parseTableColsLit(comp); ok {
-						tableColsVars[idIdent.Name] = cols
-					} else if rows, ok := parseTableRowsLit(comp); ok {
-						tableRowsVars[idIdent.Name] = rows
+				if idIdent, ok := lhs.(*dst.Ident); ok {
+					if tagID != "" {
+						varToID[idIdent.Name] = tagID
+					}
+					if comp, ok := node.Rhs[i].(*dst.CompositeLit); ok {
+						if items, ok := parseListItemsLit(comp); ok {
+							listItemsVars[idIdent.Name] = items
+						} else if cols, ok := parseTableColsLit(comp); ok {
+							tableColsVars[idIdent.Name] = cols
+						} else if rows, ok := parseTableRowsLit(comp); ok {
+							tableRowsVars[idIdent.Name] = rows
+						}
+					}
+				} else if sel, ok := lhs.(*dst.SelectorExpr); ok && sel.Sel.Name == "ShowDescription" {
+					if recv, ok := sel.X.(*dst.Ident); ok {
+						if b, ok := boolIdentVal(node.Rhs[i]); ok && !b {
+							compactDelegates[recv.Name] = true
+						}
 					}
 				}
 			}
@@ -1166,14 +1183,24 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 					case isPkgCall(rhs, "list", "New"):
 						w := ensureWidget(wid, "bubble:list")
 						varToID[ident.Name] = wid
-						if call, ok := rhs.(*dst.CallExpr); ok && len(call.Args) >= 1 {
-							if argID, ok := call.Args[0].(*dst.Ident); ok {
-								if items, ok := listItemsVars[argID.Name]; ok {
-									w.widgetData.ListItems = items
+						if call, ok := rhs.(*dst.CallExpr); ok {
+							if len(call.Args) >= 1 {
+								if argID, ok := call.Args[0].(*dst.Ident); ok {
+									if items, ok := listItemsVars[argID.Name]; ok {
+										w.widgetData.ListItems = items
+										w.hasWidgetData = true
+									}
+								} else if comp, ok := call.Args[0].(*dst.CompositeLit); ok {
+									if items, ok := parseListItemsLit(comp); ok {
+										w.widgetData.ListItems = items
+										w.hasWidgetData = true
+									}
 								}
-							} else if comp, ok := call.Args[0].(*dst.CompositeLit); ok {
-								if items, ok := parseListItemsLit(comp); ok {
-									w.widgetData.ListItems = items
+							}
+							if len(call.Args) >= 2 {
+								if delID, ok := call.Args[1].(*dst.Ident); ok && compactDelegates[delID.Name] {
+									w.widgetData.ListDelegateMode = "compact"
+									w.hasWidgetData = true
 								}
 							}
 						}
@@ -1193,8 +1220,11 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 						ensureWidget(wid, "bubble:textarea")
 						varToID[ident.Name] = wid
 					case isPkgCall(rhs, "progress", "New"):
-						ensureWidget(wid, "bubble:progress")
+						w := ensureWidget(wid, "bubble:progress")
 						varToID[ident.Name] = wid
+						if call, ok := rhs.(*dst.CallExpr); ok {
+							parseProgressNewArgs(call.Args, w)
+						}
 					case isPkgCall(rhs, "spinner", "New"):
 						ensureWidget(wid, "bubble:spinner")
 						varToID[ident.Name] = wid
@@ -1208,8 +1238,14 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 						ensureWidget(wid, "bubble:help")
 						varToID[ident.Name] = wid
 					case isPkgCall(rhs, "timer", "New"), isPkgCall(rhs, "timer", "NewWithInterval"):
-						ensureWidget(wid, "bubble:timer")
+						w := ensureWidget(wid, "bubble:timer")
 						varToID[ident.Name] = wid
+						if call, ok := rhs.(*dst.CallExpr); ok && len(call.Args) >= 1 {
+							if sec, ok := parseDurationSeconds(call.Args[0]); ok {
+								w.widgetData.TimerDurationSec = sec
+								w.hasWidgetData = true
+							}
+						}
 					case isPkgCall(rhs, "stopwatch", "New"), isPkgCall(rhs, "stopwatch", "NewWithInterval"):
 						ensureWidget(wid, "bubble:stopwatch")
 						varToID[ident.Name] = wid
@@ -1217,6 +1253,12 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 						w := ensureWidget(wid, "huh:form")
 						varToID[ident.Name] = wid
 						w.widgetData.HuhFields = parseHuhFormExpr(rhs)
+						if theme := parseHuhFormTheme(rhs); theme != "" {
+							w.widgetData.HuhTheme = theme
+						}
+						if len(w.widgetData.HuhFields) > 0 || w.widgetData.HuhTheme != "" {
+							w.hasWidgetData = true
+						}
 					}
 				}
 				// Field assignments like sidebarModel.Title = "..." or searchBarModel.Prompt = "..."
@@ -1224,13 +1266,102 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 					if recv, ok := sel.X.(*dst.Ident); ok {
 						wid := guessID(recv.Name, nil)
 						if w, ok := out[wid]; ok {
-							if w.contentType == "bubble:textinput" {
+							switch w.contentType {
+							case "bubble:textinput":
 								switch sel.Sel.Name {
 								case "EchoMode":
-									w.widgetData.InputEchoMode = inputEchoMode(rhs)
+									if mode := inputEchoMode(rhs); mode != "" {
+										w.widgetData.InputEchoMode = mode
+										w.hasWidgetData = true
+									}
 								case "CharLimit":
 									if limit, ok := intLitVal(rhs); ok {
 										w.widgetData.InputCharLimit = &limit
+										w.hasWidgetData = true
+									}
+								}
+							case "bubble:textarea":
+								switch sel.Sel.Name {
+								case "ShowLineNumbers":
+									if b, ok := boolIdentVal(rhs); ok {
+										w.widgetData.TextareaShowLineNumbers = &b
+										w.hasWidgetData = true
+									}
+								case "CharLimit":
+									if limit, ok := intLitVal(rhs); ok {
+										w.widgetData.TextareaCharLimit = limit
+										w.hasWidgetData = true
+									}
+								case "Placeholder":
+									if s, ok := unquoteLit(rhs); ok {
+										w.widgetData.TextareaPlaceholder = s
+										w.hasWidgetData = true
+									}
+								}
+							case "bubble:spinner":
+								if sel.Sel.Name == "Spinner" {
+									if sp := parseSpinnerTypeExpr(rhs); sp != "" {
+										w.widgetData.SpinnerType = sp
+										w.hasWidgetData = true
+									}
+								}
+							case "bubble:paginator":
+								switch sel.Sel.Name {
+								case "Type":
+									if pType := parsePaginatorTypeExpr(rhs); pType != "" {
+										w.widgetData.PaginatorType = pType
+										w.hasWidgetData = true
+									}
+								case "PerPage":
+									if v, ok := intLitVal(rhs); ok {
+										w.widgetData.PaginatorPerPage = v
+										w.hasWidgetData = true
+									}
+								case "TotalPages":
+									if v, ok := intLitVal(rhs); ok {
+										w.widgetData.PaginatorTotalPages = v
+										w.hasWidgetData = true
+									}
+								case "Page":
+									if v, ok := intLitVal(rhs); ok {
+										w.widgetData.PaginatorPage = v + 1
+										w.hasWidgetData = true
+									}
+								}
+							case "bubble:help":
+								if sel.Sel.Name == "ShowAll" {
+									if b, ok := boolIdentVal(rhs); ok {
+										w.widgetData.HelpShowAll = &b
+										w.hasWidgetData = true
+									}
+								}
+							case "bubble:filepicker":
+								switch sel.Sel.Name {
+								case "ShowPermissions":
+									if b, ok := boolIdentVal(rhs); ok {
+										w.widgetData.FpShowPermissions = &b
+										w.hasWidgetData = true
+									}
+								case "ShowSize":
+									if b, ok := boolIdentVal(rhs); ok {
+										w.widgetData.FpShowSize = &b
+										w.hasWidgetData = true
+									}
+								case "CurrentDirectory":
+									if s, ok := unquoteLit(rhs); ok {
+										w.widgetData.FpCurrentDir = s
+										w.hasWidgetData = true
+									}
+								case "AllowedTypes":
+									if comp, ok := rhs.(*dst.CompositeLit); ok {
+										var exts []string
+										for _, elt := range comp.Elts {
+											if s, ok := unquoteLit(elt); ok {
+												exts = append(exts, s)
+											}
+										}
+										w.widgetData.FpAllowedExts = exts
+										w.hasWidgetData = true
 									}
 								}
 							}
@@ -1238,10 +1369,17 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 								switch sel.Sel.Name {
 								case "Title":
 									w.widgetData.ListTitle = s
+									w.hasWidgetData = true
 								case "Prompt":
-									w.widgetData.InputPrompt = &s
+									if w.contentType == "bubble:textinput" {
+										w.widgetData.InputPrompt = &s
+										w.hasWidgetData = true
+									}
 								case "Placeholder":
-									w.widgetData.InputPlaceholder = &s
+									if w.contentType == "bubble:textinput" {
+										w.widgetData.InputPlaceholder = &s
+										w.hasWidgetData = true
+									}
 								}
 							}
 						}
@@ -1265,18 +1403,35 @@ func extractWidgetConfigs(f *dst.File) map[string]*parsedWidgetInfo {
 								if len(call.Args) == 1 {
 									if cols, ok := resolveTableColsArg(call.Args[0], tableColsVars); ok {
 										w.widgetData.TableColumns = cols
+										w.hasWidgetData = true
 									}
 								}
 							case "SetRows":
 								if len(call.Args) == 1 {
 									if rows, ok := resolveTableRowsArg(call.Args[0], tableRowsVars); ok {
 										w.widgetData.TableRows = rows
+										w.hasWidgetData = true
 									}
 								}
 							case "SetItems":
 								if len(call.Args) == 1 {
 									if items, ok := resolveListItemsArg(call.Args[0], listItemsVars); ok {
 										w.widgetData.ListItems = items
+										w.hasWidgetData = true
+									}
+								}
+							case "SetShowPagination":
+								if len(call.Args) == 1 {
+									if b, ok := boolIdentVal(call.Args[0]); ok {
+										w.widgetData.ListShowPagination = &b
+										w.hasWidgetData = true
+									}
+								}
+							case "SetShowStatusBar":
+								if len(call.Args) == 1 {
+									if b, ok := boolIdentVal(call.Args[0]); ok {
+										w.widgetData.ListShowStatusBar = &b
+										w.hasWidgetData = true
 									}
 								}
 							}
@@ -1307,6 +1462,150 @@ func inputEchoMode(expr dst.Expr) string {
 		return "none"
 	case "EchoNormal":
 		return "normal"
+	}
+	return ""
+}
+
+func parseSpinnerTypeExpr(expr dst.Expr) string {
+	sel, ok := expr.(*dst.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	switch sel.Sel.Name {
+	case "Line":
+		return "line"
+	case "MiniDot":
+		return "mini-dot"
+	case "Jump":
+		return "jump"
+	case "Pulse":
+		return "pulse"
+	case "Points":
+		return "points"
+	case "Globe":
+		return "globe"
+	case "Moon":
+		return "moon"
+	case "Monkey":
+		return "monkey"
+	case "Dot":
+		return "dot"
+	}
+	return ""
+}
+
+func parsePaginatorTypeExpr(expr dst.Expr) string {
+	sel, ok := expr.(*dst.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	switch sel.Sel.Name {
+	case "Arabic":
+		return "arabic"
+	case "Dots":
+		return "dots"
+	}
+	return ""
+}
+
+func parseDurationSeconds(expr dst.Expr) (float64, bool) {
+	if bin, ok := expr.(*dst.BinaryExpr); ok && bin.Op == token.MUL {
+		n, okL := intLitVal(bin.X)
+		sel, okR := bin.Y.(*dst.SelectorExpr)
+		if okL && okR {
+			switch sel.Sel.Name {
+			case "Second":
+				return float64(n), true
+			case "Minute":
+				return float64(n * 60), true
+			case "Millisecond":
+				return float64(n) / 1000.0, true
+			}
+		}
+	}
+	if sel, ok := expr.(*dst.SelectorExpr); ok {
+		switch sel.Sel.Name {
+		case "Second":
+			return 1, true
+		case "Minute":
+			return 60, true
+		}
+	}
+	return 0, false
+}
+
+func parseProgressNewArgs(args []dst.Expr, w *parsedWidgetInfo) {
+	for _, arg := range args {
+		call, ok := arg.(*dst.CallExpr)
+		if !ok {
+			continue
+		}
+		sel, ok := call.Fun.(*dst.SelectorExpr)
+		if !ok {
+			continue
+		}
+		switch sel.Sel.Name {
+		case "WithGradient":
+			w.widgetData.ProgressMode = "gradient"
+			w.hasWidgetData = true
+			if len(call.Args) >= 1 {
+				if c1, ok := unquoteLit(call.Args[0]); ok {
+					w.widgetData.ProgressStartColor = c1
+				}
+			}
+			if len(call.Args) >= 2 {
+				if c2, ok := unquoteLit(call.Args[1]); ok {
+					w.widgetData.ProgressEndColor = c2
+				}
+			}
+		case "WithSolidFill":
+			w.widgetData.ProgressMode = "solid"
+			w.hasWidgetData = true
+			if len(call.Args) >= 1 {
+				if c1, ok := unquoteLit(call.Args[0]); ok {
+					w.widgetData.ProgressStartColor = c1
+				}
+			}
+		case "WithoutPercentage":
+			f := false
+			w.widgetData.ProgressShowPercent = &f
+			w.hasWidgetData = true
+		}
+	}
+}
+
+func parseHuhFormTheme(e dst.Expr) string {
+	cur := e
+	for {
+		call, ok := cur.(*dst.CallExpr)
+		if !ok {
+			break
+		}
+		sel, ok := call.Fun.(*dst.SelectorExpr)
+		if !ok {
+			break
+		}
+		if sel.Sel.Name == "WithTheme" && len(call.Args) == 1 {
+			var themeSel *dst.SelectorExpr
+			if tfCall, ok := call.Args[0].(*dst.CallExpr); ok && len(tfCall.Args) == 1 {
+				themeSel, _ = tfCall.Args[0].(*dst.SelectorExpr)
+			} else {
+				themeSel, _ = call.Args[0].(*dst.SelectorExpr)
+			}
+			if themeSel != nil {
+				switch themeSel.Sel.Name {
+				case "ThemeDracula":
+					return "dracula"
+				case "ThemeCatppuccin":
+					return "catppuccin"
+				case "ThemeBase16":
+					return "base16"
+				case "ThemeCharm":
+					return "charm"
+				}
+			}
+		}
+		cur = sel.X
 	}
 	return ""
 }
@@ -1480,10 +1779,12 @@ func parseTableNewArgs(args []dst.Expr, w *parsedWidgetInfo, colsVars map[string
 		case "WithColumns":
 			if cols, ok := resolveTableColsArg(call.Args[0], colsVars); ok {
 				w.widgetData.TableColumns = cols
+				w.hasWidgetData = true
 			}
 		case "WithRows":
 			if rows, ok := resolveTableRowsArg(call.Args[0], rowsVars); ok {
 				w.widgetData.TableRows = rows
+				w.hasWidgetData = true
 			}
 		}
 	}
@@ -1631,13 +1932,40 @@ func parseHuhFieldChain(e dst.Expr, idx int) IRHuhField {
 }
 
 func extractLayoutTree(f *dst.File, widgets map[string]*parsedWidgetInfo, styleNames []string) (*IRNode, []IROverlay) {
-	root, overlays, _, _ := extractLayoutTreeWithMeta(f, widgets, styleNames)
+	root, overlays, _, _, _ := extractLayoutTreeWithMeta(f, widgets, styleNames)
 	return root, overlays
 }
 
-func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo, styleNames []string) (*IRNode, []IROverlay, map[string]map[string]string, map[string]bool) {
+func parsePlaceExpr(e dst.Expr, varNodes map[string]IRNode) (IRNode, string, string, bool) {
+	call, ok := e.(*dst.CallExpr)
+	if !ok || len(call.Args) != 5 {
+		return IRNode{}, "", "", false
+	}
+	sel, ok := call.Fun.(*dst.SelectorExpr)
+	if !ok || sel.Sel.Name != "Place" {
+		return IRNode{}, "", "", false
+	}
+	pkg, ok := sel.X.(*dst.Ident)
+	if !ok || pkg.Name != "lipgloss" {
+		return IRNode{}, "", "", false
+	}
+	innerID, ok := call.Args[4].(*dst.Ident)
+	if !ok {
+		return IRNode{}, "", "", false
+	}
+	inner, exists := varNodes[innerID.Name]
+	if !exists {
+		return IRNode{}, "", "", false
+	}
+	placeH, _ := parseLipAlign(call.Args[2])
+	placeV, _ := parseLipAlign(call.Args[3])
+	return inner, placeH, placeV, true
+}
+
+func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo, styleNames []string) (*IRNode, []IROverlay, map[string]map[string]string, map[string]bool, map[string][2]string) {
 	nodeDynExprs := map[string]map[string]string{}
 	nodeSyncDisabled := map[string]bool{}
+	placeStyles := map[string][2]string{}
 	var targetFunc *dst.FuncDecl
 	for _, decl := range f.Decls {
 		fd, ok := decl.(*dst.FuncDecl)
@@ -1653,7 +1981,7 @@ func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo
 		}
 	}
 	if targetFunc == nil {
-		return nil, nil, nodeDynExprs, nodeSyncDisabled
+		return nil, nil, nodeDynExprs, nodeSyncDisabled, placeStyles
 	}
 
 	varNodes := map[string]IRNode{}
@@ -1666,7 +1994,8 @@ func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo
 			if w.content != "" {
 				n.Content = w.content
 			}
-			if w.widgetData.ListTitle != "" || len(w.widgetData.ListItems) > 0 ||
+			if w.hasWidgetData ||
+				w.widgetData.ListTitle != "" || len(w.widgetData.ListItems) > 0 ||
 				len(w.widgetData.TableColumns) > 0 || len(w.widgetData.TableRows) > 0 ||
 				w.widgetData.InputPrompt != nil || w.widgetData.InputPlaceholder != nil ||
 				w.widgetData.InputEchoMode != "" || w.widgetData.InputCharLimit != nil ||
@@ -1704,6 +2033,15 @@ func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo
 					}
 					if n, ok := parseJoinExpr(nodeID, rhs, varNodes); ok {
 						varNodes[ident.Name] = n
+						rootVar = ident.Name
+					} else if placed, pH, pV, ok := parsePlaceExpr(rhs, varNodes); ok {
+						if tagID != "" {
+							placed.ID = tagID
+						}
+						if placed.Style != "" && (pH != "" || pV != "") {
+							placeStyles[placed.Style] = [2]string{pH, pV}
+						}
+						varNodes[ident.Name] = placed
 						rootVar = ident.Name
 					} else if n, wDyn, hDyn, ok := parseBoxRenderExprWithMeta(nodeID, rhs, styleNames); ok {
 						attachWidget(&n)
@@ -1809,14 +2147,14 @@ func extractLayoutTreeWithMeta(f *dst.File, widgets map[string]*parsedWidgetInfo
 	})
 
 	if rootVar == "" {
-		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled
+		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled, placeStyles
 	}
 	rootNode, ok := varNodes[rootVar]
 	if !ok {
-		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled
+		return nil, overlayNodes, nodeDynExprs, nodeSyncDisabled, placeStyles
 	}
 	// Remove overlay leaf nodes from being accidentally selected as root if only overlays existed
-	return &rootNode, overlayNodes, nodeDynExprs, nodeSyncDisabled
+	return &rootNode, overlayNodes, nodeDynExprs, nodeSyncDisabled, placeStyles
 }
 
 func parseCollapseBreakpoint(cond dst.Expr) int {
