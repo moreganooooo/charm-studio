@@ -6,6 +6,7 @@ interface GlossaryEntry {
   name: string;
   pkg: string;
   repoUrl: string;
+  repoLabel?: string;
   category: "Layout & Styling" | "Interactive Widgets" | "Markdown & CLI" | "SSH & Recording";
   tagline: string;
   promoImg: string;
@@ -106,7 +107,7 @@ const ENTRIES: GlossaryEntry[] = [
       "For quick non-Go Bash scripts, Gum is simpler",
     ],
     studioRole: "Available as a live Huh Form widget in + Add Component and the 'Huh Interactive Form' template.",
-    tryTemplateId: "huh-wizard",
+    tryTemplateId: "huh-onboarding",
   },
   {
     id: "glamour",
@@ -129,7 +130,7 @@ const ENTRIES: GlossaryEntry[] = [
       "Adds extra binary size/dependencies for very minimal CLIs",
     ],
     studioRole: "Drop in a Glamour Markdown pane, edit live Markdown in the Inspector, and export wired glamour rendering in main.go.",
-    tryTemplateId: "glamour-reader",
+    tryTemplateId: "glow-reader",
   },
   {
     id: "gum",
@@ -152,7 +153,7 @@ const ENTRIES: GlossaryEntry[] = [
       "Requires users to have the `gum` binary installed",
     ],
     studioRole: "Add interactive Gum Choose & Confirm widgets and export a ready-to-run gum.sh script under Go Code.",
-    tryTemplateId: "gum-toolbox",
+    tryTemplateId: "gum-pipeline",
   },
   {
     id: "wish",
@@ -199,6 +200,96 @@ const ENTRIES: GlossaryEntry[] = [
       "CLI recording tool—not a runtime UI widget",
     ],
     studioRole: "Automatically generates a ready-to-record demo.tape matching your exact terminal theme & dimensions in Go Code.",
+  },
+  {
+    id: "harmonica",
+    name: "Harmonica",
+    pkg: "github.com/charmbracelet/harmonica",
+    repoUrl: "https://github.com/charmbracelet/harmonica",
+    category: "Interactive Widgets",
+    tagline: "Simple, physics-based damped spring animation library",
+    promoImg: "https://stuff.charm.sh/harmonica/harmonica-example.gif",
+    accentColor: "var(--cs-mint)",
+    description:
+      "Computes smooth, frame-rate independent spring physics using angular frequency and damping ratio—ideal for sliding Bubble Tea drawers, bouncing progress bars, and fluid UI transitions.",
+    pros: [
+      "Tiny, dependency-free physics solver in pure Go",
+      "Frequency & damping ratio give crisp, natural motion",
+      "Pairs seamlessly with tea.Tick at 60 FPS",
+    ],
+    cons: [
+      "Requires a Bubble Tea tick loop while settling",
+      "Overdamped or fast springs need clamped bounds to prevent overshoot glitches",
+    ],
+    studioRole: "Configure live Spring Frequency & Damping on Progress Bars and Floating Overlays—both animated live and exported to Go.",
+  },
+  {
+    id: "charmtone",
+    name: "CharmTone",
+    pkg: "github.com/charmbracelet/x/exp/charmtone",
+    repoUrl: "https://github.com/charmbracelet/x/tree/main/exp/charmtone",
+    repoLabel: "charmbracelet/x/exp/charmtone",
+    category: "Layout & Styling",
+    tagline: "Charmbracelet's official expressive terminal color palette",
+    promoImg: "https://github.com/user-attachments/assets/92560e60-d70e-4ce0-b39e-a60bb933356b",
+    accentColor: "var(--cs-pink)",
+    description:
+      "Curated swatches spanning vibrant pinks, mints, purples, and neutral slate tones—plus built-in dark/light pairs designed for terminal contrast and adaptive Lip Gloss themes.",
+    pros: [
+      "Cohesive, high-contrast colors tuned for terminal emulators",
+      "Covers brand accents as well as neutral backgrounds and borders",
+      "Degrades cleanly across TrueColor, ANSI 256, and ANSI 16 profiles",
+    ],
+    cons: [
+      "Experimental package under charmbracelet/x",
+      "Palette tokens still need contrast checks on custom user themes",
+    ],
+    studioRole: "Available directly inside every color swatch picker alongside ANSI 0–255 colors and adaptive LightDark tokens.",
+  },
+  {
+    id: "ultraviolet",
+    name: "Ultraviolet",
+    pkg: "github.com/charmbracelet/ultraviolet",
+    repoUrl: "https://github.com/charmbracelet/ultraviolet",
+    category: "Layout & Styling",
+    tagline: "Low-level terminal cell buffer, cursor & rendering primitives",
+    promoImg: "https://stuff.charm.sh/bubbletea/bubbletea-example.gif",
+    accentColor: "#a855f7",
+    description:
+      "Provides direct `uv.ScreenBuffer`, cell-level `SetCell` drawing, style attributes, and differential screen updates for custom TUI graphics, sprites, and direct cursor manipulation.",
+    pros: [
+      "Full cell-by-cell control over glyphs, foregrounds, backgrounds & attributes",
+      "Interactive cursor movement and zero-flicker screen buffer rendering",
+      "Interoperates cleanly inside Lip Gloss containers",
+    ],
+    cons: [
+      "Lower-level imperative API than Lip Gloss or Bubbles",
+      "Requires explicit bounds checks and coordinate management",
+    ],
+    studioRole: "Insert an Ultraviolet Raw Screen Buffer widget to compose FillRect, DrawText, and SetCell commands visually and export runnable Go.",
+  },
+  {
+    id: "cellbuf",
+    name: "Cellbuf",
+    pkg: "github.com/charmbracelet/x/cellbuf",
+    repoUrl: "https://github.com/charmbracelet/x/tree/main/cellbuf",
+    repoLabel: "charmbracelet/x/cellbuf",
+    category: "Layout & Styling",
+    tagline: "2D terminal cell canvas for shapes, layers & custom graphics",
+    promoImg: "https://stuff.charm.sh/bubbletea/bubbletea-example.gif",
+    accentColor: "#14b8a6",
+    description:
+      "A 2D cell grid abstraction (`cellbuf.Buffer`) for composing layered boxes, lines, checkerboard patterns, and styled text stamps before flushing ANSI output to the terminal.",
+    pros: [
+      "Fast 2D buffer composition with RGBA colors & rune-accurate widths",
+      "Great for custom diagrams, sparklines, and layered canvases",
+      "Clean `cellbuf.Render(buf)` integration with Bubble Tea views",
+    ],
+    cons: [
+      "No built-in focus or input handling—use for custom visual output",
+      "Coordinates are fixed unless scaled dynamically with terminal size",
+    ],
+    studioRole: "Add a Cellbuf 2D Canvas widget to stack Checker, Box, Line, and Text layers with live preview and Go codegen.",
   },
 ];
 
@@ -603,7 +694,7 @@ export function CharmGlossaryModal({
                       border: "1px solid var(--cs-code-border)",
                     }}
                   >
-                    <span>GitHub: charmbracelet/{item.id}</span>
+                    <span>GitHub: {item.repoLabel ?? `charmbracelet/${item.id}`}</span>
                     <ArrowUpRight size={13} />
                   </a>
 

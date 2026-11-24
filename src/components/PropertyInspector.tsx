@@ -456,7 +456,7 @@ export function PropertyInspector({ scrollRef }: Props) {
                   updateNode(selectedNode.id, (n) => ({
                     ...n,
                     contentType: nextCt,
-                    widgetData: Object.keys(nextWD).length > 0 ? nextWD : n.widgetData,
+                    widgetData: Object.keys(nextWD).length > 0 ? nextWD : undefined,
                   }));
                 }}
                 style={inputStyle}

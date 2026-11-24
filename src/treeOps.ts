@@ -130,6 +130,7 @@ export function addBoxWithPreset(
       delete style.bg;
     }
     next.styles[styleName] = style;
+    const overlayWidgetData = defaultWidgetData(preset.contentType);
     next.overlays.push({
       id: overlayId,
       visible: true,
@@ -143,6 +144,7 @@ export function addBoxWithPreset(
         width: { mode: "fixed", value: preset.overlayConfig.width },
         height: { mode: "fixed", value: preset.overlayConfig.height },
         content: preset.overlayConfig.content,
+        ...(Object.keys(overlayWidgetData).length > 0 ? { widgetData: overlayWidgetData } : {}),
       },
     });
     return { doc: next, newId: nodeId };

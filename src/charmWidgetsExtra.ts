@@ -1,3 +1,4 @@
+import { isAnsiIndex, swatchColor } from "./ansiColor";
 import {
   defaultWidgetData,
   type ContentType,
@@ -10,7 +11,8 @@ import {
 export const RESET = "\x1b[0m";
 
 export function hexToRgb(hex: string): [number, number, number] | null {
-  const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  const normalized = isAnsiIndex(hex.trim()) ? swatchColor(hex.trim()) : hex;
+  const m = normalized.trim().match(/^#?([0-9a-fA-F]{6})$/);
   if (!m) return null;
   const n = parseInt(m[1], 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -21,19 +23,29 @@ export function rgbToHex(r: number, g: number, b: number): string {
   return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
+function colorSgrParam(color: string, isBg: boolean): string | null {
+  const trimmed = color.trim();
+  if (isAnsiIndex(trimmed)) {
+    return `${isBg ? 48 : 38};5;${Number(trimmed)}`;
+  }
+  const rgb = hexToRgb(trimmed);
+  if (!rgb) return null;
+  return `${isBg ? 48 : 38};2;${rgb[0]};${rgb[1]};${rgb[2]}`;
+}
+
 export function fg(hex: string, text: string): string {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return text;
-  return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m${text}${RESET}`;
+  const p = colorSgrParam(hex, false);
+  if (!p) return text;
+  return `\x1b[${p}m${text}${RESET}`;
 }
 
 export function fgBg(fgHex: string, bgHex: string, text: string, isBold = false): string {
-  const f = hexToRgb(fgHex);
-  const b = hexToRgb(bgHex);
+  const f = colorSgrParam(fgHex, false);
+  const b = colorSgrParam(bgHex, true);
   const parts: string[] = [];
   if (isBold) parts.push("1");
-  if (f) parts.push(`38;2;${f[0]};${f[1]};${f[2]}`);
-  if (b) parts.push(`48;2;${b[0]};${b[1]};${b[2]}`);
+  if (f) parts.push(f);
+  if (b) parts.push(b);
   if (parts.length === 0) return text;
   return `\x1b[${parts.join(";")}m${text}${RESET}`;
 }
@@ -738,7 +750,7 @@ export function renderLipglossDivider(node: IRNode, doc: IRDoc, innerW: number, 
 
 export function renderBubbleTextArea(node: IRNode, doc: IRDoc, innerW: number, innerH: number, darkBG: boolean): string {
   const wd = node.widgetData ?? defaultWidgetData("bubble:textarea");
-  const initial = (node.content ?? "").trim();
+  const initial = node.content ?? "";
   const s = getTextAreaState(node.id, initial);
   if (!s.dirty && s.seededFrom !== initial) {
     s.lines = initial ? initial.split("\n") : [""];

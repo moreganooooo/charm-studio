@@ -89,6 +89,12 @@ func summarizeIRStyleDiff(a, b IRStyle) []string {
 	if a.Border != b.Border {
 		changes = append(changes, fmt.Sprintf("border: %s -> %s", a.Border, b.Border))
 	}
+	if !equalBorderEdges(a.BorderEdges, b.BorderEdges) {
+		changes = append(changes, "borderEdges updated")
+	}
+	if !equalCustomBorder(a.CustomBorder, b.CustomBorder) {
+		changes = append(changes, "customBorder updated")
+	}
 	if a.BorderColor != b.BorderColor {
 		changes = append(changes, fmt.Sprintf("borderColor: %s -> %s", a.BorderColor, b.BorderColor))
 	}
@@ -113,6 +119,15 @@ func summarizeIRStyleDiff(a, b IRStyle) []string {
 	if a.Strikethrough != b.Strikethrough {
 		changes = append(changes, fmt.Sprintf("strikethrough: %v", b.Strikethrough))
 	}
+	if a.Truncate != b.Truncate {
+		changes = append(changes, fmt.Sprintf("truncate: %v", b.Truncate))
+	}
+	if a.MaxWidth != b.MaxWidth {
+		changes = append(changes, fmt.Sprintf("maxWidth: %d", b.MaxWidth))
+	}
+	if a.MaxHeight != b.MaxHeight {
+		changes = append(changes, fmt.Sprintf("maxHeight: %d", b.MaxHeight))
+	}
 	if a.Padding != b.Padding {
 		changes = append(changes, fmt.Sprintf("padding: %v", b.Padding))
 	}
@@ -122,7 +137,32 @@ func summarizeIRStyleDiff(a, b IRStyle) []string {
 	if a.AlignH != b.AlignH || a.AlignV != b.AlignV {
 		changes = append(changes, fmt.Sprintf("align: %s/%s", b.AlignH, b.AlignV))
 	}
+	if a.PlaceH != b.PlaceH || a.PlaceV != b.PlaceV {
+		changes = append(changes, fmt.Sprintf("place: %s/%s", b.PlaceH, b.PlaceV))
+	}
 	return changes
+}
+
+func equalBorderEdges(a, b *[4]bool) bool {
+	ea := [4]bool{true, true, true, true}
+	eb := [4]bool{true, true, true, true}
+	if a != nil {
+		ea = *a
+	}
+	if b != nil {
+		eb = *b
+	}
+	return ea == eb
+}
+
+func equalCustomBorder(a, b *IRCustomBorder) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 func computeLineDiff(beforeText, afterText string) ([]DiffLine, int, int) {

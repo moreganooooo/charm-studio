@@ -161,7 +161,7 @@ export function WidgetPreviewCanvas({
 
         if (isUnderline) {
           ctx.fillStyle = fg;
-          ctx.fillRect(px, py + ch - 2, cw, 1);
+          ctx.fillRect(px, py + ch - 2, cw * (cell.w || 1), 1);
         }
       }
     }

@@ -38,16 +38,30 @@ function describeSize(n: IRNode): string {
 function summarizeStyleDiff(a: IRStyle, b: IRStyle): string[] {
   const changes: string[] = [];
   if (a.border !== b.border) changes.push(`border: ${a.border} → ${b.border}`);
+  if (JSON.stringify(a.borderEdges ?? [true, true, true, true]) !== JSON.stringify(b.borderEdges ?? [true, true, true, true])) {
+    changes.push("borderEdges updated");
+  }
+  if (JSON.stringify(a.customBorder ?? null) !== JSON.stringify(b.customBorder ?? null)) {
+    changes.push("customBorder updated");
+  }
   if (a.borderColor !== b.borderColor) changes.push(`borderColor: ${a.borderColor || "none"} → ${b.borderColor || "none"}`);
   if (a.fg !== b.fg) changes.push(`fg: ${a.fg || "default"} → ${b.fg || "default"}`);
   if ((a.bg ?? "") !== (b.bg ?? "")) changes.push(`bg: ${a.bg || "none"} → ${b.bg || "none"}`);
   if (a.bold !== b.bold) changes.push(`bold: ${b.bold}`);
   if (!!a.italic !== !!b.italic) changes.push(`italic: ${!!b.italic}`);
+  if (!!a.faint !== !!b.faint) changes.push(`faint: ${!!b.faint}`);
+  if (!!a.underline !== !!b.underline) changes.push(`underline: ${!!b.underline}`);
   if (!!a.strikethrough !== !!b.strikethrough) changes.push(`strikethrough: ${!!b.strikethrough}`);
+  if (!!a.truncate !== !!b.truncate) changes.push(`truncate: ${!!b.truncate}`);
+  if ((a.maxWidth ?? 0) !== (b.maxWidth ?? 0)) changes.push(`maxWidth: ${b.maxWidth ?? 0}`);
+  if ((a.maxHeight ?? 0) !== (b.maxHeight ?? 0)) changes.push(`maxHeight: ${b.maxHeight ?? 0}`);
   if (JSON.stringify(a.padding) !== JSON.stringify(b.padding)) changes.push(`padding: [${b.padding.join(",")}]`);
   if (JSON.stringify(a.margin) !== JSON.stringify(b.margin)) changes.push(`margin: [${b.margin.join(",")}]`);
   if ((a.alignH ?? "left") !== (b.alignH ?? "left") || (a.alignV ?? "top") !== (b.alignV ?? "top")) {
     changes.push(`align: ${b.alignH ?? "left"}/${b.alignV ?? "top"}`);
+  }
+  if ((a.placeH ?? "") !== (b.placeH ?? "") || (a.placeV ?? "") !== (b.placeV ?? "")) {
+    changes.push(`place: ${b.placeH || "default"}/${b.placeV || "default"}`);
   }
   return changes;
 }
@@ -141,12 +155,21 @@ export function computeAstDeltas(prevDoc: IRDoc, currDoc: IRDoc): AstDelta[] {
     const oldOv = prevDoc.overlays.find((o) => o.id === ov.id);
     if (!oldOv) {
       deltas.push({ kind: "added", category: "Overlay", symbol: ov.id, detail: `anchor=${ov.anchor ?? "center"}` });
-    } else if (oldOv.visible !== ov.visible || oldOv.anchor !== ov.anchor) {
+    } else if (
+      oldOv.visible !== ov.visible ||
+      oldOv.anchor !== ov.anchor ||
+      oldOv.z !== ov.z ||
+      oldOv.placeX !== ov.placeX ||
+      oldOv.placeY !== ov.placeY ||
+      oldOv.placeH !== ov.placeH ||
+      oldOv.placeV !== ov.placeV ||
+      JSON.stringify(oldOv.harmonica ?? null) !== JSON.stringify(ov.harmonica ?? null)
+    ) {
       deltas.push({
         kind: "modified",
         category: "Overlay",
         symbol: ov.id,
-        detail: `visible=${ov.visible}, anchor=${ov.anchor ?? "center"}`,
+        detail: `visible=${ov.visible}, anchor=${ov.anchor ?? "center"}, z=${ov.z}`,
       });
     }
   }

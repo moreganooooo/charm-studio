@@ -2,6 +2,8 @@ import { defaultWidgetData, type ContentType, type GlamourThemeName, type HuhThe
 import {
   controlClockWidget,
   dispatchExtraWidgetKey,
+  fg,
+  fgBg,
   getClockWidgetRunning,
   getOverlayHarmonicaOffset,
   hasAnimatedWidgets,
@@ -62,30 +64,6 @@ export function isCharmWidget(ct?: ContentType): boolean {
 // --- ANSI SGR helpers (consumed natively by studio.wasm Lip Gloss v2 + colorprofile) ---
 
 const RESET = "\x1b[0m";
-
-function hexToRgb(hex: string): [number, number, number] | null {
-  const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function fg(hex: string, text: string): string {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return text;
-  return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m${text}${RESET}`;
-}
-
-function fgBg(fgHex: string, bgHex: string, text: string, isBold = false): string {
-  const f = hexToRgb(fgHex);
-  const b = hexToRgb(bgHex);
-  const parts: string[] = [];
-  if (isBold) parts.push("1");
-  if (f) parts.push(`38;2;${f[0]};${f[1]};${f[2]}`);
-  if (b) parts.push(`48;2;${b[0]};${b[1]};${b[2]}`);
-  if (parts.length === 0) return text;
-  return `\x1b[${parts.join(";")}m${text}${RESET}`;
-}
 
 function bold(text: string): string {
   return `\x1b[1m${text}${RESET}`;

@@ -2391,12 +2391,35 @@ func parseLayerOverlayExpr(e dst.Expr, varNodes map[string]IRNode) (IROverlay, b
 	if id != "" && ovNode.ID == "" {
 		ovNode.ID = id
 	}
+	var placeX, placeY *int
+	parseOverlayCoord := func(s string) (int, bool) {
+		if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			return v, true
+		}
+		if strings.HasPrefix(s, "max(min(") && strings.HasSuffix(s, "))") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(s, "max(min("), "))")
+			if v, err := strconv.Atoi(inner); err == nil {
+				return v, true
+			}
+		}
+		return 0, false
+	}
+
 	if strings.Contains(xExprStr, "-1") && yExprStr == "1" {
 		anchor = "top-right"
 	} else if strings.Contains(xExprStr, "-1") && strings.Contains(yExprStr, "h-") {
 		anchor = "bottom-right"
 	} else if strings.Contains(yExprStr, "h-") && ovNode.Width.Mode == "fill" {
 		anchor = "bottom-bar"
+	} else {
+		if px, ok := parseOverlayCoord(xExprStr); ok {
+			placeX = &px
+			anchor = "place"
+		}
+		if py, ok := parseOverlayCoord(yExprStr); ok {
+			placeY = &py
+			anchor = "place"
+		}
 	}
 	ovID := id
 	if ovID == "" {
@@ -2407,6 +2430,8 @@ func parseLayerOverlayExpr(e dst.Expr, varNodes map[string]IRNode) (IROverlay, b
 		Visible: true,
 		Z:       z,
 		Anchor:  anchor,
+		PlaceX:  placeX,
+		PlaceY:  placeY,
 		Node:    ovNode,
 	}, true
 }

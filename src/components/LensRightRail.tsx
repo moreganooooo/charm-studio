@@ -816,7 +816,7 @@ export function LensRightRail({ inspectorScrollRef }: Props) {
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {CHARM_SWATCHES.map((sw) => {
-                      const active = selectedStyle.borderColor === sw.token || selectedStyle.borderColor.toLowerCase() === sw.hex;
+                      const active = activeColorRef === sw.token || activeColorRef.toLowerCase() === sw.hex;
                       return (
                         <button
                           key={sw.label}

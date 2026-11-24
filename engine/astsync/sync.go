@@ -284,6 +284,9 @@ func buildStyleExpr(spec IRStyle, tokens map[string]TokenPair, ldFuncName string
 			bFn = "DoubleBorder"
 		}
 		chain("Border", &dst.CallExpr{Fun: &dst.SelectorExpr{X: dst.NewIdent("lipgloss"), Sel: dst.NewIdent(bFn)}})
+	}
+
+	if spec.Border != "" && spec.Border != "none" {
 		if spec.BorderEdges != nil {
 			if !spec.BorderEdges[0] || !spec.BorderEdges[1] || !spec.BorderEdges[2] || !spec.BorderEdges[3] {
 				chain("BorderTop", boolIdent(spec.BorderEdges[0]))

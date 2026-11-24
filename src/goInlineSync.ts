@@ -134,10 +134,15 @@ export function isEditableGoExpressionLine(line: string): boolean {
   return (
     /(?:^|\.)Padding\s*\(/.test(t) ||
     /(?:^|\.)Margin\s*\(/.test(t) ||
+    /(?:^|\.)MaxWidth\s*\(/.test(t) ||
+    /(?:^|\.)MaxHeight\s*\(/.test(t) ||
     /(?:^|\.)Border\s*\(/.test(t) ||
+    /(?:^|\.)Border(?:Top|Right|Bottom|Left)\s*\(/.test(t) ||
     /(?:^|\.)BorderForeground\s*\(/.test(t) ||
     /(?:^|\.)Foreground\s*\(/.test(t) ||
     /(?:^|\.)Background\s*\(/.test(t) ||
+    /(?:^|\.)(?:Bold|Italic|Faint|Underline|Strikethrough)\s*\(/.test(t) ||
+    /(?:^|\.)Align(?:Horizontal|Vertical)?\s*\(/.test(t) ||
     /(?:^|\.)Width\s*\(/.test(t) ||
     /(?:^|\.)Height\s*\(/.test(t)
   );
@@ -191,7 +196,22 @@ export function applyInlineGoExpression(
       const patch: Partial<IRStyle> = {};
       if (text.includes("Padding(")) patch.padding = dstStyle.padding;
       if (text.includes("Margin(")) patch.margin = dstStyle.margin;
-      if (text.includes("Border(")) patch.border = dstStyle.border;
+      if (text.includes("MaxWidth(")) patch.maxWidth = dstStyle.maxWidth;
+      if (text.includes("MaxHeight(")) patch.maxHeight = dstStyle.maxHeight;
+      if (text.includes("Border(")) {
+        patch.border = dstStyle.border;
+        if (dstStyle.customBorder) patch.customBorder = dstStyle.customBorder;
+      }
+      if (/Border(?:Top|Right|Bottom|Left)\(/.test(text) && dstStyle.borderEdges) {
+        patch.borderEdges = dstStyle.borderEdges;
+      }
+      if (text.includes("Bold(")) patch.bold = dstStyle.bold;
+      if (text.includes("Italic(")) patch.italic = dstStyle.italic;
+      if (text.includes("Faint(")) patch.faint = dstStyle.faint;
+      if (text.includes("Underline(")) patch.underline = dstStyle.underline;
+      if (text.includes("Strikethrough(")) patch.strikethrough = dstStyle.strikethrough;
+      if (text.includes("AlignHorizontal(") || text.includes("Align(")) patch.alignH = dstStyle.alignH;
+      if (text.includes("AlignVertical(")) patch.alignV = dstStyle.alignV;
       if (Object.keys(patch).length > 0) {
         opts.updateSelectedStyle(patch);
         applied = true;
@@ -221,22 +241,98 @@ export function applyInlineGoExpression(
     }
   }
 
-  // Border(lipgloss.RoundedBorder() | NormalBorder() | ThickBorder() | DoubleBorder() | HiddenBorder())
-  const borderMatch = /Border\(([^)]*\(\)?)\)/.exec(text);
+  // MaxWidth(n) / MaxHeight(n)
+  if (opts.targetNode?.style) {
+    const mwMatch = /MaxWidth\(\s*(\d+)\s*\)/.exec(text);
+    if (mwMatch) {
+      opts.updateSelectedStyle({ maxWidth: Math.max(0, Math.round(Number(mwMatch[1]))) });
+      opts.setActiveProperty("size");
+      applied = true;
+    }
+    const mhMatch = /MaxHeight\(\s*(\d+)\s*\)/.exec(text);
+    if (mhMatch) {
+      opts.updateSelectedStyle({ maxHeight: Math.max(0, Math.round(Number(mhMatch[1]))) });
+      opts.setActiveProperty("size");
+      applied = true;
+    }
+  }
+
+  // Typography toggles
+  if (opts.targetNode?.style) {
+    const typoPatch: Partial<IRStyle> = {};
+    for (const m of text.matchAll(/\b(Bold|Italic|Faint|Underline|Strikethrough)\(\s*(true|false)\s*\)/g)) {
+      const k = m[1].toLowerCase() as "bold" | "italic" | "faint" | "underline" | "strikethrough";
+      typoPatch[k] = m[2] === "true";
+    }
+    if (Object.keys(typoPatch).length > 0) {
+      opts.updateSelectedStyle(typoPatch);
+      applied = true;
+    }
+  }
+
+  // Alignment
+  if (opts.targetNode?.style) {
+    const alignPatch: Partial<IRStyle> = {};
+    const ahMatch = /AlignHorizontal\(\s*lipgloss\.(Left|Center|Right)\s*\)/.exec(text);
+    if (ahMatch) alignPatch.alignH = ahMatch[1].toLowerCase() as IRStyle["alignH"];
+    const avMatch = /AlignVertical\(\s*lipgloss\.(Top|Center|Bottom)\s*\)/.exec(text);
+    if (avMatch) alignPatch.alignV = avMatch[1].toLowerCase() as IRStyle["alignV"];
+    if (Object.keys(alignPatch).length > 0) {
+      opts.updateSelectedStyle(alignPatch);
+      applied = true;
+    }
+  }
+
+  // Border(lipgloss.RoundedBorder() | ... | lipgloss.Border{...}) and per-side BorderTop/Right/Bottom/Left
+  const borderMatch = /Border\(([^)]*(?:\([^)]*\)|\{[^}]*\})?)\)/.exec(text);
   if (borderMatch && opts.targetNode?.style) {
-    const expr = borderMatch[1].toLowerCase();
+    const rawBorder = borderMatch[1];
+    const expr = rawBorder.toLowerCase();
     let nextBorder: IRStyle["border"] | null = null;
-    if (expr.includes("rounded")) nextBorder = "rounded";
+    if (expr.includes("lipgloss.border{")) {
+      nextBorder = "custom";
+    } else if (expr.includes("rounded")) nextBorder = "rounded";
     else if (expr.includes("normal")) nextBorder = "normal";
     else if (expr.includes("thick")) nextBorder = "thick";
     else if (expr.includes("double")) nextBorder = "double";
     else if (expr.includes("hidden")) nextBorder = "hidden";
     else if (expr.includes("none")) nextBorder = "none";
     if (nextBorder) {
-      opts.updateSelectedStyle({ border: nextBorder });
+      if (nextBorder === "custom") {
+        const pick = (field: string, fb: string) =>
+          new RegExp(`${field}\\s*:\\s*"([^"]*)"`).exec(rawBorder)?.[1] ?? fb;
+        opts.updateSelectedStyle({
+          border: "custom",
+          customBorder: {
+            top: pick("Top", "-"),
+            bottom: pick("Bottom", "-"),
+            left: pick("Left", "|"),
+            right: pick("Right", "|"),
+            topLeft: pick("TopLeft", "+"),
+            topRight: pick("TopRight", "+"),
+            bottomLeft: pick("BottomLeft", "+"),
+            bottomRight: pick("BottomRight", "+"),
+          },
+        });
+      } else {
+        opts.updateSelectedStyle({ border: nextBorder });
+      }
       opts.setActiveProperty("border");
       applied = true;
     }
+  }
+  if (opts.targetNode?.style && /Border(?:Top|Right|Bottom|Left)\(\s*(true|false)\s*\)/.test(text)) {
+    const curStyle = opts.doc.styles[opts.targetNode.style];
+    const edges: [boolean, boolean, boolean, boolean] = curStyle?.borderEdges
+      ? [...curStyle.borderEdges]
+      : [true, true, true, true];
+    const sideIdx: Record<string, 0 | 1 | 2 | 3> = { Top: 0, Right: 1, Bottom: 2, Left: 3 };
+    for (const m of text.matchAll(/Border(Top|Right|Bottom|Left)\(\s*(true|false)\s*\)/g)) {
+      edges[sideIdx[m[1]]] = m[2] === "true";
+    }
+    opts.updateSelectedStyle({ borderEdges: edges });
+    opts.setActiveProperty("border");
+    applied = true;
   }
 
   // Literal hex or indexed colors in a Lip Gloss style call.

@@ -204,6 +204,14 @@ function extractGoSyncMetadata(src: string): GoSyncMetadata {
         recordDynamic(styleName, "alignH", args);
       } else if (method === "AlignVertical" && args && !/lipgloss\.(?:Top|Center|Bottom)/.test(args)) {
         recordDynamic(styleName, "alignV", args);
+      } else if (method === "MaxWidth" && args && !/^-?\d+$/.test(args)) {
+        recordDynamic(styleName, "maxWidth", args);
+      } else if (method === "MaxHeight" && args && !/^-?\d+$/.test(args)) {
+        recordDynamic(styleName, "maxHeight", args);
+      } else if (method === "PlaceHorizontal" && args && !/lipgloss\.(?:Left|Center|Right)/.test(args)) {
+        recordDynamic(styleName, "placeH", args);
+      } else if (method === "PlaceVertical" && args && !/lipgloss\.(?:Top|Center|Bottom)/.test(args)) {
+        recordDynamic(styleName, "placeV", args);
       }
     }
   }
@@ -568,12 +576,24 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
           lockedSymbolsSet.add(styleName);
         }
       } else if (method === "AlignHorizontal" || method === "Align") {
-        if (/lipgloss\.Center/.test(args)) st.alignH = "center";
-        else if (/lipgloss\.Right/.test(args)) st.alignH = "right";
-        else if (/lipgloss\.Left/.test(args)) st.alignH = "left";
+        const alignParts = args.split(",").map((p) => p.trim());
+        const hPart = alignParts[0] ?? args;
+        if (/lipgloss\.Center/.test(hPart)) st.alignH = "center";
+        else if (/lipgloss\.Right/.test(hPart)) st.alignH = "right";
+        else if (/lipgloss\.Left/.test(hPart)) st.alignH = "left";
         else if (trimmedArgs) {
           addLockedProp(lockedProps, styleName, "alignH");
           lockedSymbolsSet.add(styleName);
+        }
+        if (method === "Align" && alignParts.length >= 2) {
+          const vPart = alignParts[1];
+          if (/lipgloss\.Center/.test(vPart)) st.alignV = "center";
+          else if (/lipgloss\.Bottom/.test(vPart)) st.alignV = "bottom";
+          else if (/lipgloss\.Top/.test(vPart)) st.alignV = "top";
+          else if (vPart) {
+            addLockedProp(lockedProps, styleName, "alignV");
+            lockedSymbolsSet.add(styleName);
+          }
         }
       } else if (method === "AlignVertical") {
         if (/lipgloss\.Center/.test(args)) st.alignV = "center";
@@ -583,6 +603,14 @@ export function extractFromGoSource(combinedGo: string): ExtractedGoSummary {
           addLockedProp(lockedProps, styleName, "alignV");
           lockedSymbolsSet.add(styleName);
         }
+      } else if (method === "PlaceHorizontal") {
+        if (/lipgloss\.Center/.test(args)) st.placeH = "center";
+        else if (/lipgloss\.Right/.test(args)) st.placeH = "right";
+        else if (/lipgloss\.Left/.test(args)) st.placeH = "left";
+      } else if (method === "PlaceVertical") {
+        if (/lipgloss\.Center/.test(args)) st.placeV = "center";
+        else if (/lipgloss\.Bottom/.test(args)) st.placeV = "bottom";
+        else if (/lipgloss\.Top/.test(args)) st.placeV = "top";
       } else if (method === "MaxWidth") {
         if (/^\d+$/.test(trimmedArgs)) st.maxWidth = parseNums(args)[0] ?? 0;
       } else if (method === "MaxHeight") {
