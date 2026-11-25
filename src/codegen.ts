@@ -1,3 +1,4 @@
+import { isAnsiIndex, swatchColor } from "./ansiColor";
 import { defaultWidgetData, sanitizeGoId, type IRDoc, type IRNode, type IRStyle, type SyncPropertyKind } from "./types";
 
 export type GeneratedGoFile = "theme_gen.go" | "layout_gen.go" | "model.go" | "update.go" | "view.go";
@@ -105,7 +106,8 @@ function goTokenColorExpr(doc: IRDoc, ref: string | undefined, fallback: string,
 }
 
 function hexToColorRGBAExpr(hex: string): string | null {
-  const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  const normalized = isAnsiIndex(hex.trim()) ? swatchColor(hex.trim()) : hex;
+  const m = normalized.trim().match(/^#?([0-9a-fA-F]{6})$/);
   if (!m) return null;
   const h = m[1];
   const r = parseInt(h.slice(0, 2), 16);
@@ -1734,7 +1736,9 @@ export function generateViewGoWithSpans(doc: IRDoc, rawModuleName = "github.com/
     helpers.push(`func renderDivider(orientation, ch, label string) string {\n\tif ch == "" {\n\t\tch = "─"\n\t}\n\tif orientation == "vertical" {\n\t\treturn strings.Repeat(ch+"\\n", 4)\n\t}\n\trule := strings.Repeat(ch, 16)\n\tif label != "" {\n\t\treturn "─── " + label + " " + rule\n\t}\n\treturn strings.Repeat(ch, 32)\n}`);
   }
   if (usesHexHelper) {
-    helpers.push(`func hexToColorRGBA(hex string) color.Color {\n\th := strings.TrimPrefix(strings.TrimSpace(hex), "#")\n\tif len(h) != 6 {\n\t\treturn color.RGBA{R: 255, G: 255, B: 255, A: 255}\n\t}\n\tr, _ := strconv.ParseUint(h[0:2], 16, 8)\n\tg, _ := strconv.ParseUint(h[2:4], 16, 8)\n\tb, _ := strconv.ParseUint(h[4:6], 16, 8)\n\treturn color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}\n}`);
+    helpers.push(
+      `func hexToColorRGBA(hex string) color.Color {\n\th := strings.TrimSpace(hex)\n\tif idx, err := strconv.Atoi(h); err == nil && idx >= 0 && idx <= 255 {\n\t\tif idx < 16 {\n\t\t\tbasic := [16][3]uint8{{0, 0, 0}, {128, 0, 0}, {0, 128, 0}, {128, 128, 0}, {0, 0, 128}, {128, 0, 128}, {0, 128, 128}, {192, 192, 192}, {128, 128, 128}, {255, 0, 0}, {0, 255, 0}, {255, 255, 0}, {0, 0, 255}, {255, 0, 255}, {0, 255, 255}, {255, 255, 255}}\n\t\t\tc := basic[idx]\n\t\t\treturn color.RGBA{R: c[0], G: c[1], B: c[2], A: 255}\n\t\t}\n\t\tif idx >= 232 {\n\t\t\tg := uint8(8 + 10*(idx-232))\n\t\t\treturn color.RGBA{R: g, G: g, B: g, A: 255}\n\t\t}\n\t\tcube := idx - 16\n\t\tlevels := [6]uint8{0, 95, 135, 175, 215, 255}\n\t\treturn color.RGBA{R: levels[cube/36], G: levels[(cube/6)%6], B: levels[cube%6], A: 255}\n\t}\n\th = strings.TrimPrefix(h, "#")\n\tif len(h) != 6 {\n\t\treturn color.RGBA{R: 255, G: 255, B: 255, A: 255}\n\t}\n\tr, _ := strconv.ParseUint(h[0:2], 16, 8)\n\tg, _ := strconv.ParseUint(h[2:4], 16, 8)\n\tb, _ := strconv.ParseUint(h[4:6], 16, 8)\n\treturn color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}\n}`
+    );
   }
   helpers.push(...uvHelpers, ...cellbufHelpers);
 
@@ -1897,9 +1901,7 @@ ${reqs.join("\n")}
 }
 
 export function generateReadmeMd(doc: IRDoc, rawModuleName = "github.com/charm-user/my-tui"): string {
-  const moduleName = sanitizeModulePath(rawModuleName);
-  const { rootLeaves } = collectOrderedLeafBoxes(doc);
-  const usesWish = rootLeaves.some((b) => b.contentType === "wish:ssh");
+  const { moduleName, usesWish } = inspectDocCapabilities(doc, rawModuleName);
 
   return `# ${moduleName.split("/").pop() || "Charm App"}
 
@@ -1932,12 +1934,7 @@ vhs demo.tape
 }
 
 export function generateVhsTape(doc: IRDoc, themeName: string): string {
-  const nodes: IRNode[] = [];
-  const walk = (n: IRNode) => {
-    if (n.kind === "Box") nodes.push(n);
-    n.children?.forEach(walk);
-  };
-  walk(doc.root);
+  const { allBoxes: nodes } = inspectDocCapabilities(doc);
 
   const hasInput = nodes.some((n) => n.contentType === "bubble:textinput" || n.contentType === "huh:form");
   const hasListOrTable = nodes.some(
@@ -1977,12 +1974,7 @@ export function generateVhsTape(doc: IRDoc, themeName: string): string {
 export function generateGumShell(doc: IRDoc): string {
   const accent = doc.tokens.accent?.dark ?? "#7aa2f7";
   const glow = doc.tokens.modalGlow?.dark ?? "#bb9af7";
-  const boxes: IRNode[] = [];
-  const walk = (n: IRNode) => {
-    if (n.kind === "Box") boxes.push(n);
-    n.children?.forEach(walk);
-  };
-  walk(doc.root);
+  const { allBoxes: boxes } = inspectDocCapabilities(doc);
 
   const lines: string[] = [
     `#!/usr/bin/env bash`,

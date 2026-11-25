@@ -186,6 +186,8 @@ type bubbleEntry struct {
     form       *huh.Form
     huhSeed    string
     progSeed   string
+    taSeed     string
+    timerSeed  float64
 }
 
 var (
@@ -276,6 +278,10 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
             ta := textarea.New()
             ta.Placeholder = "Write notes, SQL, or commit message..."
             ta.ShowLineNumbers = true
+            if node.Content != "" {
+                ta.SetValue(node.Content)
+                entry.taSeed = node.Content
+            }
             ta.SetWidth(max(12, w))
             ta.SetHeight(max(3, h))
             ta.Focus()
@@ -321,6 +327,7 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
                 dur = node.WidgetData.TimerDurationSec
             }
             entry.timer = timer.NewWithInterval(time.Duration(dur)*time.Second, time.Second)
+            entry.timerSeed = dur
 
         case "bubble:stopwatch":
             entry.stopwatch = stopwatch.NewWithInterval(100 * time.Millisecond)
@@ -487,6 +494,10 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
     case "bubble:textarea":
         entry.textarea.SetWidth(max(10, w))
         entry.textarea.SetHeight(max(3, h))
+        if node.Content != entry.taSeed && entry.textarea.Value() == entry.taSeed {
+            entry.textarea.SetValue(node.Content)
+            entry.taSeed = node.Content
+        }
         if node.WidgetData != nil {
             if node.WidgetData.TextareaPlaceholder != "" {
                 entry.textarea.Placeholder = node.WidgetData.TextareaPlaceholder
@@ -581,6 +592,15 @@ func getOrCreateBubble(node IRNode, w, h int, hasDarkBG bool, tokens map[string]
                 }
                 entry.helpKeys = studioHelpMap{bindings: bindings}
             }
+        }
+    case "bubble:timer":
+        dur := 90.0
+        if node.WidgetData != nil && node.WidgetData.TimerDurationSec > 0 {
+            dur = node.WidgetData.TimerDurationSec
+        }
+        if dur != entry.timerSeed {
+            entry.timer = timer.NewWithInterval(time.Duration(dur)*time.Second, time.Second)
+            entry.timerSeed = dur
         }
     case "huh:form":
         if node.WidgetData != nil {
@@ -708,7 +728,27 @@ func buildStudioHuhForm(wd *astsync.IRWidgetData, w, h int) *huh.Form {
 }
 
 func parseHexColor(hex string) (color.Color, bool) {
-    h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+    s := strings.TrimSpace(hex)
+    if idx, err := strconv.Atoi(s); err == nil && idx >= 0 && idx <= 255 {
+        if idx < 16 {
+            basic := [16][3]uint8{
+                {0, 0, 0}, {128, 0, 0}, {0, 128, 0}, {128, 128, 0},
+                {0, 0, 128}, {128, 0, 128}, {0, 128, 128}, {192, 192, 192},
+                {128, 128, 128}, {255, 0, 0}, {0, 255, 0}, {255, 255, 0},
+                {0, 0, 255}, {255, 0, 255}, {0, 255, 255}, {255, 255, 255},
+            }
+            c := basic[idx]
+            return color.RGBA{R: c[0], G: c[1], B: c[2], A: 255}, true
+        }
+        if idx >= 232 {
+            g := uint8(8 + 10*(idx-232))
+            return color.RGBA{R: g, G: g, B: g, A: 255}, true
+        }
+        cube := idx - 16
+        levels := [6]uint8{0, 95, 135, 175, 215, 255}
+        return color.RGBA{R: levels[cube/36], G: levels[(cube/6)%6], B: levels[cube%6], A: 255}, true
+    }
+    h := strings.TrimPrefix(s, "#")
     if len(h) != 6 {
         return nil, false
     }

@@ -165,6 +165,16 @@ func equalCustomBorder(a, b *IRCustomBorder) bool {
 	return *a == *b
 }
 
+func equalIntPtr(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 func computeLineDiff(beforeText, afterText string) ([]DiffLine, int, int) {
 	a := strings.Split(beforeText, "\n")
 	b := strings.Split(afterText, "\n")
@@ -397,6 +407,45 @@ func ComputeGoDiff(beforeGo, afterGo string) GoDiffResult {
 				Bucket:   "styles_tokens",
 				Symbol:   "$" + name,
 				Detail:   fmt.Sprintf("%s/%s -> %s/%s", oldPair.Light, oldPair.Dark, pair.Light, pair.Dark),
+			})
+		}
+	}
+
+	// 3b. Overlays
+	prevOverlays := make(map[string]IROverlay, len(beforeParsed.Overlays))
+	for _, ov := range beforeParsed.Overlays {
+		prevOverlays[ov.ID] = ov
+	}
+	currOverlayIDs := make(map[string]bool, len(afterParsed.Overlays))
+	for _, ov := range afterParsed.Overlays {
+		currOverlayIDs[ov.ID] = true
+		oldOv, ok := prevOverlays[ov.ID]
+		if !ok {
+			deltas = append(deltas, AstDelta{
+				Kind:     "added",
+				Category: "Overlay",
+				Bucket:   "layout_overlays",
+				Symbol:   ov.ID,
+				Detail:   fmt.Sprintf("anchor=%s, z=%d", ov.Anchor, ov.Z),
+			})
+		} else if oldOv.Visible != ov.Visible || oldOv.Anchor != ov.Anchor || oldOv.Z != ov.Z || !equalIntPtr(oldOv.PlaceX, ov.PlaceX) || !equalIntPtr(oldOv.PlaceY, ov.PlaceY) {
+			deltas = append(deltas, AstDelta{
+				Kind:     "modified",
+				Category: "Overlay",
+				Bucket:   "layout_overlays",
+				Symbol:   ov.ID,
+				Detail:   fmt.Sprintf("visible=%v, anchor=%s, z=%d", ov.Visible, ov.Anchor, ov.Z),
+			})
+		}
+	}
+	for _, ov := range beforeParsed.Overlays {
+		if !currOverlayIDs[ov.ID] {
+			deltas = append(deltas, AstDelta{
+				Kind:     "removed",
+				Category: "Overlay",
+				Bucket:   "layout_overlays",
+				Symbol:   ov.ID,
+				Detail:   "overlay removed",
 			})
 		}
 	}
